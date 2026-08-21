@@ -1,0 +1,231 @@
+[project]
+name = "xrlenv"
+dynamic = ["version"]
+description = "Agentic RL sandbox infrastructure: sandboxing + orchestration for long-horizon rollouts."
+readme = "specs/00-overview.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [{ name = "XRLEnv contributors" }]
+
+dependencies = [
+    "aiohttp>=3.9",
+    "docker>=7.1",
+    "fastapi>=0.110",
+    "grpcio>=1.60",
+    "httpx>=0.27",
+    "jinja2>=3.1",
+    "prometheus-client>=0.20",
+    "protobuf>=4.25",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "uvicorn>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "grpcio-tools>=1.60",
+    "mypy>=1.10",
+    "mypy-protobuf==5.1.0",
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "types-grpcio>=1.0",
+    "types-pyyaml>=6.0",
+]
+docs = [
+    "myst-parser>=3.0",
+    "sphinx>=9.0",
+    "sphinx-autobuild>=2024.10",
+    "sphinx-rtd-theme>=3.0",
+    "sphinxcontrib-mermaid>=0.9",
+]
+# B7.1 (P1.x slice 4): OpenTelemetry tracing. The core package
+# (`opentelemetry-api`) is what `xrlenv/observability/tracing.py`
+# imports directly; the SDK and OTLP exporter are only loaded when
+# tracing is actually configured via env var. Listed together so
+# operators get all three with one `pip install -e '.[observability]'`.
+observability = [
+    "opentelemetry-api>=1.27",
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.27",
+]
+
+# Per-benchmark extras. Each benchmark's onboarding example (under
+# ``examples/benchmarks-onboarding/<name>/``) declares its
+# framework dep here so ``pip install -e .[terminal-bench-2]`` /
+# ``pip install -e .[swebench-verified]`` pulls in everything the
+# smoke needs. Under the slim pivot the extras name the *benchmark*,
+# not an in-tree plug-in package — the integration shape lives in
+# ``xrlenv_plugins.harbor`` (case-3) or ``xrlenv.compat.docker_client``
+# (case-2 drop-in), not in a per-benchmark plug-in dir.
+terminal-bench-2 = [
+    # harbor framework — XrlenvHarborEnvironmentCluster subclasses
+    # harbor's DockerEnvironment. Pinned exactly: a floating harness version
+    # silently drifts a frozen eval, so a bump is a deliberate, reviewed edit +
+    # oracle-sweep re-run (see notes/harbor-0.20-migration.md).
+    #
+    # 0.20.0: adopts harbor's native per-phase network policy (replaces xrlenv's
+    # bespoke offline-egress hack) and matches abundant-ai/swe-marathon's pin.
+    # NB: coding-bench (external) also pins harbor 0.8.0 — it must migrate in
+    # lockstep or decouple before this lands on main.
+    "harbor==0.20.0",
+]
+swebench-verified = [
+    # swebench >= 4.1 is REQUIRED — earlier versions ship a different
+    # per-repo log-parser signature (parser(stdout) vs
+    # parser(stdout, test_spec)) that the upstream
+    # ``swebench.harness.grading.get_eval_report`` relies on. The
+    # docker-py drop-in smoke calls upstream's run_instance directly,
+    # so the swebench version contract carries over verbatim.
+    "swebench>=4.1.0",
+    # ``datasets`` powers the HF-cache-first dataset loader the
+    # onboarding smoke uses (``HF_DATASETS_OFFLINE`` toggle in
+    # examples/benchmarks-onboarding/swebench-verified/smoke.py).
+    "datasets>=4.8.5",
+]
+deep-swe = [
+    # datacurve-pier (a harbor fork) is the DeepSWE harness —
+    # ``xrlenv_plugins.pier.XrlenvPierEnvironmentCluster`` subclasses
+    # pier's ``DockerEnvironment`` and is selected via pier's
+    # ``EnvironmentConfig.import_path``. PINNED exactly, same discipline
+    # as ``harbor==0.8.0`` above: a floating harness version can silently
+    # drift a frozen eval, so a bump is a deliberate, reviewed edit +
+    # oracle-sweep re-run. 0.3.0 is the floor that supports
+    # ``environment_mode="separate"`` (DeepSWE's grading mode); it vendors
+    # ``harbor>=0.5.0`` as a phantom (unimported) dep, satisfied by the
+    # installed ``harbor==0.8.0``.
+    "datacurve-pier==0.3.0",
+    # DeepSWE tasks live in-git / on the HF hub ``datacurve/deep-swe``;
+    # ``datasets`` powers the optional ``--source hf`` populate path.
+    "datasets>=4.8.5",
+]
+frontier-swe = [
+    # FrontierSWE is a harbor-format corpus —
+    # ``xrlenv_plugins.harbor.XrlenvHarborEnvironmentCluster`` (the SAME shared
+    # cluster env as terminal-bench-2) runs it, selected via harbor's
+    # ``EnvironmentConfig.import_path``. Pinned exactly, same discipline as
+    # ``harbor==0.20.0`` above. NB: FrontierSWE upstream floats ``harbor>=0.2.0``;
+    # we run on 0.20.0 (it loads the task.toml natively). harbor 0.20's strict
+    # ``VerifierResult`` can't ingest FrontierSWE's rich ``reward.json`` schema, so
+    # ``run_oracle_sweep.py`` grades from the downloaded artifact — see its module
+    # docstring + STATUS.md. Reuses the ``terminal-bench-2`` harbor pin.
+    "harbor==0.20.0",
+]
+
+# Convenience meta-extra: install EVERY other extra in one shot
+# (``uv pip install -e '.[all]'``). Self-references the package's own
+# extras (PEP 685; resolved by uv / modern pip), so no dependency is
+# duplicated — adding a new extra above only needs its name appended
+# here. Keep this list in sync with the extras above.
+all = [
+    "xrlenv[dev,docs,observability,terminal-bench-2,swebench-verified,deep-swe,frontier-swe]",
+]
+
+[project.scripts]
+xrlenv = "xrlenv.cli.__main__:main"
+xrlenv-node = "xrlenv.node.cli:main"
+xrlenv-stub = "xrlenv.sandbox_stub.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "xrlenv/_version.py"
+
+[tool.hatch.build.targets.wheel]
+# The package walk below ships every file in ``xrlenv/`` and
+# ``xrlenv_plugins/`` — including non-Python assets (HTML templates,
+# CSS, .proto, Dockerfiles). Do NOT add a
+# ``[tool.hatch.build.targets.wheel.force-include]`` table for paths
+# already inside these packages — it causes two distinct bugs:
+#
+#  1. Duplicate-name warnings during ``uv build`` and double-stored
+#     files in the wheel zip (the walk and the force-include both
+#     write the same path).
+#  2. For ``xrlenv_plugins`` specifically, the editable backend copies
+#     the directory literally into ``site-packages/`` in addition to
+#     the ``.pth`` link. ``site-packages`` precedes the .pth-added
+#     repo root in ``sys.path``, so the literal copy shadows the
+#     editable source for any subprocess started outside the repo cwd
+#     — local edits become invisible until the operator re-runs
+#     ``uv pip uninstall xrlenv && uv sync``. Surfaced in the
+#     2026-05-11 audit's "Separately surfaced" note.
+packages = ["xrlenv", "xrlenv_plugins"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["xrlenv", "tests"]
+extend-exclude = [
+    "xrlenv/api/_pb2",
+    # WebArena-Infinity call-site payload: these run from the WAI repo, importing
+    # WAI's evaluation/ modules (they can't import cleanly outside that repo), so
+    # they're a versioned call-site copy, out of scope for our lint. (evoclaw's
+    # copy_to_call_site/ IS linted — it's xrlenv-authored adapter code.)
+    "xrlenv_plugins/benchmarks/webarena_infinity/copy_to_call_site",
+]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F",   # pyflakes / pycodestyle
+    "I",             # isort
+    "UP",            # pyupgrade
+    "B",             # flake8-bugbear
+    "SIM",           # simplifications
+    "RUF",           # ruff-specific
+]
+ignore = [
+    "E501",          # line length handled by formatter
+    "B008",          # function calls in defaults are fine for typer/fastapi-style
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["xrlenv"]
+plugins = []
+exclude = ["xrlenv/templates/.*", "xrlenv/api/_pb2/.*"]
+
+[[tool.mypy.overrides]]
+module = "docker.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "xrlenv.api._pb2.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+# Optional benchmark deps used only by the swebench-verified plug-in's
+# refresh + grading scripts. Not required at runtime by core xrlenv.
+module = ["datasets.*", "swebench.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# docker-py drop-in spike: subclasses + overrides docker.DockerClient /
+# docker.APIClient. docker-py ships no type stubs (Any everywhere), so
+# strict mypy can't say anything useful here. The runtime contract is
+# pinned by tests/unit/test_compat_docker_client.py instead.
+module = "xrlenv.compat.docker_client"
+ignore_errors = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "xrlenv_plugins"]
+asyncio_mode = "auto"
+# ``tests/smoke/`` houses heavy end-to-end smokes (real benchmark
+# harnesses against xrlenv.from_env(), large image pulls, multi-min
+# wall-clock). Excluded from the default ``pytest -q`` so unit + light
+# integration runs stay fast; opt in explicitly via
+# ``pytest tests/smoke/`` or run a smoke as a script.
+# ``importlib`` mode discovers test files by their qualified module
+# name instead of adding test-root dirs to sys.path. Required for
+# ``xrlenv_plugins/<framework>/`` adapter packages whose names
+# collide with the upstream framework's pip package (e.g.
+# ``xrlenv_plugins.harbor`` vs the installed ``harbor`` package).
+addopts = "-ra --ignore=tests/smoke --import-mode=importlib"
+markers = [
+    "docker: integration test that requires a running local Docker daemon",
+]

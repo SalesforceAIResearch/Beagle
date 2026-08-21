@@ -1,0 +1,17 @@
+{%- extends "!layout.html" %}
+
+{# Inject the package version directly under the project name in the sidebar header. #}
+{%- block sidebartitle %}
+{%- set _logo_url = logo_url|default(pathto('_static/' + (logo or ""), 1)) %}
+{%- set _root_doc = root_doc|default(master_doc) %}
+<a href="{{ pathto(_root_doc) }}"{% if not theme_logo_only %} class="icon icon-home"{% endif %}>
+  {% if not theme_logo_only %}{{ project }}{% endif %}
+  {%- if logo or logo_url %}
+    <img src="{{ _logo_url }}" class="logo" alt="{{ _('Logo') }}"/>
+  {%- endif %}
+</a>
+<div class="version" style="color:rgba(255,255,255,0.7);margin:0.25em 0 0.75em 0;font-size:90%;">
+  v{{ release }}
+</div>
+{%- include "searchbox.html" %}
+{%- endblock %}

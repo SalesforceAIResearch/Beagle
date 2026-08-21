@@ -1,0 +1,7 @@
+DEPRECATED — spec-14 case-1 (custom EnvAdapter + manifest.yaml via a pip package).
+
+No onboarded benchmark uses this path today. The current onboarding convention is
+in xrlenv_plugins/benchmarks/GUIDELINE_onboard_benchmarks.md (reuse the shared
+harbor/pier cluster environment, or an outlier pattern). See the worked plug-ins
+under xrlenv_plugins/benchmarks/ (deep_swe, swebench_verified, terminalworld, ...).
+Kept for historical reference only.

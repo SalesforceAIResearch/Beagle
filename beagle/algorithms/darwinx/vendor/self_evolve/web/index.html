@@ -1,0 +1,2134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Self-Evolve · __CAMPAIGN__</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Vendored locally so the visualizer works behind corp proxies that
+       block cdn.tailwindcss.com / d3js.org / cdn.jsdelivr.net. Served
+       by FastAPI via app.mount("/static", ...). Refresh with
+       `bash scripts/refresh_visualizer_vendor.sh` to pull fresh upstream
+       copies. -->
+  <script src="/static/vendor/tailwind.js"></script>
+  <script src="/static/vendor/d3.v7.min.js"></script>
+  <script src="/static/vendor/marked.min.js"></script>
+  <style>
+    /* Fallback layout — used when the Tailwind CDN fails to load (e.g.
+       corp proxy blocks cdn.tailwindcss.com). Tailwind classes override
+       these when they're present; otherwise the page still renders. */
+    html, body { height: 100%; margin: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+           color: #e5e7eb; background: #0b0f17; }
+    /* `min-height` is a safety floor so the host always has paintable
+       area even before Tailwind's layout chain settles. NO min-width:
+       we want the SVG to match the host's actual width, not overflow
+       to the right. */
+    #tree-svg-host { min-height: 600px; }
+    [data-view-pane] { min-height: 600px; }
+    main { min-height: 600px; }
+    .pane { background: #131826; border: 1px solid #1f2937; border-radius: 0.75rem; }
+    .pane-header { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
+                   color: #9ca3af; padding: 0.5rem 0.75rem; border-bottom: 1px solid #1f2937; }
+    .badge { display: inline-flex; align-items: center; padding: 0.125rem 0.5rem;
+             border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+    .scroll { overflow-y: auto; }
+    .scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+    .scroll::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+    .nav-btn { display: block; width: 100%; text-align: left; padding: 0.5rem 0.75rem;
+               border-radius: 0.375rem; font-size: 0.875rem; }
+    .nav-btn.active { background: #1f2937; color: #fff; }
+    .nav-btn:hover:not(.active) { background: #1a2030; }
+    .markdown h1 { font-size: 1.5rem; font-weight: 700; margin-top: 1.25rem; margin-bottom: 0.5rem; color: #f3f4f6; }
+    .markdown h2 { font-size: 1.25rem; font-weight: 700; margin-top: 1.25rem; margin-bottom: 0.5rem; color: #f3f4f6; }
+    .markdown h3 { font-size: 1.1rem; font-weight: 600; margin-top: 1rem; margin-bottom: 0.5rem; color: #e5e7eb; }
+    .markdown h4 { font-size: 1rem; font-weight: 600; margin-top: 0.75rem; margin-bottom: 0.25rem; }
+    .markdown p { margin: 0.5rem 0; line-height: 1.6; }
+    .markdown ul, .markdown ol { margin: 0.5rem 0 0.5rem 1.25rem; }
+    .markdown li { margin: 0.25rem 0; }
+    .markdown code { font-family: ui-monospace, SF Mono, Menlo, monospace; background: #1f2937;
+                     padding: 1px 5px; border-radius: 3px; font-size: 0.85em; }
+    .markdown pre { background: #0a0e16; border: 1px solid #1f2937; padding: 0.75rem;
+                    border-radius: 0.5rem; overflow-x: auto; margin: 0.75rem 0; }
+    .markdown pre code { background: transparent; padding: 0; }
+    .markdown table { border-collapse: collapse; margin: 0.75rem 0; font-size: 0.9em; }
+    .markdown th, .markdown td { border: 1px solid #1f2937; padding: 0.4rem 0.6rem; }
+    .markdown th { background: #1a2030; }
+    .markdown a { color: #60a5fa; text-decoration: underline; }
+    .tree-link { stroke: #4b5563; stroke-width: 1.5px; fill: none; }
+    .tree-link-merge-primary { stroke: #38bdf8; stroke-width: 2px; stroke-dasharray: 5 4; }
+    .tree-link-merge-secondary { stroke: #a78bfa; stroke-width: 2px; stroke-dasharray: 5 4; }
+    .tree-link-parent-highlight { stroke: #facc15; stroke-width: 3px; opacity: 1; }
+    .tree-node-label { font-size: 11px; fill: #d1d5db; }
+    .tree-node-selected circle { stroke: #f8fafc; stroke-width: 4px; }
+    .tree-node-parent-highlight circle { stroke: #facc15; stroke-width: 4px; }
+    .tree-edge-label { font-size: 10px; fill: #9ca3af; }
+    .tree-node-id { font-family: ui-monospace, SF Mono, Menlo, monospace;
+                    font-size: 11px; font-weight: 700; fill: #f3f4f6; }
+    .tree-node-id-root { fill: #fcd34d; }
+    .tree-node-meta { font-size: 10px; fill: #9ca3af; }
+    .copy-id-btn { display: inline-flex; align-items: center; gap: 0.25rem;
+                   background: #1f2937; padding: 0.125rem 0.5rem; border-radius: 0.375rem;
+                   cursor: pointer; border: 1px solid #374151; font-family: ui-monospace, Menlo, monospace; }
+    .copy-id-btn:hover { background: #374151; }
+    .copy-id-btn .icon { opacity: 0.6; font-size: 0.75rem; }
+    .copy-id-btn.flash { background: #065f46; border-color: #10b981; }
+    .tab-btn { padding: 0.35rem 0.55rem; font-size: 0.75rem; border-bottom: 2px solid transparent;
+               color: #9ca3af; white-space: nowrap; flex: 0 0 auto; }
+    .tab-btn.active { color: #f3f4f6; border-color: #60a5fa; }
+    /* Seven tab labels add up to wider than the 28rem aside. `flex-wrap`
+       lets the row spill onto a second line cleanly instead of pushing
+       "Logs"/"Commits" past the aside's right edge. Tightened tab padding
+       above (0.4→0.35 vertical, 0.75→0.55 horizontal) typically keeps the
+       row on a single line at common widths; wrapping is the fallback. */
+    #node-tabs { flex-wrap: wrap; }
+    .pip-bar { background: #1f2937; height: 4px; border-radius: 2px; overflow: hidden; }
+    .pip-bar > div { height: 100%; background: linear-gradient(90deg, #60a5fa, #34d399); }
+    /* The node-detail aside is a fixed 28rem-wide column; the tabs Logs +
+       Commits render content (long shell commands, an SVG sized off
+       clientWidth) that can easily exceed that. Clip horizontal overflow at
+       the tab-content boundary so any rogue child can't push the column
+       wider than the aside. NOTE: scoped via `#node-tab-content` so this
+       doesn't affect the other side of the page (the tree SVG, the report
+       view, etc.). */
+    #node-tab-content { overflow-x: hidden; }
+    /* Logs tab: per-stage tail pane. Keep it tight so all four fit without
+       the user having to scroll the outer detail pane. */
+    .log-pane { background: #0a0e16; border: 1px solid #1f2937; border-radius: 0.5rem;
+                margin-bottom: 0.5rem; overflow: hidden; max-width: 100%;
+                transition: border-color 150ms ease, box-shadow 150ms ease; }
+    .log-pane.log-pane-active { border-color: #38bdf8;
+                                box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.35); }
+    /* `min-width: 0` on the flex container's children is the trick that lets
+       text-overflow: ellipsis kick in inside a flex row — without it the
+       absolute paths force the header to grow / wrap into multiple lines. */
+    .log-pane-head { display: flex; align-items: center; justify-content: space-between;
+                     gap: 0.5rem; padding: 0.25rem 0.5rem; border-bottom: 1px solid #1f2937;
+                     font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;
+                     color: #9ca3af; }
+    .log-pane.log-pane-active .log-pane-head { background: rgba(14, 165, 233, 0.12);
+                                               border-bottom-color: rgba(56, 189, 248, 0.45);
+                                               color: #e0f2fe; }
+    .log-pane-head > * { min-width: 0; }
+    .log-pane-head .log-title-wrap { display: inline-flex; align-items: center; gap: 0.35rem;
+                                     flex: 0 1 auto; min-width: 0; }
+    .log-pane-head .log-title { flex: 0 1 auto; white-space: nowrap; overflow: hidden;
+                                text-overflow: ellipsis; }
+    .log-live-badge { display: none; flex: 0 0 auto; padding: 0.05rem 0.3rem;
+                      border: 1px solid rgba(56, 189, 248, 0.5);
+                      border-radius: 9999px; color: #7dd3fc;
+                      font-size: 0.58rem; line-height: 1.1; letter-spacing: 0.04em; }
+    .log-pane.log-pane-active .log-live-badge { display: inline-flex; }
+    /* The `<pre>` lives under `.markdown pre` which sets `overflow-x: auto`
+       (good for code blocks in the Overview tab, bad here — long unbreakable
+       shell commands would force horizontal scroll instead of wrapping).
+       We:
+         1. Constrain the pre to its parent's width (`max-width: 100%` +
+            `box-sizing: border-box` so padding doesn't push it wider).
+         2. Force breaking even mid-token (`overflow-wrap: anywhere`) —
+            `word-break: break-word` alone isn't enough for long URLs /
+            paths with no whitespace.
+         3. Disable horizontal scrollbar (`overflow-x: hidden`) so the
+            inherited `overflow-x: auto` from `.markdown pre` doesn't
+            re-introduce the problem. */
+    .log-pane pre { font-family: ui-monospace, SF Mono, Menlo, monospace;
+                    font-size: 0.72rem; line-height: 1.35; color: #d1d5db;
+                    padding: 0.5rem; margin: 0; max-height: 160px;
+                    max-width: 100%; box-sizing: border-box;
+                    overflow-x: hidden; overflow-y: auto;
+                    white-space: pre-wrap; word-break: break-word;
+                    overflow-wrap: anywhere; }
+    /* Path stays compact: monospace, single-line, ellipsized when narrow. The
+       full path is still available via the title-attribute tooltip. */
+    .log-pane .log-path { font-family: ui-monospace, SF Mono, Menlo, monospace;
+                          color: #6b7280; font-size: 0.65rem; flex: 0 1 18rem;
+                          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                          direction: rtl; text-align: right; text-transform: none;
+                          letter-spacing: 0; }
+    .harbor-progress { background: #0a0e16; border: 1px solid #1f2937;
+                       border-radius: 0.5rem; padding: 0.45rem 0.55rem; }
+    .progress-bar { height: 5px; border-radius: 9999px; background: #1f2937;
+                    overflow: hidden; }
+    .progress-bar-fill { height: 100%; background: linear-gradient(90deg, #60a5fa, #34d399); }
+    .preflight-card { max-width: 100%; overflow: hidden; }
+    .preflight-head { display: flex; align-items: center; justify-content: space-between;
+                      gap: 0.35rem; min-width: 0; }
+    .preflight-label { min-width: 0; font-weight: 600; color: #e5e7eb; }
+    .preflight-status { flex: 0 0 auto; text-align: right; white-space: nowrap; }
+    .preflight-text { max-width: 100%; overflow-wrap: anywhere; word-break: break-word; }
+    /* Commits chart: wrap + svg + tooltip + axis */
+    .commits-chart { max-width: 100%; overflow: hidden; }
+    /* Letting the SVG declare its size via `viewBox` + `width: 100%` makes
+       it shrink to whatever container it's inside instead of stretching to
+       its raw pixel width — which is what was spilling out of the aside. */
+    .commits-chart svg { display: block; width: 100%; height: auto;
+                         max-width: 100%; }
+    .commits-chart .axis path,
+    .commits-chart .axis line { stroke: #374151; }
+    .commits-chart .axis text { fill: #9ca3af; font-size: 10px; }
+    .commits-chart .grid line { stroke: #1f2937; stroke-dasharray: 2 3; }
+    .commits-chart .picked-label { fill: #facc15; font-size: 9px; font-weight: 600; }
+    .commits-chart .task-label { font-size: 11px; }
+    /* Tooltip: bounded width so it can't extend past the right edge of the
+       aside. Wrap normally now that we have a width cap. */
+    .commits-tooltip { position: absolute; pointer-events: none; background: #1f2937;
+                       border: 1px solid #374151; border-radius: 4px; padding: 4px 8px;
+                       font-size: 11px; color: #f3f4f6; z-index: 50;
+                       max-width: 220px; white-space: normal; word-break: break-word;
+                       opacity: 0; transition: opacity 100ms; }
+    /* Per-iteration breakdown table (under the chart). The aside is only
+       28rem wide, so task rewards are summarized into one bounded column
+       instead of one narrow column per claimed task. `table-layout: fixed`
+       keeps mini-eval / canary context from being squeezed offscreen. */
+    .iter-table { table-layout: fixed; border-collapse: collapse; width: 100%; }
+    .iter-table th, .iter-table td { border-bottom: 1px solid #1f2937;
+                                     padding: 4px 5px; vertical-align: top;
+                                     font-size: 0.72rem; }
+    .iter-table th { color: #9ca3af; text-align: left; font-weight: 600;
+                     font-size: 0.65rem; text-transform: uppercase;
+                     letter-spacing: 0.05em; border-bottom-color: #374151; }
+    .iter-table td { color: #d1d5db; }
+    .iter-table .iter-col { width: 4.2rem; }
+    .iter-table .commits-col { width: 5.5rem; }
+    .iter-table .mini-col { width: 4.6rem; color: #9ca3af; }
+    .iter-table .canary-col { width: 5rem; color: #9ca3af; }
+    .iter-table .rewards-col { color: #d1d5db; }
+    .iter-table .iter-head { display: flex; align-items: center; gap: 0.3rem;
+                             flex-wrap: wrap; }
+    .iter-table .iter-n { font-weight: 700; color: #f3f4f6; }
+    .iter-table .iter-note { color: #9ca3af; font-size: 0.65rem;
+                             margin-top: 0.125rem; line-height: 1.25;
+                             max-height: 2.5em; overflow: hidden;
+                             text-overflow: ellipsis;
+                             display: -webkit-box;
+                             -webkit-line-clamp: 2;
+                             -webkit-box-orient: vertical; }
+    /* Outcome badges. Colors follow the leaderboard / status-badge palette
+       so a "kept" iter reads as success even at a glance. */
+    .iter-table .badge { font-size: 0.6rem; font-weight: 600; padding: 1px 5px;
+                         border-radius: 3px; }
+    .iter-table .outcome-kept     { background: #064e3b; color: #6ee7b7; }
+    .iter-table .outcome-reverted { background: #5c2c0a; color: #fdba74; }
+    .iter-table .outcome-noop     { background: #374151; color: #9ca3af; }
+    .iter-table .outcome-failed   { background: #4b1d1d; color: #fca5a5; }
+    /* Commits column: monospace SHAs that wrap onto multiple lines if a
+       single iter has more than one. Reverted SHAs get strike-through so
+       the user knows they're not reachable on the branch tip. */
+    .iter-table .commit-sha { font-family: ui-monospace, SF Mono, Menlo, monospace;
+                              font-size: 0.7rem; color: #d1d5db;
+                              background: transparent; padding: 0;
+                              display: inline-block; }
+    .iter-table .commit-picked { color: #facc15; font-weight: 700; }
+    .iter-table .commit-reverted { color: #6b7280; text-decoration: line-through; }
+    /* Reward summary: compact task/score chips that wrap inside one column.
+       The inline `background` is set per-score from `rgbForScore`. */
+    .iter-table .reward-list { display: flex; flex-wrap: wrap; gap: 2px 4px;
+                               align-items: flex-start; max-width: 100%; }
+    .iter-table .reward-item { display: inline-flex; align-items: center; gap: 3px;
+                               min-width: 0; max-width: 100%; }
+    .iter-table .reward-task { display: inline-block; max-width: 5.8rem;
+                               overflow: hidden; text-overflow: ellipsis;
+                               white-space: nowrap; color: #9ca3af;
+                               vertical-align: bottom; }
+    .iter-table .reward-badge { display: inline-block; min-width: 2.1rem;
+                                font-family: ui-monospace, SF Mono, Menlo, monospace;
+                                font-size: 0.65rem; font-weight: 600;
+                                padding: 1px 4px; border-radius: 3px;
+                                text-align: center; }
+    .iter-table .canary-pass { color: #34d399; }
+    .iter-table .canary-fail { color: #f87171; }
+    /* Hover row highlight: subtle so it doesn't fight the inline reward
+       badge backgrounds. */
+    .iter-table tbody tr:hover td { background: #1a2030; }
+  </style>
+</head>
+<body class="h-full">
+  <div class="h-full flex flex-col">
+    <!-- Top bar -->
+    <header class="flex items-center justify-between px-4 py-2 border-b border-gray-800 bg-[#0a0e16]">
+      <div class="flex items-baseline gap-3">
+        <h1 class="text-lg font-bold text-white">Self-Evolve</h1>
+        <span class="text-sm text-gray-400">campaign:</span>
+        <span class="text-sm font-mono text-gray-200" id="campaign-name">__CAMPAIGN__</span>
+        <span class="text-[10px] font-mono text-gray-600" title="HTML build stamp — if this is older than your last viz commit, your browser is serving a stale tab; restart the viz + close/reopen the tab">build __BUILD_STAMP__</span>
+      </div>
+      <div class="flex items-center gap-3" id="topbar-stats">
+        <!-- filled in by JS -->
+      </div>
+    </header>
+
+    <div class="flex-1 flex min-h-0">
+      <!-- Left sidebar -->
+      <aside class="w-64 border-r border-gray-800 flex flex-col bg-[#0a0e16]">
+        <nav class="p-2 space-y-1">
+          <button data-view="tree" class="nav-btn active">▦ Tree</button>
+          <button data-view="leaderboard" class="nav-btn">★ Leaderboard</button>
+          <button data-view="report" class="nav-btn">📄 Report</button>
+        </nav>
+        <div class="p-2 border-t border-gray-800 flex-1 min-h-0 flex flex-col">
+          <div class="text-xs uppercase text-gray-500 mb-1 px-2">Active pipelines</div>
+          <div id="preflight-mini-eval" class="px-1 mb-2"></div>
+          <div id="active-pipelines" class="flex-1 scroll px-1 space-y-2 text-sm"></div>
+        </div>
+      </aside>
+
+      <!-- Center -->
+      <main class="flex-1 min-w-0 flex flex-col">
+        <!-- View: Tree -->
+        <section data-view-pane="tree" class="flex-1 min-h-0 flex">
+          <div class="flex-1 min-w-0 pane m-3 mr-2 flex flex-col">
+            <div class="pane-header">Evolving tree</div>
+            <div id="tree-svg-host" class="flex-1 min-h-0 scroll p-2"></div>
+          </div>
+          <aside class="w-[28rem] m-3 ml-2 pane flex flex-col">
+            <div class="pane-header">Node detail</div>
+            <div id="node-tabs" class="flex border-b border-gray-800 px-2">
+              <button class="tab-btn active" data-tab="overview">Overview</button>
+              <button class="tab-btn" data-tab="works">Works/Doesn't</button>
+              <button class="tab-btn" data-tab="effort">Effort</button>
+              <button class="tab-btn" data-tab="learnings">Learnings</button>
+              <button class="tab-btn" data-tab="prompts">Prompts</button>
+              <button class="tab-btn" data-tab="logs">Logs</button>
+              <button class="tab-btn" data-tab="commits">Commits</button>
+            </div>
+            <div id="node-tab-content" class="flex-1 min-h-0 scroll p-3 markdown text-sm">
+              <div class="text-gray-500">Click a node in the tree to see details.</div>
+            </div>
+          </aside>
+        </section>
+
+        <!-- View: Leaderboard -->
+        <section data-view-pane="leaderboard" class="flex-1 min-h-0 hidden p-3">
+          <div class="pane h-full flex flex-col">
+            <div class="pane-header flex items-center justify-between">
+              <span>Leaderboard</span>
+              <select id="leaderboard-subset" class="bg-[#0a0e16] text-xs border border-gray-700 rounded px-2 py-0.5">
+                <!-- subsets injected by JS -->
+              </select>
+            </div>
+            <div id="leaderboard-table" class="flex-1 min-h-0 scroll p-2"></div>
+          </div>
+        </section>
+
+        <!-- View: Report -->
+        <section data-view-pane="report" class="flex-1 min-h-0 hidden p-3">
+          <div class="pane h-full flex flex-col">
+            <div class="pane-header flex items-center justify-between">
+              <span>Comprehensive report (REPORT.md)</span>
+              <button id="generate-report-btn"
+                      class="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded">
+                Generate / refresh report
+              </button>
+            </div>
+            <div id="report-body" class="flex-1 min-h-0 scroll p-4 markdown text-sm"></div>
+          </div>
+        </section>
+
+        <!-- Activity feed (always pinned) -->
+        <footer class="border-t border-gray-800 bg-[#0a0e16] px-3 py-2">
+          <div class="text-xs uppercase text-gray-500 mb-1">Activity</div>
+          <pre id="activity-feed" class="text-xs text-gray-400 max-h-24 overflow-y-auto"></pre>
+        </footer>
+      </main>
+    </div>
+  </div>
+
+<script>
+const state = {
+  view: 'tree',
+  selectedNodeId: null,
+  focusNodeId: null,
+  focusPositions: null,
+  tree: null,
+  subsetFilter: null,
+};
+
+function $(s, p=document) { return p.querySelector(s); }
+function $$(s, p=document) { return Array.from(p.querySelectorAll(s)); }
+function rgbForScore(s) {
+  if (s === null || s === undefined) return '#374151';
+  // 0 → red, 1 → green
+  const r = Math.round(255 * (1 - s));
+  const g = Math.round(180 * s + 55);
+  return `rgb(${r}, ${g}, 90)`;
+}
+function nodeKind(d) {
+  const edgeType = d.data?._edge?.edge_type;
+  if (!d.data?.parent_id && edgeType !== 'merge' && edgeType !== 'regression_resolve') return 'root';
+  if (edgeType === 'merge') return 'merge';
+  if (edgeType === 'regression_resolve') return 'regression_resolver';
+  return 'evolve';
+}
+function nodeColor(d) {
+  return {
+    root: '#facc15',
+    evolve: '#34d399',
+    merge: '#38bdf8',
+    regression_resolver: '#fb923c',
+  }[nodeKind(d)] || '#94a3b8';
+}
+function nodeRadius(d) {
+  return 6 + Math.min((d.data.child_count || 0) * 2, 10);
+}
+function shortNodeKind(d) {
+  return {
+    root: 'root',
+    evolve: 'evo',
+    merge: 'merge',
+    regression_resolver: 'rr',
+  }[nodeKind(d)] || 'node';
+}
+function ellipsize(value, maxLen) {
+  const text = String(value || '');
+  return text.length <= maxLen ? text : `${text.slice(0, maxLen - 1)}…`;
+}
+function nodePipelineLabel(d) {
+  const branch = d.data.branch ? d.data.branch.replace('evolve/', '') : '';
+  return ellipsize(branch || d.data.pipeline_id || 'root', 18);
+}
+function scoreInfo(data) {
+  return data?.score_info || {};
+}
+function nodeScoreLabel(data) {
+  const info = scoreInfo(data);
+  if (info.value !== null && info.value !== undefined) {
+    const prefix = info.basis === 'merge_validation' ? 'val ' : '';
+    return `${prefix}${Number(info.value).toFixed(3)}`;
+  }
+  if (data?.score !== null && data?.score !== undefined) return data.score.toFixed(3);
+  if (data?.status === 'no_change') return '∅';
+  if (data?.status === 'failed' || data?.status === 'rejected') return '!';
+  if (data?.status === 'in_progress') return '?';
+  return '—';
+}
+function nodeScoreTitle(data) {
+  const score = nodeScoreLabel(data);
+  const info = scoreInfo(data);
+  if (info.basis === 'merge_validation') {
+    const coverage = scoreCoverageLabel(info);
+    return `${score} (${info.label}${coverage ? `, ${coverage}` : ''}; full final eval not run)`;
+  }
+  if (score === '∅') return '∅ (no improvement)';
+  if (score === '!') return '! (failed)';
+  if (score === '?') return '? (pending)';
+  if (score === '—') return '— (unscored)';
+  return `${score} (${info.label || 'score'})`;
+}
+function scoreCoverageLabel(info) {
+  if (!info) return '';
+  const evaluated = info.evaluated_task_count;
+  const total = info.subset_task_count;
+  if (evaluated !== null && evaluated !== undefined && total) return `${evaluated}/${total} tasks`;
+  if (evaluated !== null && evaluated !== undefined) return `${evaluated} tasks`;
+  return '';
+}
+function scoreDetailHtml(n) {
+  const info = scoreInfo(n);
+  const value = info.value !== null && info.value !== undefined ? Number(info.value).toFixed(4) : '—';
+  const coverage = scoreCoverageLabel(info);
+  if (info.basis === 'merge_validation') {
+    return `
+      <div><span class="badge bg-amber-900 text-amber-200">merge validation</span> <span class="font-mono">${value}</span>${coverage ? ` <span class="text-gray-500">(${coverage})</span>` : ''}</div>
+      <div class="text-xs text-amber-300 mt-1">${escapeHtml(info.warning || 'Full final eval was not run.')}</div>
+      <div class="text-xs text-gray-500 mt-1">full final eval score: —</div>
+    `;
+  }
+  if (info.basis === 'full_final_eval') {
+    return `
+      <div><span class="badge bg-green-900 text-green-300">full final eval</span> <span class="font-mono">${value}</span>${coverage ? ` <span class="text-gray-500">(${coverage})</span>` : ''}</div>
+      ${info.validation_score !== null && info.validation_score !== undefined
+        ? `<div class="text-xs text-gray-500 mt-1">merge validation score: ${Number(info.validation_score).toFixed(4)}</div>`
+        : ''}
+    `;
+  }
+  if (info.validation_score !== null && info.validation_score !== undefined) {
+    return `
+      <div><span class="badge bg-amber-900 text-amber-200">merge validation</span> <span class="font-mono">${Number(info.validation_score).toFixed(4)}</span>${coverage ? ` <span class="text-gray-500">(${coverage})</span>` : ''}</div>
+      <div class="text-xs text-gray-500 mt-1">full final eval score: —</div>
+    `;
+  }
+  return '<span class="text-gray-500">—</span>';
+}
+function parentIdsForNode(id) {
+  return new Set((state.tree?.edges || [])
+    .filter(e => e.child_id === id)
+    .map(e => e.parent_id));
+}
+function updateTreeHighlights() {
+  const selectedId = state.selectedNodeId;
+  const parentIds = selectedId ? parentIdsForNode(selectedId) : new Set();
+  d3.selectAll('.tree-node')
+    .classed('tree-node-selected', d => d.data.id === selectedId)
+    .classed('tree-node-parent-highlight', d => parentIds.has(d.data.id));
+  d3.selectAll('.tree-link')
+    .classed('tree-link-parent-highlight', d => {
+      if (!selectedId || !d) return false;
+      if (d.target?.data?.id === selectedId && parentIds.has(d.source?.data?.id)) return true;
+      return d.child_id === selectedId && parentIds.has(d.parent_id);
+    });
+}
+function currentTreePositions() {
+  const positions = new Map();
+  d3.selectAll('#tree-svg-host .tree-node').each(d => {
+    if (d?.data?.id) positions.set(d.data.id, { x: d.x, y: d.y });
+  });
+  return positions.size ? positions : null;
+}
+function setTreeFocus(id) {
+  if (state.focusNodeId === id) {
+    updateTreeHighlights();
+    return;
+  }
+  state.focusNodeId = id;
+  if (state.tree) renderTree(state.tree);
+}
+function clearTreeFocus() {
+  if (!state.focusNodeId) return;
+  state.focusNodeId = null;
+  state.focusPositions = null;
+  if (state.tree) renderTree(state.tree);
+}
+
+async function api(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(`${path}: ${r.status}`);
+  return r.headers.get('content-type')?.includes('application/json')
+    ? r.json() : r.text();
+}
+
+// ─── View routing ────────────────────────────────────────────────────
+$$('.nav-btn').forEach(btn => btn.addEventListener('click', () => {
+  state.view = btn.dataset.view;
+  $$('.nav-btn').forEach(b => b.classList.toggle('active', b === btn));
+  $$('section[data-view-pane]').forEach(s => {
+    s.classList.toggle('hidden', s.dataset.viewPane !== state.view);
+  });
+  if (state.view === 'leaderboard') refreshLeaderboard();
+  if (state.view === 'report') refreshReport();
+}));
+
+// ─── Top bar ─────────────────────────────────────────────────────────
+function renderTopbar(tree) {
+  const nodes = tree.nodes || [];
+  const root = nodes.find(n => !n.parent_id);
+  // Also accept `no_change` so picker-abandoned nodes that still ran a
+  // final eval (i.e. have a real score) can surface as "best" when they
+  // beat the root. Without this, a child whose score went 0.5 → 0.6 but
+  // whose pipeline ended `no_change` would be hidden behind the parent.
+  const completed = nodes.filter(n =>
+    (n.status === 'completed' || n.status === 'no_change') && n.score !== null);
+  const best = completed.reduce((a, b) => (a && a.score >= b.score) ? a : b, null);
+  const rootScore = root?.score ?? null;
+  const bestScore = best?.score ?? null;
+  const delta = (rootScore !== null && bestScore !== null) ? (bestScore - rootScore) : null;
+  const stats = $('#topbar-stats');
+  stats.innerHTML = `
+    <span class="badge bg-gray-800 text-gray-200">nodes: ${nodes.length}</span>
+    <span class="badge bg-gray-800 text-gray-200">root: ${rootScore?.toFixed(3) ?? '—'}</span>
+    ${best ? `<button class="badge text-white shadow"
+        style="background: ${rgbForScore(bestScore)}"
+        title="Click to focus best node"
+        onclick="selectNode('${best.id}')">
+        best: ${bestScore.toFixed(3)} ${delta !== null ? `(Δ ${delta >= 0 ? '+' : ''}${delta.toFixed(3)})` : ''}
+        on ${best.branch.replace('evolve/', '')}
+      </button>` : ''}
+  `;
+}
+
+// ─── Tree view (D3 cluster layout) ─────────────────────────────────
+function renderTree(tree) {
+  const host = $('#tree-svg-host');
+  const previousScrollTop = host.scrollTop;
+  host.innerHTML = '';
+  const nodes = tree.nodes || [];
+  if (!nodes.length) {
+    host.innerHTML = '<div class="text-gray-500 p-4">No nodes yet — start a pipeline to populate the tree.</div>';
+    return;
+  }
+  // Build a display hierarchy from typed graph edges. Merge nodes have two
+  // parents in the data; render them under the primary parent and label the
+  // edge as a merge so the tree remains readable.
+  const byId = new Map(nodes.map(n => [n.id, { ...n, children: [] }]));
+  const displayParentByChild = new Map();
+  const incomingEdgesByChild = new Map();
+  for (const e of (tree.edges || [])) {
+    if (!incomingEdgesByChild.has(e.child_id)) incomingEdgesByChild.set(e.child_id, []);
+    incomingEdgesByChild.get(e.child_id).push(e);
+    const cur = displayParentByChild.get(e.child_id);
+    if (!cur || e.parent_role === 'primary' || e.edge_type === 'evolve') {
+      displayParentByChild.set(e.child_id, e);
+    }
+  }
+  let roots = [];
+  for (const n of byId.values()) {
+    const edge = displayParentByChild.get(n.id);
+    const parentId = edge?.parent_id || n.parent_id;
+    if (parentId && byId.has(parentId)) {
+      n._edge = edge || { edge_type: 'evolve', parent_role: 'evolve' };
+      byId.get(parentId).children.push(n);
+    } else {
+      roots.push(n);
+    }
+  }
+  // Synthetic root if multiple disconnected roots.
+  const data = roots.length === 1
+    ? roots[0]
+    : { id: '__virtual_root__', branch: 'roots', score: null, children: roots };
+
+  // Size the SVG to the host pane. Fall back ONLY when the host has
+  // 0 width/height (e.g. flex layout briefly collapsed during initial
+  // load); never inflate beyond the visible area — doing so pushes
+  // children off-screen to the right with no horizontal scrollbar.
+  const w = host.clientWidth || 720;
+  const nodeVerticalGap = 112;
+  const h = Math.max(host.clientHeight || 480, nodes.length * nodeVerticalGap);
+  const svg = d3.select(host).append('svg').attr('width', w).attr('height', h);
+  svg.on('click', e => {
+    if (e.target === svg.node()) clearTreeFocus();
+  });
+  const g = svg.append('g').attr('transform', 'translate(50, 30)');
+
+  const root = d3.hierarchy(data);
+  const layout = d3.tree().size([h - 80, w - 220]);
+  const preferredX = (d, positions) => {
+    const incoming = incomingEdgesByChild.get(d.data.id) || [];
+    let weightedSum = 0;
+    let weightSum = 0;
+    for (const e of incoming) {
+      const parentX = positions.get(e.parent_id);
+      if (parentX === undefined) continue;
+      const weight = e.edge_type === 'merge'
+        ? (e.parent_role === 'secondary' ? 4 : 2)
+        : (e.edge_type === 'regression_resolve' ? 2 : 1);
+      weightedSum += parentX * weight;
+      weightSum += weight;
+    }
+    const currentX = positions.get(d.data.id);
+    if (currentX !== undefined) {
+      weightedSum += currentX;
+      weightSum += 1;
+    }
+    return weightSum ? weightedSum / weightSum : 0;
+  };
+  const optimizeTreeOrder = () => {
+    // Minimize crossings from non-tree edges by repeatedly ordering siblings
+    // near the barycenter of their connected parents' vertical positions.
+    layout(root);
+    for (let pass = 0; pass < 4; pass += 1) {
+      const positions = new Map(root.descendants().map(d => [d.data.id, d.x]));
+      root.eachBefore(d => {
+        if (!d.children || d.children.length < 2) return;
+        const stableOrder = new Map(d.children.map((child, i) => [child.data.id, i]));
+        d.children.sort((a, b) =>
+          preferredX(a, positions) - preferredX(b, positions)
+          || stableOrder.get(a.data.id) - stableOrder.get(b.data.id)
+        );
+      });
+      layout(root);
+    }
+  };
+  optimizeTreeOrder();
+  const applyFocusLayout = () => {
+    if (!state.focusNodeId) return;
+    const rendered = root.descendants();
+    const renderedById = new Map(rendered.map(d => [d.data.id, d]));
+    if (state.focusPositions) {
+      for (const d of rendered) {
+        const pinned = state.focusPositions.get(d.data.id);
+        if (!pinned) continue;
+        d.x = pinned.x;
+        d.y = pinned.y;
+      }
+    }
+    const focus = renderedById.get(state.focusNodeId);
+    if (!focus) return;
+    const parents = (incomingEdgesByChild.get(state.focusNodeId) || [])
+      .map(e => renderedById.get(e.parent_id))
+      .filter(Boolean)
+      .sort((a, b) => a.x - b.x);
+    if (!parents.length) return;
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    const spread = Math.max(72, Math.min(120, nodeVerticalGap * 0.75));
+    const start = -((parents.length - 1) * spread) / 2;
+    const parentY = clamp(Math.max(focus.y - 190, 0), 0, Math.max(0, focus.y - 90));
+    parents.forEach((parent, i) => {
+      parent.x = clamp(focus.x + start + (i * spread), 20, h - 100);
+      parent.y = clamp(Math.max(parent.y, parentY), 0, Math.max(0, focus.y - 90));
+    });
+    state.focusPositions = new Map(rendered.map(d => [d.data.id, { x: d.x, y: d.y }]));
+  };
+  applyFocusLayout();
+  const positioned = new Map(root.descendants().map(d => [d.data.id, d]));
+  const normalLinkPath = d3.linkHorizontal().x(d => d.y).y(d => d.x);
+  const mergeSecondaryLinkPath = (source, target) => {
+    // Keep secondary merge edges local to the merge node. A short dogleg is
+    // much easier to read than sending every merge edge through a far-right
+    // lane, while the lane search keeps the curve off unrelated node circles.
+    const sx = source.y, sy = source.x;
+    const tx = target.y, ty = target.x;
+    const obstacles = root.descendants().filter(d =>
+      d.data.id !== '__virtual_root__'
+      && d.data.id !== source.data.id
+      && d.data.id !== target.data.id
+    );
+    const pathForLane = lane => `M${sx},${sy} C${lane},${sy} ${lane},${ty} ${tx},${ty}`;
+    const pointAt = (lane, t) => {
+      const mt = 1 - t;
+      const px = mt * mt * mt * sx
+        + 3 * mt * mt * t * lane
+        + 3 * mt * t * t * lane
+        + t * t * t * tx;
+      const py = mt * mt * mt * sy
+        + 3 * mt * mt * t * sy
+        + 3 * mt * t * t * ty
+        + t * t * t * ty;
+      return { x: px, y: py };
+    };
+    const collides = lane => obstacles.some(o => {
+      const radius = nodeRadius(o) + 6;
+      for (let i = 1; i < 32; i += 1) {
+        const p = pointAt(lane, i / 32);
+        if (Math.hypot(p.x - o.y, p.y - o.x) < radius) return true;
+      }
+      return false;
+    });
+    const baseLane = Math.max(sx + 28, tx - 42);
+    const lanes = [baseLane, baseLane - 24, baseLane - 48, (sx + tx) / 2]
+      .map(lane => Math.max(sx + 16, Math.min(tx - 16, lane)))
+      .filter((lane, i, arr) => arr.indexOf(lane) === i);
+    const lane = lanes.find(candidate => !collides(candidate)) || lanes[lanes.length - 1];
+    return pathForLane(lane);
+  };
+
+  // Primary display links.
+  g.selectAll('path.tree-link')
+    .data(root.links())
+    .join('path')
+    .attr('class', d => {
+      const kind = d.target.data._edge?.edge_type === 'merge' ? ' tree-link-merge-primary' : '';
+      return `tree-link${kind}`;
+    })
+    .attr('d', normalLinkPath);
+
+  // Secondary merge links. These are not part of the tree layout, but they
+  // are part of the DAG and must be visible.
+  const secondaryMergeEdges = (tree.edges || []).filter(
+    e => e.edge_type === 'merge' && e.parent_role === 'secondary'
+         && positioned.has(e.parent_id) && positioned.has(e.child_id)
+  );
+  g.selectAll('path.tree-link-secondary')
+    .data(secondaryMergeEdges)
+    .join('path')
+    .attr('class', 'tree-link tree-link-merge-secondary')
+    .attr('d', e => {
+      const source = positioned.get(e.parent_id);
+      const target = positioned.get(e.child_id);
+      return mergeSecondaryLinkPath(source, target);
+    });
+
+  // Edge labels (delta vs parent).
+  g.selectAll('text.tree-edge-label')
+    .data(root.links())
+    .join('text')
+    .attr('class', 'tree-edge-label')
+    .attr('x', d => (d.source.y + d.target.y) / 2)
+    .attr('y', d => (d.source.x + d.target.x) / 2 - 4)
+    .attr('text-anchor', 'middle')
+    .text(d => {
+      const edgeType = d.target.data._edge?.edge_type === 'merge' ? 'merge ' : '';
+      const targetInfo = scoreInfo(d.target.data);
+      if (targetInfo.basis === 'merge_validation') return `${edgeType}val`;
+      const sourceInfo = scoreInfo(d.source.data);
+      const ps = sourceInfo.canonical_final_score ?? d.source.data.score;
+      const cs = targetInfo.canonical_final_score ?? d.target.data.score;
+      if (ps === null || cs === null || ps === undefined || cs === undefined) return '';
+      const delta = cs - ps;
+      const sign = delta >= 0 ? '+' : '';
+      return `${edgeType}${sign}${delta.toFixed(3)}`;
+    });
+
+  // Nodes.
+  const node = g.selectAll('g.tree-node')
+    .data(root.descendants().filter(d => d.data.id !== '__virtual_root__'))
+    .join('g')
+    .attr('class', 'tree-node')
+    .attr('transform', d => `translate(${d.y},${d.x})`)
+    .style('cursor', 'pointer')
+    .on('click', (e, d) => {
+      e.stopPropagation();
+      selectNode(d.data.id);
+    });
+
+  node.append('circle')
+    .attr('r', d => nodeRadius(d))
+    .attr('fill', d => nodeColor(d))
+    .attr('stroke', d => d.data.is_top3 ? '#facc15' : '#0b0f17')
+    .attr('stroke-width', d => d.data.is_top3 ? 3 : 1.5);
+
+  // Two-line label: 8-char node id (mono, bold) on top, score · branch below.
+  // The id is visually dominant because it is the stable handle used in
+  // reports, logs, and merge-parent metadata. Hover for full branch; click
+  // anywhere on the node group to open the detail pane.
+  const label = node.append('text')
+    .attr('class', 'tree-node-label')
+    .attr('x', 12)
+    .attr('y', -2);
+  label.append('tspan')
+    .attr('class', d => `tree-node-id${d.parent ? '' : ' tree-node-id-root'}`)
+    .attr('x', 12)
+    .text(d => d.data.id);
+  label.append('tspan')
+    .attr('class', 'tree-node-meta')
+    .attr('x', 12)
+    .attr('dy', '1.3em')
+    .text(d => {
+      const score = nodeScoreLabel(d.data);
+      return `${score} · ${shortNodeKind(d)}`;
+    });
+  label.append('tspan')
+    .attr('class', 'tree-node-meta')
+    .attr('x', 12)
+    .attr('dy', '1.25em')
+    .text(d => nodePipelineLabel(d));
+  node.append('title')
+    .text(d => `id: ${d.data.id}\ntype: ${nodeKind(d)}\nbranch: ${d.data.branch}\nstatus: ${d.data.status}\nscore: ${nodeScoreTitle(d.data)}\nsubset: ${d.data.subset}\n\nClick to inspect; copy the node id from the detail pane.`);
+  host.scrollTop = Math.max(0, Math.min(previousScrollTop, host.scrollHeight - host.clientHeight));
+  updateTreeHighlights();
+}
+
+// ─── Node detail tabs ────────────────────────────────────────────────
+let currentNodeData = null;
+$$('#node-tabs .tab-btn').forEach(t => t.addEventListener('click', () => {
+  $$('#node-tabs .tab-btn').forEach(b => b.classList.toggle('active', b === t));
+  // Tab change to anything other than Logs must close the EventSource —
+  // otherwise events would keep arriving and quietly try to patch panes
+  // that no longer exist in the DOM. The Logs renderer re-opens the
+  // stream itself when the user clicks back.
+  if (t.dataset.tab !== 'logs') teardownLogsStream();
+  renderNodeTab(t.dataset.tab);
+}));
+
+function scrollTreeNodeIntoView(id) {
+  const host = $('#tree-svg-host');
+  let targetEl = null;
+  d3.selectAll('#tree-svg-host .tree-node').each(function (d) {
+    if (d?.data?.id === id) targetEl = this;
+  });
+  if (!host || !targetEl) return;
+  const hostRect = host.getBoundingClientRect();
+  const nodeRect = targetEl.getBoundingClientRect();
+  if (!hostRect.height || !nodeRect.height) return;
+  const nodeCenter = nodeRect.top + (nodeRect.height / 2);
+  const hostCenter = hostRect.top + (hostRect.height / 2);
+  const desiredTop = host.scrollTop + nodeCenter - hostCenter;
+  host.scrollTop = Math.max(0, Math.min(desiredTop, host.scrollHeight - host.clientHeight));
+}
+
+window.selectNode = async function (id, opts = {}) {
+  // Switching nodes invalidates the current Logs stream (it targeted the
+  // previous node). Close it BEFORE swapping currentNodeData so the
+  // EventSource's onmessage race guard sees state.selectedNodeId !==
+  // streamingFor and bails cleanly.
+  if (state.selectedNodeId !== id) teardownLogsStream();
+  state.selectedNodeId = id;
+  if (state.focusNodeId) {
+    state.focusPositions = currentTreePositions();
+    setTreeFocus(id);
+  } else {
+    setTreeFocus(id);
+  }
+  try {
+    currentNodeData = await api(`/api/node/${id}`);
+  } catch (e) {
+    $('#node-tab-content').innerHTML = `<div class="text-red-400">${e.message}</div>`;
+    return;
+  }
+  // Switch to tree view if not there.
+  if (state.view !== 'tree') {
+    document.querySelector('.nav-btn[data-view="tree"]').click();
+  }
+  if (opts.scrollIntoView) scrollTreeNodeIntoView(id);
+  renderNodeTab('overview');
+  $$('#node-tabs .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === 'overview'));
+};
+
+function renderNodeTab(tab) {
+  const c = $('#node-tab-content');
+  if (!currentNodeData) { c.innerHTML = '<div class="text-gray-500">No node selected.</div>'; return; }
+  const n = currentNodeData;
+  if (tab === 'overview') {
+    const solvedTasksAll = n.solved_tasks || [];
+    const partialTasksAll = n.partially_solved_tasks || [];
+    const failedTasksAll = (n.failed_tasks || []).length
+      ? n.failed_tasks
+      : [...partialTasksAll, ...(n.unsolved_tasks || [])];
+    const improvedTasksAll = n.improved_tasks || [];
+    const regressedTasksAll = n.regressed_tasks || [];
+    const solvedTasks = solvedTasksAll.slice(0, 12);
+    const partialTasks = partialTasksAll.slice(0, 12);
+    const failedTasks = failedTasksAll.slice(0, 12);
+    const improvedTasks = improvedTasksAll.slice(0, 12);
+    const regressedTasks = regressedTasksAll.slice(0, 12);
+    const edgeRows = (n.edges || []).map(e =>
+      `<li><code>${e.parent_id}</code> → <code>${e.child_id}</code> <span class="badge bg-gray-700 text-gray-200">${e.edge_type}:${e.parent_role}</span></li>`
+    ).join('');
+    const resolvedTasks = (n.resolved_tasks || [])
+      .filter(r => typeof r === 'string' || (r && r.task && r.resolved !== false))
+      .map(r => typeof r === 'string' ? r : r.task);
+    const scoreable = (n.status === 'completed' || n.status === 'no_change') && n.score !== null;
+    const commits = n.commits || [];
+    const commitsRow = commits.length
+      ? `<details ${commits.length <= 5 ? 'open' : ''}><summary class="cursor-pointer">${commits.length} commit${commits.length === 1 ? '' : 's'}</summary>
+           <ol class="text-xs mt-1">${commits.map(s => {
+             const pickedMark = (n.picked_commit && s === n.picked_commit) ? ' <span class="badge bg-emerald-700 text-emerald-100" style="font-size:0.65rem">picked</span>' : '';
+             return `<li><code>${s.slice(0,12)}</code>${pickedMark}</li>`;
+           }).join('')}</ol>
+         </details>`
+      : '<span class="text-xs text-gray-500">_none kept_</span>';
+    const claimedScores = n.claimed_task_scores || {};
+    const claimedScoreEntries = Object.entries(claimedScores);
+    const claimedScoresRow = claimedScoreEntries.length
+      ? `<ul class="text-xs mt-1">${claimedScoreEntries.map(([t, r]) =>
+           `<li><code>${t}</code>: <span class="badge" style="background:${rgbForScore(r)};color:#000">${r.toFixed(3)}</span></li>`
+         ).join('')}</ul>`
+      : `<span class="text-xs text-gray-500">_not eval'd_</span>`;
+    const pickedRow = n.picked_commit
+      ? `<code>${n.picked_commit.slice(0,12)}</code>${n.parent_id && n.commit === n.picked_commit ? '' : ''}`
+      : '<span class="text-xs text-gray-500">_not picked yet_</span>';
+    const failedTasksHeading = n.parent_id ? "Failing tasks (this node's final eval)" : 'Failing tasks (baseline run)';
+    const mergeArtifacts = n.merge_artifacts
+      ? `<tr><th>merge artifacts</th><td>
+          ${(n.merge_artifacts.prompts || []).length} prompts ·
+          ${(n.merge_artifacts.commits || []).length} commit phases ·
+          ${(n.merge_artifacts.cursor_failures || []).length} cursor failures
+        </td></tr>`
+      : '';
+    c.innerHTML = `
+      <h2>${n.branch}</h2>
+      <table>
+        <tr><th>id</th><td>
+          <button class="copy-id-btn" onclick="copyNodeId('${n.id}', this)"
+                  title="Click to copy node id ${n.id}">
+            <span>${n.id}</span><span class="icon">⧉</span>
+          </button>
+          ${scoreable ? '' : `<span class="text-xs text-amber-400 ml-2" title="parent_selection requires status ∈ {completed, no_change} and score IS NOT NULL">(not auto-selectable: ${n.status}, score=${n.score ?? '?'})</span>`}
+        </td></tr>
+        <tr><th>branch</th><td><code>${n.branch || ''}</code></td></tr>
+        <tr><th>HEAD</th><td><code>${n.commit?.slice(0,12) || ''}</code></td></tr>
+        <tr><th>commits</th><td>${commitsRow}</td></tr>
+        <tr><th>picked</th><td>${pickedRow}</td></tr>
+        <tr><th>status</th><td>${n.status}</td></tr>
+        <tr><th>subset</th><td>${n.subset}</td></tr>
+        <tr><th>score</th><td>${scoreDetailHtml(n)}</td></tr>
+        <tr><th>claimed&nbsp;task<br/>scores</th><td>${claimedScoresRow}</td></tr>
+        <tr><th>parent</th><td>${n.parent_id ? `<a onclick="selectNode('${n.parent_id}')" href="#">${n.parent_id}</a>` : '(root)'}</td></tr>
+        <tr><th>task counts</th><td>${solvedTasksAll.length} solved · ${partialTasksAll.length} partial · ${failedTasksAll.length} repairable · ${improvedTasksAll.length} improved · ${regressedTasksAll.length} regressed</td></tr>
+        <tr><th>pipeline</th><td><code>${n.pipeline_id || ''}</code></td></tr>
+        <tr><th>job_log</th><td><code style="word-break:break-all">${n.job_log_path || ''}</code></td></tr>
+        ${mergeArtifacts}
+      </table>
+      ${edgeRows ? `<h3>Graph edges</h3><ul>${edgeRows}</ul>` : ''}
+      ${improvedTasks.length ? `<h3>Improved tasks vs parent</h3><ul>${improvedTasks.map(t => `<li><code>${t}</code></li>`).join('')}</ul>` : ''}
+      ${regressedTasks.length ? `<h3>Regressed tasks vs parent</h3><ul>${regressedTasks.map(t => `<li><code>${t}</code></li>`).join('')}</ul>` : ''}
+      ${solvedTasks.length ? `<h3>Solved tasks</h3><ul>${solvedTasks.map(t => `<li><code>${t}</code></li>`).join('')}</ul>` : ''}
+      ${partialTasks.length ? `<h3>Partially solved tasks</h3><ul>${partialTasks.map(t => `<li><code>${t}</code></li>`).join('')}</ul>` : ''}
+      ${failedTasks.length ? `<h3>${failedTasksHeading}</h3><ul>${failedTasks.map(t => `<li><code>${t}</code></li>`).join('')}</ul>` : ''}
+      ${resolvedTasks.length ? `<h3>Resolved by this branch</h3><ul>${resolvedTasks.map(t => `<li><code>${t}</code></li>`).join('')}</ul>` : ''}
+    `;
+  } else if (tab === 'works') {
+    c.innerHTML = n.works_md ? marked.parse(n.works_md) : '<div class="text-gray-500">No works.md yet.</div>';
+  } else if (tab === 'effort') {
+    c.innerHTML = n.effort_md ? marked.parse(n.effort_md) : '<div class="text-gray-500">No effort.md yet.</div>';
+  } else if (tab === 'learnings') {
+    c.innerHTML = n.learnings_md ? marked.parse(n.learnings_md) : '<div class="text-gray-500">No learnings.md yet.</div>';
+  } else if (tab === 'prompts') {
+    if (!n.prompts || !n.prompts.length) {
+      c.innerHTML = '<div class="text-gray-500">No prompts recorded.</div>';
+      return;
+    }
+    c.innerHTML = n.prompts.map(p => `
+      <details class="my-2">
+        <summary class="cursor-pointer text-blue-300">${p.name}</summary>
+        <pre style="white-space: pre-wrap">${escapeHtml(p.body)}</pre>
+      </details>
+    `).join('');
+  } else if (tab === 'logs') {
+    renderLogsTab(c, n);
+  } else if (tab === 'commits') {
+    renderCommitsTab(c, n);
+  }
+}
+
+// ─── Logs tab (push-based via SSE) ───────────────────────────────────
+// We open an EventSource on /api/node/<id>/logs/stream when the user
+// activates the Logs tab. The server emits one `init` event with the
+// full snapshot, then `run`/`cursor` deltas as the on-disk files grow.
+// Each delta patches the affected pane's <pre> in place — never a full
+// re-render — so scrollbars stay smooth and tooltips don't blink.
+//
+// Scroll semantics ("tail -f"):
+//   - Whenever a pane's <pre> is glued to the bottom (scroll position
+//     within 4px of scrollHeight), new content auto-scrolls into view.
+//   - As soon as the user scrolls UP at all, that pane stops auto-
+//     scrolling. New content arrives below the fold without yanking
+//     their reading position.
+//   - When they scroll back to the bottom themselves, auto-scroll
+//     resumes. The scroll position IS the source of truth — no extra
+//     "userScrolledUp" flag needed.
+//
+// EventSource auto-reconnects on transient errors. On reconnect the
+// server re-emits a fresh `init` event and we rebuild the panes once.
+
+let _logsStream = null;
+let _logsStreamNodeId = null;
+let _logsPaneActiveTimers = new Map();
+
+function _clearLogPaneActiveTimers() {
+  for (const timer of _logsPaneActiveTimers.values()) clearTimeout(timer);
+  _logsPaneActiveTimers.clear();
+}
+
+function teardownLogsStream() {
+  if (_logsStream) {
+    try { _logsStream.close(); } catch {}
+    _logsStream = null;
+  }
+  _logsStreamNodeId = null;
+  _clearLogPaneActiveTimers();
+}
+
+async function renderLogsTab(container, node, opts = {}) {
+  const { silent = false } = opts;
+  // If we're already streaming for this same node, do nothing — the
+  // stream is already keeping the panes up to date. This makes the 5s
+  // `refreshSelectedNodeDetail` cycle a no-op for Logs (the stream
+  // owns that channel) without us having to special-case it elsewhere.
+  if (_logsStreamNodeId === node.id && _logsStream) return;
+  teardownLogsStream();
+  if (!silent) {
+    container.innerHTML = '<div class="text-gray-500">Connecting to log stream…</div>';
+  }
+  if (typeof EventSource === 'undefined') {
+    container.innerHTML = '<div class="text-red-400">Your browser doesn\'t support EventSource — log streaming unavailable.</div>';
+    return;
+  }
+  const streamingFor = node.id;
+  let es;
+  try {
+    es = new EventSource(`/api/node/${streamingFor}/logs/stream?n=60`);
+  } catch (e) {
+    container.innerHTML = `<div class="text-red-400">Failed to open log stream: ${escapeHtml(String(e))}</div>`;
+    return;
+  }
+  _logsStream = es;
+  _logsStreamNodeId = streamingFor;
+
+  es.onmessage = (evt) => {
+    // Race guard: user may have switched node or tab while this event
+    // was in flight. EventSource doesn't auto-cancel on tab changes,
+    // so we tear the stream down here when that happens.
+    if (state.selectedNodeId !== streamingFor) {
+      teardownLogsStream();
+      return;
+    }
+    const activeTab = $('#node-tabs .tab-btn.active')?.dataset?.tab;
+    if (activeTab !== 'logs') {
+      teardownLogsStream();
+      return;
+    }
+    let data;
+    try { data = JSON.parse(evt.data); } catch { return; }
+    if (data.type === 'init') {
+      _buildInitialLogsPanes(container, data);
+    } else if (data.type === 'run') {
+      _updateLogPane(container, 'run', {
+        title: 'run.log',
+        path: data.path,
+        tail: data.tail,
+        harbor_progress: data.harbor_progress,
+      });
+    } else if (data.type === 'eval_progress') {
+      _updateEvalProgress(container, data.eval_progress || data);
+    } else if (data.type === 'cursor') {
+      const title = data.title || (data.stage === 'select'
+        ? 'select (picker)'
+        : (data.iter ? `iter ${data.iter} · ${data.stage}` : data.stage));
+      _updateLogPane(container, data.stage, {
+        title,
+        path: data.path,
+        tail: data.tail,
+      });
+    }
+  };
+
+  es.onerror = () => {
+    // EventSource auto-reconnects on transient errors (it'll re-emit
+    // an `init` event when it does). We don't tear down here — only
+    // log a console warning so the user can see it in devtools if
+    // they're debugging.
+    console.warn('logs stream temporarily unavailable; EventSource will retry');
+  };
+}
+
+// Build all panes from scratch (called on first `init` event and on
+// every reconnect). Replaces the container's children atomically so
+// the user doesn't see a half-built UI.
+function _buildInitialLogsPanes(container, data) {
+  _clearLogPaneActiveTimers();
+  const panes = [];
+  if (data.run_log) {
+    panes.push(_makeLogPane('run', 'run.log', data.run_log));
+  }
+  const cursorLogs = data.cursor_logs || {};
+  for (const [stage, entry] of Object.entries(cursorLogs)) {
+    const title = entry.title || (stage === 'select'
+      ? 'select (picker)'
+      : (entry.iter ? `iter ${entry.iter} · ${stage}` : stage));
+    panes.push(_makeLogPane(stage, title, entry));
+  }
+  // Context-aware empty/sparse state.
+  //   - Root nodes are baseline-only by design (no iter logs ever exist
+  //     for them) — explicitly say so instead of pretending we're
+  //     waiting for logs that will never come.
+  //   - For other nodes, branch on pipeline_status: a terminal status
+  //     means logs are what they're going to be; a non-terminal status
+  //     means the pipeline is still warming up.
+  const status = data.pipeline_status;
+  const isTerminal = status === 'done' || status === 'failed' || status === 'no_change';
+  const statusBadge = _statusBadgeHtml(status);
+  const hasEvalProgress = !!data.eval_progress;
+  if (!panes.length && !hasEvalProgress) {
+    let msg;
+    if (data.node_is_root) {
+      msg = 'Root baseline pipeline — no logs to show. Click a child node to inspect iteration logs.';
+    } else if (isTerminal) {
+      msg = `Pipeline finished (${status}) without producing any logs on disk.`;
+    } else if (status) {
+      msg = `Pipeline is ${status} — waiting for the first log write.`;
+    } else {
+      msg = 'No pipeline yet for this node.';
+    }
+    container.innerHTML = `<div class="text-gray-500">${statusBadge}${escapeHtml(msg)}</div>`;
+    return;
+  }
+  container.innerHTML = '';
+  // Optional banner above the panes: root-baseline hint + pipeline status.
+  if (data.node_is_root || statusBadge) {
+    const banner = document.createElement('div');
+    banner.className = 'text-xs text-gray-400 mb-2 flex items-center gap-2';
+    let hint = '';
+    if (data.node_is_root && Object.keys(cursorLogs).length === 0) {
+      hint = ' Root baseline pipeline (no iterations). Click a child node for iteration logs.';
+    }
+    banner.innerHTML = statusBadge + escapeHtml(hint);
+    container.appendChild(banner);
+  }
+  if (data.harbor_progress) {
+    container.appendChild(_makeHarborProgress(data.harbor_progress));
+  }
+  if (data.eval_progress) {
+    container.appendChild(_makeEvalProgress(data.eval_progress));
+  }
+  panes.forEach(p => container.appendChild(p));
+  // On first paint, glue every pane to the bottom (tail semantics).
+  container.querySelectorAll('.log-pane pre').forEach(pre => {
+    pre.scrollTop = pre.scrollHeight;
+  });
+}
+
+function _makeHarborProgress(progress) {
+  const wrap = document.createElement('div');
+  wrap.className = 'harbor-progress text-xs text-gray-300 mb-2';
+  wrap.dataset.progress = 'harbor';
+  wrap.innerHTML = _harborProgressHtml(progress);
+  return wrap;
+}
+
+function _harborProgressHtml(progress) {
+  if (!progress) return '';
+  const pct = Math.max(0, Math.min(100, (progress.percent || 0) * 100));
+  const mean = Number(progress.mean ?? 0);
+  return `
+    <div class="flex items-center justify-between gap-2 mb-1">
+      <span>Mini-eval progress</span>
+      <span><code>${progress.done}/${progress.total}</code> · mean <code>${mean.toFixed(3)}</code></span>
+    </div>
+    <div class="progress-bar"><div class="progress-bar-fill" style="width:${pct.toFixed(1)}%"></div></div>
+    <div class="text-gray-500 mt-1">${escapeHtml(progress.line || '')}</div>
+  `;
+}
+
+function _updateHarborProgress(container, progress) {
+  if (!progress) return;
+  let wrap = container.querySelector('.harbor-progress[data-progress="harbor"]');
+  if (!wrap) {
+    wrap = _makeHarborProgress(progress);
+    const firstPane = container.querySelector('.log-pane');
+    if (firstPane) container.insertBefore(wrap, firstPane);
+    else container.appendChild(wrap);
+  } else {
+    wrap.innerHTML = _harborProgressHtml(progress);
+  }
+}
+
+function _evalKindLabel(progress) {
+  if (progress?.eval_kind === 'full_eval') return 'Full eval';
+  if (progress?.eval_kind === 'subset_final') return 'Subset final eval';
+  return 'Mini-eval';
+}
+
+function _makeEvalProgress(progress) {
+  const wrap = document.createElement('div');
+  wrap.className = 'eval-progress text-xs text-gray-300 mb-2';
+  wrap.dataset.progress = 'eval';
+  wrap.innerHTML = _evalProgressHtml(progress);
+  return wrap;
+}
+
+function _evalProgressHtml(progress) {
+  if (!progress) return '';
+  const n = Number(progress.eval_n_trials ?? 0);
+  const total = Number(progress.eval_n_total_trials ?? 0);
+  const pct = total ? Math.max(0, Math.min(100, (n / total) * 100)) : 0;
+  const summary = _evalProgressText(progress) || 'starting';
+  const jobPath = progress.eval_job_path || progress.eval_result_path || '';
+  return `
+    <div class="flex items-center justify-between gap-2 mb-1">
+      <span>${escapeHtml(_evalKindLabel(progress))} progress</span>
+      <span><code>${escapeHtml(summary)}</code></span>
+    </div>
+    <div class="progress-bar"><div class="progress-bar-fill" style="width:${pct.toFixed(1)}%"></div></div>
+    <div class="text-gray-500 mt-1" title="${escapeHtml(jobPath)}">${escapeHtml(jobPath.split('/').slice(-3).join('/') || '')}</div>
+  `;
+}
+
+function _updateEvalProgress(container, progress) {
+  if (!progress) return;
+  let wrap = container.querySelector('.eval-progress[data-progress="eval"]');
+  if (!wrap) {
+    wrap = _makeEvalProgress(progress);
+    const harbor = container.querySelector('.harbor-progress[data-progress="harbor"]');
+    const firstPane = container.querySelector('.log-pane');
+    if (harbor) container.insertBefore(wrap, harbor.nextSibling);
+    else if (firstPane) container.insertBefore(wrap, firstPane);
+    else container.appendChild(wrap);
+  } else {
+    wrap.innerHTML = _evalProgressHtml(progress);
+  }
+}
+
+// Render a small colored status badge ("● running" / "✓ done" /
+// "✗ failed" / "= no_change"). Returns empty string when status is
+// unknown so the caller can concat unconditionally.
+function _statusBadgeHtml(status) {
+  if (!status) return '';
+  const map = {
+    'preparing': { glyph: '●', color: '#9ca3af', label: 'preparing' },
+    'baseline':  { glyph: '●', color: '#9ca3af', label: 'baseline' },
+    'evolving':  { glyph: '●', color: '#60a5fa', label: 'evolving' },
+    'eval':      { glyph: '●', color: '#60a5fa', label: 'eval' },
+    'done':      { glyph: '✓', color: '#34d399', label: 'done' },
+    'failed':    { glyph: '✗', color: '#f87171', label: 'failed' },
+    'no_change': { glyph: '=', color: '#fbbf24', label: 'no change' },
+  };
+  const m = map[status] || { glyph: '·', color: '#9ca3af', label: status };
+  return `<span style="display:inline-flex;align-items:center;gap:0.3rem;color:${m.color}"><span>${m.glyph}</span><span>${escapeHtml(m.label)}</span></span>`;
+}
+
+// Build a single .log-pane DOM element. The `data-stage` attribute is
+// the handle `_updateLogPane` uses to patch the pane in place.
+function _makeLogPane(stage, title, entry) {
+  const wrap = document.createElement('div');
+  wrap.className = 'log-pane';
+  wrap.dataset.stage = stage;
+  const fullPath = entry.path || '';
+  const basename = fullPath.split('/').pop() || fullPath;
+  wrap.innerHTML = `
+    <div class="log-pane-head">
+      <span class="log-title-wrap">
+        <span class="log-title">${escapeHtml(title)}</span>
+        <span class="log-live-badge">streaming</span>
+      </span>
+      <span class="log-path" title="${escapeHtml(fullPath)}">${escapeHtml(basename)}</span>
+    </div>
+    <pre>${escapeHtml(entry.tail || '(empty)')}</pre>
+  `;
+  return wrap;
+}
+
+function _markLogPaneActive(pane) {
+  const stage = pane?.dataset?.stage;
+  if (!stage) return;
+  pane.classList.add('log-pane-active');
+  if (_logsPaneActiveTimers.has(stage)) {
+    clearTimeout(_logsPaneActiveTimers.get(stage));
+  }
+  _logsPaneActiveTimers.set(stage, setTimeout(() => {
+    pane.classList.remove('log-pane-active');
+    _logsPaneActiveTimers.delete(stage);
+  }, 10000));
+}
+
+// Patch a single pane in place. Preserves the user's scroll position
+// unless they were glued to the bottom — in which case we keep them
+// glued so new content slides in like `tail -f`.
+function _updateLogPane(container, stage, entry) {
+  if (stage === 'run' && entry.harbor_progress) {
+    _updateHarborProgress(container, entry.harbor_progress);
+  }
+  let pane = container.querySelector(`.log-pane[data-stage="${CSS.escape(stage)}"]`);
+  if (!pane) {
+    // New stage appeared mid-stream (e.g. iter just produced its first
+    // review log). Append a fresh pane and glue it to the bottom.
+    pane = _makeLogPane(stage, entry.title || stage, entry);
+    container.appendChild(pane);
+    const pre = pane.querySelector('pre');
+    if (pre) pre.scrollTop = pre.scrollHeight;
+    _markLogPaneActive(pane);
+    return;
+  }
+  const titleEl = pane.querySelector('.log-title');
+  const pathEl = pane.querySelector('.log-path');
+  const pre = pane.querySelector('pre');
+  if (entry.title && titleEl) titleEl.textContent = entry.title;
+  if (entry.path) {
+    const basename = entry.path.split('/').pop() || entry.path;
+    if (pathEl) {
+      pathEl.textContent = basename;
+      pathEl.title = entry.path;
+    }
+  }
+  if (!pre) return;
+  // Capture scroll-pinning state BEFORE we mutate the content. The
+  // 4-px slop absorbs subpixel rounding differences across browsers.
+  const atBottom = (pre.scrollHeight - pre.clientHeight - pre.scrollTop) < 4;
+  pre.textContent = entry.tail || '(empty)';
+  if (atBottom) {
+    pre.scrollTop = pre.scrollHeight;
+  }
+  _markLogPaneActive(pane);
+  // If !atBottom, leave scrollTop alone — the user is mid-read and we
+  // must not snatch their position away from them. New content sits
+  // below the visible viewport; they can scroll down to reach it.
+}
+
+// ─── Commits tab (per-iteration claimed-task accuracy) ─────────────
+//
+// Two-part layout:
+//   1. Line chart over KEPT iterations (one line per claimed task) — the
+//      same trend view we've always had. Reverted/failed iterations have
+//      no rewards data, so they don't appear here.
+//   2. "Per-iteration breakdown" table below the chart that lists EVERY
+//      iteration in chronological order with its outcome (kept / reverted
+//      / failed), commit SHAs (kept or reverted-and-rolled-back), per-task
+//      rewards, and canary status. This is what tells the user what
+//      actually happened in each round, including iterations the chart
+//      can't show.
+async function renderCommitsTab(container, node, opts = {}) {
+  const { silent = false } = opts;
+  if (!silent) {
+    container.innerHTML = '<div class="text-gray-500">Loading per-commit accuracy…</div>';
+  }
+  let payload;
+  try {
+    payload = await api(`/api/node/${node.id}/iterations`);
+  } catch (e) {
+    if (!silent) {
+      container.innerHTML = `<div class="text-red-400">Failed to load iterations: ${e.message}</div>`;
+    }
+    return;
+  }
+  // Same race guard as renderLogsTab: don't paint over a tab the user
+  // navigated away from during our fetch.
+  if (state.selectedNodeId !== node.id) return;
+  const activeTabNow = $('#node-tabs .tab-btn.active')?.dataset?.tab;
+  if (activeTabNow !== 'commits') return;
+  const claimed = payload.claimed_tasks || [];
+  const allIters = payload.iterations || [];
+  const keptIters = allIters.filter(it => it.kept && it.commits && it.commits.length);
+  // Map each kept iteration's tip commit to its rewards. The picker may have
+  // selected the parent (= abandon branch) — picked_commit==null on the node
+  // also happens for in-progress runs.
+  const points = keptIters.map(it => ({
+    iter: it.iter,
+    commit: it.commits[it.commits.length - 1],
+    shortSha: it.commits[it.commits.length - 1].slice(0, 7),
+    rewards: it.rewards,
+    isPicked: false,
+  }));
+  const picked = payload.picked_commit;
+  const finalRewards = payload.final_rewards || {};
+  if (picked) {
+    // Mark whichever point's commit matches the pick.
+    for (const p of points) {
+      if (p.commit === picked) p.isPicked = true;
+    }
+  }
+  // If the final eval recorded fresh per-task scores, overwrite the picked
+  // point's rewards so the chart shows the canonical final number rather
+  // than the mini-eval reward.
+  if (Object.keys(finalRewards).length) {
+    for (const p of points) {
+      if (p.isPicked) {
+        p.rewards = { ...p.rewards, ...finalRewards };
+        p.isFinal = true;
+      }
+    }
+  }
+  // Empty-state: NO iterations at all (pipeline still in setup) is
+  // distinct from "iterations exist but none kept" (the agent kept
+  // tripping the guard / hitting analyze-failed). Surface both cleanly
+  // instead of one generic message.
+  if (!allIters.length) {
+    const mergeCommits = node.merge_artifacts?.commits || [];
+    if (mergeCommits.length) {
+      container.innerHTML = `
+        <div class="text-xs uppercase text-gray-500 mb-1 tracking-wider">Merge commits</div>
+        <table class="w-full text-xs">
+          <thead><tr><th>phase</th><th>commits</th><th>head</th></tr></thead>
+          <tbody>
+            ${mergeCommits.map(c => `
+              <tr>
+                <td>${escapeHtml(c.message || '')}</td>
+                <td>${(c.commits || []).map(s => `<code title="${escapeHtml(s)}">${escapeHtml(s.slice(0, 12))}</code>`).join(' ') || '<span class="text-gray-600">—</span>'}</td>
+                <td>${c.head ? `<code title="${escapeHtml(c.head)}">${escapeHtml(c.head.slice(0, 12))}</code>` : ''}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+      return;
+    }
+    const why = !claimed.length
+      ? 'no iterations or claimed tasks recorded yet'
+      : 'no iterations recorded yet';
+    container.innerHTML = `<div class="text-gray-500">No per-iteration data — ${why}.</div>`;
+    return;
+  }
+  container.innerHTML = '';
+  if (points.length && claimed.length) {
+    drawCommitsChart(container, claimed, points);
+  } else {
+    const why = !claimed.length
+      ? 'no claimed tasks recorded for this node yet'
+      : 'no kept iterations yet — see breakdown below for what happened';
+    const note = document.createElement('div');
+    note.className = 'text-gray-500 text-xs mb-2';
+    note.textContent = `Chart unavailable — ${why}.`;
+    container.appendChild(note);
+  }
+  drawIterationsTable(container, claimed, allIters, picked, finalRewards);
+}
+
+// Per-iteration breakdown table. One row per iteration in chronological
+// order. Columns:
+//   - iter # + outcome badge (kept / reverted L2 / reverted L3 / no-op /
+//     analyze-failed / implement-failed)
+//   - commits (short SHAs; kept commits in normal weight, rolled-back
+//     reverted commits struck through; ★ marker on the picked SHA)
+//   - claimed-task rewards summarized in one wrapping cell (small colored
+//     badges; "—" when the iteration produced no rewards)
+//   - canary tasks + pass/fail status (when present in the effort.md)
+function drawIterationsTable(host, claimedTasks, iterations, pickedSha, finalRewards) {
+  if (!iterations.length) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'iter-breakdown mt-4';
+  // Section header so the table doesn't read as part of the chart.
+  const head = document.createElement('div');
+  head.className = 'text-xs uppercase text-gray-500 mb-1 tracking-wider';
+  head.textContent = 'Per-iteration breakdown';
+  wrap.appendChild(head);
+
+  const table = document.createElement('table');
+  table.className = 'iter-table w-full text-xs';
+  // Reuse claimed_tasks order from the payload so columns stay aligned
+  // with the chart legend; fall back to whatever rewards-keys appear in
+  // any iteration if claimed_tasks is empty (defensive).
+  const tasks = claimedTasks.length
+    ? claimedTasks
+    : Array.from(new Set(iterations.flatMap(it => Object.keys(it.rewards || {}))));
+  const thead = document.createElement('thead');
+  thead.innerHTML = `
+    <tr>
+      <th class="iter-col">iter</th>
+      <th class="commits-col">commits</th>
+      <th class="mini-col">mini-eval</th>
+      <th class="rewards-col">claimed rewards</th>
+      <th class="canary-col">canary</th>
+    </tr>
+  `;
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  for (const it of iterations) {
+    tbody.appendChild(_renderIterationRow(it, tasks, pickedSha, finalRewards));
+  }
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  host.appendChild(wrap);
+}
+
+// Outcome → {label, css class}. The css classes are styled in <style>
+// (.outcome-kept etc.); keeping the metadata in JS keeps the markup
+// straightforward and lets us adjust labels here without touching CSS.
+const _OUTCOME_META = {
+  running:          { label: 'running',      cls: 'outcome-noop' },
+  kept:             { label: 'kept',         cls: 'outcome-kept' },
+  reverted_layer2:  { label: 'reverted (L2)', cls: 'outcome-reverted' },
+  reverted_layer3:  { label: 'reverted (L3)', cls: 'outcome-reverted' },
+  mini_eval_failed: { label: 'mini fail',    cls: 'outcome-failed' },
+  mini_eval_infra_failed: { label: 'eval infra', cls: 'outcome-failed' },
+  no_op:            { label: 'no-op',         cls: 'outcome-noop' },
+  no_commits:       { label: 'no commits',    cls: 'outcome-noop' },
+  analyze_failed:   { label: 'analyze fail',  cls: 'outcome-failed' },
+  implement_failed: { label: 'implement fail', cls: 'outcome-failed' },
+  unknown:          { label: '?',             cls: 'outcome-noop' },
+};
+
+function _renderIterationRow(it, tasks, pickedSha, finalRewards) {
+  const tr = document.createElement('tr');
+  tr.className = 'iter-row';
+  const meta = _OUTCOME_META[it.outcome] || _OUTCOME_META.unknown;
+
+  // Column 1: iter # + outcome badge + (optional) one-line note.
+  const iterCell = document.createElement('td');
+  iterCell.className = 'iter-col';
+  const noteHtml = it.note
+    ? `<div class="iter-note" title="${escapeHtml(it.note)}">${escapeHtml(it.note)}</div>`
+    : '';
+  iterCell.innerHTML = `
+    <div class="iter-head">
+      <span class="iter-n">${it.iter}</span>
+      <span class="badge ${meta.cls}" title="outcome: ${escapeHtml(it.outcome)}">${meta.label}</span>
+    </div>
+    ${noteHtml}
+  `;
+  tr.appendChild(iterCell);
+
+  // Column 2: commit SHAs.
+  //   - For kept iterations we list `it.commits` plain.
+  //   - For reverted iterations we list `it.reverted_commits` with a
+  //     line-through to make it visually obvious the diff isn't on the
+  //     branch tip anymore.
+  //   - The picked SHA gets a ★ marker.
+  // When no commits at all (analyze/implement-failed, no-op), show an em
+  // dash so the column doesn't look broken.
+  const commitsCell = document.createElement('td');
+  commitsCell.className = 'commits-col';
+  const kept = it.commits || [];
+  const reverted = it.reverted_commits || [];
+  if (!kept.length && !reverted.length) {
+    commitsCell.innerHTML = '<span class="text-gray-600">—</span>';
+  } else {
+    const items = [];
+    for (const sha of kept) {
+      const short = sha.slice(0, 7);
+      const isPicked = pickedSha && sha === pickedSha;
+      items.push(`<code class="commit-sha${isPicked ? ' commit-picked' : ''}" title="${escapeHtml(sha)}">${short}${isPicked ? ' ★' : ''}</code>`);
+    }
+    for (const sha of reverted) {
+      const short = sha.slice(0, 7);
+      items.push(`<code class="commit-sha commit-reverted" title="${escapeHtml(sha)} (rolled back)">${short}</code>`);
+    }
+    commitsCell.innerHTML = items.join(' ');
+  }
+  tr.appendChild(commitsCell);
+
+  const miniCell = document.createElement('td');
+  miniCell.className = 'mini-col';
+  const mini = it.mini_eval || {};
+  if (mini.score !== null && mini.score !== undefined) {
+    const bits = [`score ${Number(mini.score).toFixed(3)}`];
+    if (mini.n_trials !== null && mini.n_trials !== undefined) bits.push(`${mini.n_trials} trials`);
+    if (mini.n_errors) bits.push(`${mini.n_errors} errors`);
+    miniCell.innerHTML = `<span title="${escapeHtml(mini.job_path || '')}">${bits.map(escapeHtml).join('<br>')}</span>`;
+  } else {
+    miniCell.innerHTML = '<span class="text-gray-700">—</span>';
+  }
+  tr.appendChild(miniCell);
+
+  // Column 4: claimed-task rewards. Keep them in one wrapping summary cell
+  // instead of one column per task; the chart above still owns the full
+  // per-task comparison view.
+  const isPickedRow = pickedSha && kept.includes(pickedSha);
+  const rewards = isPickedRow && Object.keys(finalRewards || {}).length
+    ? { ...(it.rewards || {}), ...finalRewards }
+    : (it.rewards || {});
+  const rewardCell = document.createElement('td');
+  rewardCell.className = 'rewards-col';
+  const scoredTasks = tasks.filter(task => task in rewards);
+  if (scoredTasks.length) {
+    rewardCell.innerHTML = `<div class="reward-list">${scoredTasks.map(task => {
+      const r = rewards[task];
+      const score = Number(r);
+      const bg = Number.isFinite(score) ? rgbForScore(score) : '#374151';
+      const title = `${task}: ${Number.isFinite(score) ? score.toFixed(3) : r}${isPickedRow ? ' (final eval)' : ''}`;
+      const visibleScore = Number.isFinite(score) ? score.toFixed(2) : escapeHtml(String(r));
+      return `
+        <span class="reward-item" title="${escapeHtml(title)}">
+          <code class="reward-task">${escapeHtml(_shortenTask(task))}</code>
+          <span class="reward-badge" style="background:${bg};color:#000">${visibleScore}</span>
+        </span>
+      `;
+    }).join('')}</div>`;
+  } else {
+    rewardCell.innerHTML = '<span class="text-gray-700">—</span>';
+  }
+  tr.appendChild(rewardCell);
+
+  // Last column: canary pass/fail. A passed canary is the silent default
+  // (most iterations pass) so we render it unobtrusively; a failed canary
+  // is the interesting case (often paired with reverted_layer3).
+  const canaryCell = document.createElement('td');
+  canaryCell.className = 'canary-col';
+  const failedCanaries = it.failed_canaries || [];
+  const allCanaries = it.canary_tasks || [];
+  if (allCanaries.length || failedCanaries.length) {
+    const taskList = (failedCanaries.length ? failedCanaries : allCanaries)
+      .map(t => `<code>${escapeHtml(_shortenTask(t))}</code>`).join(', ');
+    if (it.canary_passed === true || (failedCanaries.length === 0 && allCanaries.length)) {
+      canaryCell.innerHTML = `<span class="canary-pass" title="canary passed: ${escapeHtml(allCanaries.join(', '))}">✓ ${taskList}</span>`;
+    } else if (it.canary_passed === false) {
+      canaryCell.innerHTML = `<span class="canary-fail" title="failed canaries: ${escapeHtml(failedCanaries.join(', '))}">✗ ${failedCanaries.length}/${allCanaries.length} ${taskList}</span>`;
+    } else {
+      canaryCell.innerHTML = `<span class="text-gray-500" title="canary status not recorded">${taskList}</span>`;
+    }
+  } else {
+    canaryCell.innerHTML = '<span class="text-gray-700">—</span>';
+  }
+  tr.appendChild(canaryCell);
+  return tr;
+}
+
+// Task names like `torch-tensor-parallelism__LC4zab6` waste column width.
+// Strip the `__<trial-suffix>` only used to distinguish trials in the
+// harbor result.json — the breakdown table always shows base task names.
+function _shortenTask(task) {
+  if (typeof task !== 'string') return String(task);
+  const dunder = task.indexOf('__');
+  return dunder > 0 ? task.slice(0, dunder) : task;
+}
+
+function drawCommitsChart(host, tasks, points) {
+  // Wrap so we can append both the SVG and the legend/tooltip outside the
+  // chart frame. The tooltip is absolutely positioned relative to this wrap.
+  const wrap = document.createElement('div');
+  wrap.className = 'commits-chart relative';
+  wrap.style.position = 'relative';
+  host.appendChild(wrap);
+
+  const tooltip = document.createElement('div');
+  tooltip.className = 'commits-tooltip';
+  wrap.appendChild(tooltip);
+
+  // Sizes: render at a fixed logical coordinate system, then let the SVG
+  // scale to fit its container via `viewBox` + `width: 100%` (see the
+  // `.commits-chart svg` rule). This is what keeps the chart inside the
+  // fixed-width 28rem aside even when the host is briefly wider than the
+  // aside during initial layout — we can't trust `host.clientWidth`
+  // alone, but `viewBox` shrinking can't OVER-flow.
+  //
+  // Bottom margin reserves room for THREE label rows below the axis:
+  //   row 1: `iter N`     (the axis tick text, default y offset ~9)
+  //   row 2: short SHA    (y = innerH + 26)
+  //   row 3: `★ picked`   (y = innerH + 42, only for the picked commit)
+  // Anything tighter and rows 1/3 collide.
+  const W = 400;
+  const H = 280;
+  const margin = { top: 14, right: 18, bottom: 70, left: 36 };
+  const innerW = W - margin.left - margin.right;
+  const innerH = H - margin.top - margin.bottom;
+
+  const svg = d3.select(wrap).append('svg')
+    .attr('viewBox', `0 0 ${W} ${H}`)
+    .attr('preserveAspectRatio', 'xMidYMid meet');
+  const g = svg.append('g')
+    .attr('transform', `translate(${margin.left},${margin.top})`);
+
+  // X: discrete iterations
+  const x = d3.scalePoint()
+    .domain(points.map(p => p.iter))
+    .range([0, innerW])
+    .padding(0.5);
+  const y = d3.scaleLinear().domain([0, 1]).range([innerH, 0]);
+
+  // Gridlines.
+  g.append('g').attr('class', 'grid')
+    .selectAll('line').data(y.ticks(5)).join('line')
+    .attr('x1', 0).attr('x2', innerW)
+    .attr('y1', d => y(d)).attr('y2', d => y(d));
+
+  // Axes.
+  const xAxis = d3.axisBottom(x).tickFormat(d => `iter ${d}`);
+  const yAxis = d3.axisLeft(y).ticks(5);
+  g.append('g').attr('class', 'axis').attr('transform', `translate(0,${innerH})`).call(xAxis);
+  g.append('g').attr('class', 'axis').call(yAxis);
+
+  // Short-SHA secondary x labels under the iter labels.
+  g.selectAll('text.sha-label')
+    .data(points).join('text')
+    .attr('class', 'sha-label')
+    .attr('x', d => x(d.iter))
+    .attr('y', innerH + 26)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#6b7280')
+    .style('font-family', 'ui-monospace, Menlo, monospace')
+    .style('font-size', '9px')
+    .text(d => d.shortSha);
+
+  // "Picked" label for whichever commit the phase-4 picker chose. The yellow
+  // stroke on the data dot itself (drawn below) is the primary visual cue;
+  // this text annotation just names it so the meaning of the stroke isn't
+  // guessable. We deliberately do NOT draw a separate ring near the x-axis
+  // anymore — that was overlapping the `iter N` tick text in the original.
+  g.selectAll('text.picked-label')
+    .data(points.filter(p => p.isPicked)).join('text')
+    .attr('class', 'picked-label')
+    .attr('x', d => x(d.iter))
+    .attr('y', innerH + 42)
+    .attr('text-anchor', 'middle')
+    .text('★ picked');
+
+  // Distinct colors per task (cycled). Tableau-ish to read well on dark bg.
+  const palette = ['#60a5fa', '#34d399', '#f472b6', '#fbbf24', '#a78bfa', '#fb7185'];
+  const color = (i) => palette[i % palette.length];
+
+  const line = d3.line()
+    .x(d => x(d.iter))
+    .y(d => y(d.value))
+    .defined(d => d.value !== null && d.value !== undefined);
+
+  tasks.forEach((task, ti) => {
+    const series = points.map(p => ({
+      iter: p.iter,
+      commit: p.commit,
+      shortSha: p.shortSha,
+      isPicked: p.isPicked,
+      isFinal: p.isFinal,
+      value: (p.rewards && task in p.rewards) ? p.rewards[task] : null,
+    }));
+    // Path.
+    g.append('path')
+      .datum(series.filter(s => s.value !== null && s.value !== undefined))
+      .attr('fill', 'none')
+      .attr('stroke', color(ti))
+      .attr('stroke-width', 2)
+      .attr('d', line);
+    // Dots.
+    g.selectAll(`circle.dot-${ti}`)
+      .data(series.filter(s => s.value !== null && s.value !== undefined))
+      .join('circle')
+      .attr('class', `dot-${ti}`)
+      .attr('cx', d => x(d.iter))
+      .attr('cy', d => y(d.value))
+      .attr('r', d => d.isPicked ? 5 : 3.5)
+      .attr('fill', color(ti))
+      .attr('stroke', d => d.isPicked ? '#facc15' : 'transparent')
+      .attr('stroke-width', 2)
+      .on('mousemove', (evt, d) => {
+        // Position relative to the wrap div (which is `position: relative`),
+        // then clamp so the tooltip's right edge stays inside the wrap. With
+        // `viewBox` scaling, `offsetX` from the SVG can be in viewBox-units
+        // instead of CSS pixels in some browsers, so we go via `clientX`
+        // and `getBoundingClientRect` for predictable pixel coordinates.
+        const rect = wrap.getBoundingClientRect();
+        const cursorX = evt.clientX - rect.left;
+        const cursorY = evt.clientY - rect.top;
+        const TIP_MAX = 230;  // matches .commits-tooltip max-width + padding
+        const left = Math.max(0, Math.min(cursorX + 12, rect.width - TIP_MAX));
+        tooltip.style.left = left + 'px';
+        tooltip.style.top = (cursorY + 12) + 'px';
+        tooltip.style.opacity = 1;
+        tooltip.innerHTML = `
+          <div><strong>${escapeHtml(task)}</strong>: ${d.value.toFixed(3)}${d.isFinal ? ' (final eval)' : ''}</div>
+          <div>iter ${d.iter} · <code>${d.shortSha}</code>${d.isPicked ? ' · <span style="color:#facc15">picked</span>' : ''}</div>
+        `;
+      })
+      .on('mouseleave', () => { tooltip.style.opacity = 0; });
+  });
+
+  // Legend.
+  const legend = document.createElement('div');
+  legend.className = 'mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs';
+  tasks.forEach((task, ti) => {
+    const item = document.createElement('span');
+    item.className = 'inline-flex items-center gap-1';
+    item.innerHTML = `<span style="display:inline-block;width:10px;height:10px;background:${color(ti)};border-radius:2px"></span><code>${escapeHtml(task)}</code>`;
+    legend.appendChild(item);
+  });
+  wrap.appendChild(legend);
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// Copy the node id to clipboard for use in reports/debugging.
+window.copyNodeId = async function (id, btn) {
+  const flag = id;
+  try {
+    await navigator.clipboard.writeText(flag);
+  } catch {
+    // Fallback for non-secure-context: legacy execCommand path.
+    const ta = document.createElement('textarea');
+    ta.value = flag; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch {}
+    document.body.removeChild(ta);
+  }
+  if (btn) {
+    const orig = btn.innerHTML;
+    btn.classList.add('flash');
+    btn.innerHTML = `<span>${id}</span><span class="icon">copied ✓</span>`;
+    setTimeout(() => { btn.classList.remove('flash'); btn.innerHTML = orig; }, 1400);
+  }
+};
+
+// ─── Leaderboard ────────────────────────────────────────────────────
+async function refreshLeaderboard() {
+  // Populate subset selector if first time.
+  if (state.tree && !$('#leaderboard-subset').dataset.populated) {
+    const subsets = state.tree.subsets || [];
+    const sel = $('#leaderboard-subset');
+    sel.innerHTML = `<option value="">all subsets</option>` +
+      subsets.map(s => `<option value="${s}">${s}</option>`).join('');
+    sel.dataset.populated = '1';
+    sel.addEventListener('change', refreshLeaderboard);
+  }
+  const subset = $('#leaderboard-subset').value || '';
+  const url = subset
+    ? `/api/leaderboard?limit=20&subset=${encodeURIComponent(subset)}`
+    : `/api/leaderboard?limit=20`;
+  const res = await api(url);
+  const rows = res.rows || [];
+  if (!rows.length) {
+    $('#leaderboard-table').innerHTML = '<div class="text-gray-500 p-4">No completed nodes yet.</div>';
+    return;
+  }
+  $('#leaderboard-table').innerHTML = `
+    <table class="w-full text-sm">
+      <thead class="text-xs text-gray-400 uppercase border-b border-gray-800">
+        <tr>
+          <th class="text-left p-2">#</th>
+          <th class="text-left p-2">ID</th>
+          <th class="text-left p-2">Branch</th>
+          <th class="text-right p-2">Score</th>
+          <th class="text-right p-2">Δ vs parent</th>
+          <th class="text-right p-2">Δ vs root</th>
+          <th class="text-left p-2">Subset</th>
+          <th class="text-left p-2">Resolved</th>
+          <th class="text-left p-2">PR</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((r, i) => `
+          <tr class="border-b border-gray-800 hover:bg-[#1a2030] cursor-pointer"
+              onclick="selectNode('${r.node_id}')">
+            <td class="p-2 text-gray-500">${i + 1}</td>
+            <td class="p-2">
+              <button class="copy-id-btn" onclick="event.stopPropagation(); copyNodeId('${r.node_id}', this)"
+                      title="Copy node id ${r.node_id}">
+                <span>${r.node_id}</span><span class="icon">⧉</span>
+              </button>
+            </td>
+            <td class="p-2"><code>${r.branch}</code></td>
+            <td class="p-2 text-right font-mono">
+              <span class="badge" style="background: ${rgbForScore(r.score)}; color:#000">${r.score.toFixed(4)}</span>
+            </td>
+            <td class="p-2 text-right font-mono ${r.delta_vs_parent > 0 ? 'text-green-400' : r.delta_vs_parent < 0 ? 'text-red-400' : 'text-gray-400'}">
+              ${r.delta_vs_parent === null ? '—' : (r.delta_vs_parent >= 0 ? '+' : '') + r.delta_vs_parent.toFixed(4)}
+            </td>
+            <td class="p-2 text-right font-mono ${r.delta_vs_root > 0 ? 'text-green-400' : r.delta_vs_root < 0 ? 'text-red-400' : 'text-gray-400'}">
+              ${r.delta_vs_root === null ? '—' : (r.delta_vs_root >= 0 ? '+' : '') + r.delta_vs_root.toFixed(4)}
+            </td>
+            <td class="p-2 text-gray-300">${r.subset}</td>
+            <td class="p-2 text-xs text-gray-300">
+              ${(r.resolved_tasks || []).map(t => {
+                const tname = typeof t === 'string' ? t : (t.task || '?');
+                const passed = typeof t === 'object' ? t.resolved : true;
+                return `<span class="badge ${passed ? 'bg-green-900 text-green-300' : 'bg-gray-700 text-gray-400'}">${tname}</span>`;
+              }).join(' ')}
+            </td>
+            <td class="p-2 text-xs">
+              ${r.pr_url ? `<a href="${r.pr_url}" target="_blank" class="text-blue-400">↗</a>` : ''}
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+// ─── Report view ────────────────────────────────────────────────────
+async function refreshReport() {
+  const body = $('#report-body');
+  try {
+    const txt = await api('/api/report');
+    body.innerHTML = marked.parse(txt);
+  } catch (e) {
+    body.innerHTML = `
+      <div class="text-gray-400">
+        REPORT.md not generated yet. Click <em>Generate / refresh report</em>
+        above to synthesize one (uses cursor-agent in plan mode; takes
+        several minutes).
+      </div>`;
+  }
+}
+$('#generate-report-btn').addEventListener('click', async () => {
+  const btn = $('#generate-report-btn');
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+  try {
+    await fetch('/api/report/generate', { method: 'POST' });
+    await refreshReport();
+  } catch (e) {
+    alert('failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Generate / refresh report';
+  }
+});
+
+// ─── Active pipelines ───────────────────────────────────────────────
+function _heartbeatAgeLabel(ts) {
+  if (!ts) return 'no heartbeat';
+  const parsed = Date.parse(ts);
+  if (!Number.isFinite(parsed)) return 'heartbeat unknown';
+  const seconds = Math.max(0, Math.floor((Date.now() - parsed) / 1000));
+  if (seconds < 90) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 90) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+}
+
+function _pipelineStatusText(p) {
+  const state = p.liveness_state || (p.is_stale ? 'stale_heartbeat_unknown' : 'running');
+  if (state === 'running_mini_eval' || state === 'running_mini_eval_heartbeat_delayed') {
+    return 'running mini-eval';
+  }
+  if (state === 'running_full_eval' || state === 'running_full_eval_heartbeat_delayed') {
+    return 'running full eval';
+  }
+  if (state === 'running_subset_final' || state === 'running_subset_final_heartbeat_delayed') {
+    return 'running subset final eval';
+  }
+  if (state === 'running_heartbeat_delayed') return 'heartbeat delayed';
+  if (state === 'orphaned') return 'orphaned';
+  if (state === 'stale_heartbeat_unknown') return 'possibly orphaned';
+  return p.status || state;
+}
+
+function _pipelineStatusClass(p) {
+  const state = p.liveness_state || '';
+  if (state === 'orphaned') return 'text-red-400';
+  if (state === 'running_mini_eval' || state === 'running_mini_eval_heartbeat_delayed' ||
+      state === 'running_full_eval' || state === 'running_full_eval_heartbeat_delayed' ||
+      state === 'running_subset_final' || state === 'running_subset_final_heartbeat_delayed') return 'text-emerald-300';
+  if (state === 'running_heartbeat_delayed' || state === 'stale_heartbeat_unknown') return 'text-amber-300';
+  return 'text-gray-500';
+}
+
+function _evalProgressText(p) {
+  if (!p.eval_active && p.eval_finished_at === undefined && p.eval_n_trials === undefined) return '';
+  const parts = [];
+  if (p.eval_n_trials !== undefined && p.eval_n_total_trials !== undefined && p.eval_n_total_trials !== null) {
+    parts.push(`${p.eval_n_trials}/${p.eval_n_total_trials} trials`);
+  } else if (p.eval_n_trials !== undefined && p.eval_n_trials !== null) {
+    parts.push(`${p.eval_n_trials} trials`);
+  }
+  if (p.eval_score !== undefined && p.eval_score !== null) {
+    parts.push(`mean ${Number(p.eval_score).toFixed(3)}`);
+  }
+  if (p.eval_n_errors !== undefined && p.eval_n_errors !== null) {
+    parts.push(`${p.eval_n_errors} errors`);
+  }
+  if (!parts.length && p.eval_job_path) {
+    if (p.eval_kind === 'full_eval') return 'full eval starting';
+    if (p.eval_kind === 'subset_final') return 'subset final eval starting';
+    return 'mini-eval starting';
+  }
+  return parts.join(' · ');
+}
+
+function _activePipelineCard(p) {
+  const statusText = _pipelineStatusText(p);
+  const statusClass = _pipelineStatusClass(p);
+  const progress = _evalProgressText(p);
+  const targetNodeId = p.child_node_id || null;
+  const clickAttrs = targetNodeId
+    ? ` data-node-id="${escapeHtml(targetNodeId)}" onclick="selectNode(this.dataset.nodeId, { scrollIntoView: true })" title="Click to inspect child node ${escapeHtml(targetNodeId)}"`
+    : '';
+  const cardClass = targetNodeId ? 'cursor-pointer hover:bg-[#1a2030]' : '';
+  const heartbeat = p.heartbeat_stale
+    ? `<div class="text-xs text-amber-400">last heartbeat ${escapeHtml(_heartbeatAgeLabel(p.heartbeat_at))}</div>`
+    : '';
+  const reason = p.liveness_reason
+    ? `<div class="text-xs text-gray-500">${escapeHtml(p.liveness_reason)}</div>`
+    : '';
+  const border = p.liveness_state === 'orphaned'
+    ? 'border-red-900'
+    : ((p.is_stale || p.heartbeat_stale) ? 'border-amber-900' : '');
+  return `
+    <div class="pane p-2 ${border} ${cardClass}"${clickAttrs}>
+      <div class="flex items-center justify-between text-xs">
+        <code>${escapeHtml(p.id)}</code>
+        <span class="${statusClass}">${escapeHtml(statusText)}</span>
+      </div>
+      <div class="text-xs text-gray-400">
+        ${p.child_node_id ? `child ${escapeHtml(p.child_node_id)}` : 'no child yet'}
+        ${p.parent_node_id ? ` · parent ${escapeHtml(p.parent_node_id)}` : ''}
+      </div>
+      <div class="text-xs text-gray-500">iter ${escapeHtml(String(p.current_iteration ?? 0))} · ${escapeHtml((p.selected_tasks || []).join(', '))}</div>
+      ${progress ? `<div class="text-xs text-emerald-300">${escapeHtml(progress)}</div>` : ''}
+      ${heartbeat}
+      ${reason}
+      <div class="pip-bar mt-1"><div style="width: ${Math.min(100, (p.current_iteration || 0) * 10)}%"></div></div>
+    </div>
+  `;
+}
+
+function _preflightStatusText(p) {
+  if (!p) return '';
+  if (p.status === 'running') return 'running';
+  if (p.status === 'completed') return (p.eval_n_errors || 0) > 0 ? 'errors' : 'passed';
+  if (p.status === 'failed') return 'failed';
+  if (p.status === 'stale') return 'stale';
+  return p.status || 'unknown';
+}
+
+function _preflightStatusClass(p) {
+  if (!p) return 'text-gray-500';
+  if (p.status === 'completed' && (p.eval_n_errors || 0) === 0) return 'text-emerald-300';
+  if (p.status === 'running') return 'text-sky-300';
+  if (p.status === 'failed' || p.status === 'stale' || (p.eval_n_errors || 0) > 0) return 'text-amber-300';
+  return 'text-gray-500';
+}
+
+function _preflightPassed(p) {
+  return p?.status === 'completed' && (p.eval_n_errors || 0) === 0;
+}
+
+function _preflightMiniEvalCard(p) {
+  if (!p) return '';
+  const progress = _evalProgressText({
+    eval_active: p.status === 'running',
+    eval_kind: 'mini_eval',
+    eval_job_path: p.result_path || p.job_name,
+    eval_n_trials: p.eval_n_trials,
+    eval_n_total_trials: p.eval_n_total_trials || p.n_total_trials,
+    eval_n_errors: p.eval_n_errors,
+    eval_score: p.eval_score,
+    eval_finished_at: p.eval_finished_at,
+  });
+  const warning = (p.status === 'completed' && (p.eval_n_errors || 0) > 0)
+    ? '<div class="text-xs text-amber-300">check preflight log</div>'
+    : '';
+  return `
+    <div class="pane preflight-card p-2 border-sky-900">
+      <div class="preflight-head text-xs">
+        <span class="preflight-label">Mini-eval preflight</span>
+        <span class="preflight-status ${_preflightStatusClass(p)}">${escapeHtml(_preflightStatusText(p))}</span>
+      </div>
+      ${progress ? `<div class="preflight-text text-xs text-emerald-300">${escapeHtml(progress)}</div>` : ''}
+      ${warning}
+    </div>
+  `;
+}
+
+async function refreshActive() {
+  try {
+    const res = await api('/api/pipelines/active');
+    const preflight = $('#preflight-mini-eval');
+    const preflightState = res.preflight_mini_eval;
+    const preflightHtml = preflightState ? _preflightMiniEvalCard(preflightState) : '';
+    const preflightPassed = _preflightPassed(preflightState);
+    preflight.innerHTML = preflightHtml && !preflightPassed ? preflightHtml : '';
+    const c = $('#active-pipelines');
+    const liveRows = res.rows || [];
+    const staleRows = res.stale_rows || [];
+    const completedPreflightHtml = preflightHtml && preflightPassed ? preflightHtml : '';
+    if (!liveRows.length && !staleRows.length) {
+      c.innerHTML = '<div class="text-xs text-gray-600 px-2">none running</div>' + completedPreflightHtml;
+      return;
+    }
+    const liveHtml = liveRows.map(p => _activePipelineCard(p)).join('');
+    const staleHtml = staleRows.length
+      ? `<div class="text-xs text-amber-300 px-2 mt-2">needs attention</div>
+         ${staleRows.map(p => _activePipelineCard(p)).join('')}`
+      : '';
+    c.innerHTML = liveHtml + staleHtml + completedPreflightHtml;
+  } catch (e) { /* ignore transient errors */ }
+}
+
+// ─── Activity feed (last few log lines from active pipelines) ───────
+async function refreshActivity() {
+  try {
+    const res = await api('/api/pipelines/active');
+    const lines = [];
+    const rows = [...(res.rows || []), ...(res.stale_rows || [])].slice(0, 4);
+    for (const p of rows) {
+      const progress = _evalProgressText(p);
+      const status = progress
+        ? `${_pipelineStatusText(p)}, ${progress}`
+        : _pipelineStatusText(p);
+      lines.push(`── ${p.id} (${p.child_node_id || 'no child'}, iter ${p.current_iteration}, ${status}) ──`);
+      if (p.log_tail) lines.push(p.log_tail.trim());
+    }
+    $('#activity-feed').textContent = lines.join('\n');
+  } catch { /* ignore */ }
+}
+
+// ─── Refresh loop ───────────────────────────────────────────────────
+async function refreshAll() {
+  try {
+    state.tree = await api('/api/tree');
+    renderTree(state.tree);
+    renderTopbar(state.tree);
+  } catch (e) {
+    console.warn(e);
+  }
+  refreshActive();
+  refreshActivity();
+  if (state.view === 'leaderboard') refreshLeaderboard();
+  // Keep the Logs / Commits tabs of the selected node fresh — they pull
+  // from on-disk files (run.log, cursor JSONL, effort.md) that the
+  // pipeline is actively appending to. Without this, the user would have
+  // to re-click the node every 5 seconds to see new events.
+  if (state.selectedNodeId) refreshSelectedNodeDetail();
+}
+
+// Re-fetch the active node + re-render whichever live tab the user is on.
+// "Live" = a tab whose content can change while the user looks at it
+// (logs, commits). The other tabs (Overview, Works, Effort, Learnings,
+// Prompts) read from `currentNodeData` which we ALSO refresh here, so the
+// next time the user flips back to one of those tabs they'll see the
+// freshest cached snapshot.
+async function refreshSelectedNodeDetail() {
+  const id = state.selectedNodeId;
+  if (!id) return;
+  try {
+    const fresh = await api(`/api/node/${id}`);
+    // Race guard: by the time the fetch returns the user may have clicked
+    // a different node. Drop the stale response.
+    if (state.selectedNodeId !== id) return;
+    currentNodeData = fresh;
+  } catch { /* keep stale data on transient failure */ }
+  const activeTab = $('#node-tabs .tab-btn.active')?.dataset?.tab;
+  const c = $('#node-tab-content');
+  // Logs is push-driven via SSE (see renderLogsTab) — no polling needed.
+  if (activeTab === 'commits') {
+    renderCommitsTab(c, currentNodeData, { silent: true });
+  }
+}
+
+refreshAll();
+setInterval(refreshAll, 5000);
+
+// SSE: refresh promptly when state.db changes.
+try {
+  const es = new EventSource('/events');
+  es.onmessage = () => refreshAll();
+} catch {}
+</script>
+</body>
+</html>

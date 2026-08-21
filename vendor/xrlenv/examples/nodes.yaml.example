@@ -1,0 +1,120 @@
+# XRLEnv operator inventory + cluster docker-kwarg policy.
+#
+# This is a TEMPLATE — copy to ``nodes.yaml`` on the operator VM
+# (the one running the control plane) and edit. Node VMs never read
+# this file; only the control plane does, and it re-reads on
+# restart / ``xrlenv reload``.
+#
+# ─────────────────────────────────────────────────────────────────
+# What this file does
+# ─────────────────────────────────────────────────────────────────
+#
+# 1. ``nodes:`` — the operator-declared roster. Empty list = "accept
+#    whatever connects with a valid bearer token" (single-node /
+#    laptop mode). A populated list lets ``xrlenv nodes`` and the
+#    admin panel show un-connected entries you're waiting for, and
+#    surfaces a warning if an unexpected node attaches.
+#
+# 2. ``policy:`` — cluster-wide docker-kwarg policy (issue #6). Four
+#    tiers; defaults work for swebench, terminal-bench, coding-bench,
+#    and SCUBA-style KVM benchmarks out of the box. Operators only
+#    edit when they want to restrict (deny a cap) or opt in to a
+#    Level-2 risk (host networking, privileged mode, host paths).
+#
+# After editing: restart the control plane only. Node VMs do not
+# need a touch — policy is enforced server-side.
+
+version: 1
+
+# ─── Node inventory ──────────────────────────────────────────────
+# Each entry's ``auth_token_env`` names the environment variable the
+# control plane reads to obtain that node's bearer token at startup.
+# The node-VM bootstrap writes the same token into
+# ``/etc/xrlenv/node.env`` so the daemons match up.
+nodes:
+  - id: gcp-us-central1-a-1
+    address: internal-ip        # node-VM internal IP; for operator-side dial-back / admin display only.
+    cloud: gcp
+    instance_type: e2-standard-4
+    backends: [docker]
+    auth_token_env: XRLENV_NODE_TOKEN_GCP_1
+
+  - id: aws-us-east-1-1
+    address: internal-ip
+    cloud: aws
+    instance_type: m6i.xlarge
+    backends: [docker]
+    auth_token_env: XRLENV_NODE_TOKEN_AWS_1
+    # sysbox: true       # ← Sysbox node-pool member (see policy.allowed_runtimes
+    #                    #   below + xrlenv_plugins/sysbox/). Only mark AFTER
+    #                    #   installing Sysbox on the node. Sysbox is a
+    #                    #   container-escape surface — keep the pool to
+    #                    #   dev / single-tenant nodes.
+    # max_concurrent_by_runtime:   # ← per-node cap on concurrently RUNNING
+    #   sysbox-runc: 8             #   containers of a runtime. Bounds sysbox-fs
+    #                    #   load so a create/exec storm can't wedge the FUSE
+    #                    #   daemon; overflow queues in the admission queue.
+    #                    #   Absent ⇒ unlimited (unchanged). Distinct from the
+    #                    #   node-side create-serialization. See
+    #                    #   notes/design-per-node-runtime-concurrency-cap.md.
+
+# ─── Cluster docker-kwarg policy (issue #6) ──────────────────────
+# Defaults unblock the current benchmark set. Each knob is documented
+# inline; uncomment or change values to tune.
+policy:
+  # ── Level 1: allowed by default, you can clamp ────────────────
+
+  # Host devices the harness may pass via docker-py ``devices=[...]``.
+  # Defaults unblock:
+  #   /dev/kvm       — SCUBA-style nested-VM benchmarks
+  #   /dev/net/tun   — userland VPN / network tooling
+  #   /dev/fuse      — userspace filesystems
+  # Append more as benchmarks demand (e.g. /dev/dri/card0 for GPU);
+  # set to ``[]`` to deny all device passthrough.
+  allowed_devices:
+    - /dev/kvm
+    - /dev/net/tun
+    - /dev/fuse
+
+  # Linux capabilities the harness MUST NOT add via ``cap_add=[...]``.
+  # The Level-1 elevated cap set (NET_ADMIN, SYS_ADMIN, SYS_MODULE,
+  # SYS_RAWIO, ...) is allowed by default; list any to clamp.
+  # ``CAP_`` prefix is normalized — ``CAP_SYS_MODULE`` and
+  # ``SYS_MODULE`` are equivalent.
+  denied_caps: []
+  # Example:
+  # denied_caps: [SYS_MODULE]
+
+  # ── Level 2: rejected by default, you opt in ──────────────────
+
+  # Allow ``network_mode=host``. The container shares the node VM's
+  # network stack — bypasses xrlenv's egress allowlist (spec-19).
+  # Only useful when a benchmark needs raw access to host-routable
+  # networks (deep-research benchmarks).
+  allow_host_network: false
+
+  # Allow ``privileged=True``. The container receives all
+  # capabilities and full /dev access — a true sandbox escape
+  # surface. Rare; most benchmarks don't need it (KVM uses
+  # ``/dev/kvm`` plus ``NET_ADMIN`` instead).
+  allow_privileged: false
+
+  # Host paths the harness may bind into the container via
+  # ``volumes=`` or ``host_config.Binds``. Paths refer to the NODE
+  # VM's filesystem, not the trainer host's; prefer
+  # ``container.put_archive(...)`` for copying data in. Useful only
+  # when nodes have a shared dataset mount.
+  allowed_host_paths: []
+  # Example:
+  # allowed_host_paths: [/mnt/datasets, /mnt/cache]
+
+  # OCI runtimes the harness may select via ``container_runtime`` (SDK) /
+  # ``runtime=`` (docker-py). EMPTY BY DEFAULT → every non-runc override is
+  # rejected; ``runc`` (docker's default) needs no entry. Opt in per cluster
+  # to permit Sysbox for unprivileged Docker-in-Docker / systemd / netns —
+  # an alternate runtime changes container isolation, so this is a Level-2
+  # risk. Pair with per-node ``sysbox: true`` above and the install toolkit
+  # under ``xrlenv_plugins/sysbox/``.
+  allowed_runtimes: []
+  # Example:
+  # allowed_runtimes: [sysbox-runc]

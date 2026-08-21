@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}health{% endblock %}
+{% block content %}
+<h1>Cluster health</h1>
+<p class="page-subtitle">
+  Per-node health signals + triage. Summary totals live on
+  <a href="/">overview</a>; disk / cache pressure on
+  <a href="/capacity">capacity</a>.
+</p>
+
+{% if all_clear %}
+  <p class="ok">All clear, last evaluated {{ evaluated_at_label }}, {{ check_count }} checks run.</p>
+{% else %}
+  <p class="warn">Findings below were last evaluated {{ evaluated_at_label }} across {{ check_count }} checks.</p>
+{% endif %}
+
+<section>
+  <h2>Node signals</h2>
+  {% if not nodes %}
+    <p class="muted">No connected nodes.</p>
+  {% else %}
+  <details class="muted">
+    <summary>What do these columns mean?</summary>
+    <dl class="legend">
+      <dt>running</dt>
+      <dd>Containers running on the node <em>right now</em> (live count).</dd>
+      <dt>docker-run p95</dt>
+      <dd>95th-percentile wall-time of a <code>docker run</code> over the last
+        ~2&nbsp;min. The <em>smooth saturation</em> signal — a slow docker
+        daemon shows up here first.</dd>
+      <dt>creates (last 2m)</dt>
+      <dd><em>Throughput</em>: how many containers the node created in the last
+        ~2&nbsp;min. A count over time, not a live value.</dd>
+      <dt>errors / timeouts (2m)</dt>
+      <dd><em>Failures</em> in the window (timeouts are a subset of errors).
+        This is the <em>emergency</em> signal — non-zero here is the thing to
+        worry about.</dd>
+      <dt>create gate (active / waiting)</dt>
+      <dd><em>Live concurrency</em> at the node's create gate: creates running
+        <em>this instant</em> vs. ones waiting for a gate slot. "waiting" is
+        brief, healthy backpressure — <strong>not</strong> an error, and a
+        different thing from a rollout <em>queued for capacity</em> in the
+        sessions table below.</dd>
+      <dt>adaptive limit</dt>
+      <dd>The current AIMD admission ceiling for the node (<code>—</code> when
+        adaptive admission is off or the node hasn't been ticked).</dd>
+      <dt>heartbeat age</dt>
+      <dd>Seconds since the node's last heartbeat.</dd>
+    </dl>
+  </details>
+  <table class="data">
+    <thead><tr>
+      <th>node</th>
+      <th>running</th>
+      <th>docker-run p95</th>
+      <th>creates (last 2m)</th>
+      <th>errors / timeouts (2m)</th>
+      <th>create gate (active / waiting)</th>
+      <th>adaptive limit</th>
+      <th>heartbeat age</th>
+    </tr></thead>
+    <tbody>
+      {% for n in nodes %}
+      <tr {% if not n.healthy %}class="status-failed"{% endif %}>
+        <td>{{ n.node_id }}</td>
+        <td>{{ n.running }}</td>
+        <td>
+          {% if n.has_health %}{{ "%.0f"|format(n.create_p95_ms) }} ms
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td>
+        <td>{{ n.create_count }}</td>
+        <td>{{ n.docker_error_count }} / {{ n.docker_timeout_count }}</td>
+        <td>{{ n.create_inflight }} / {{ n.create_queued }}</td>
+        <td>
+          {% if n.adaptive_limit is not none %}{{ n.adaptive_limit }}
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td>
+        <td>{{ "%.0f"|format(n.heartbeat_age_s) }}s</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% endif %}
+</section>
+
+<section>
+  <h2>Long-running &amp; queued sessions</h2>
+  <details class="muted">
+    <summary>What this list means — age heuristic, not a failure</summary>
+    <p>
+      Sessions alive beyond {{ long_running_threshold_label }} (2&times; the
+      default 1h hard deadline) — an <strong>age heuristic for triage, not a
+      failure</strong>. The <code>state</code> column says which is which:
+      <code>running</code> is executing (long-horizon rollouts and persistent
+      substrate containers like EvoClaw legitimately run for hours);
+      <code>queued — awaiting capacity</code> is parked in the <em>admission
+      queue</em> waiting for a whole container slot (backpressure), not hung —
+      distinct from a node's short-lived create-gate "waiting" above. Neither
+      flips the health banner; to judge a specific one, open the rollout or check
+      its node's signals.
+    </p>
+  </details>
+  {% if not long_running %}
+    <p class="muted">None alive beyond {{ long_running_threshold_label }}.</p>
+  {% else %}
+  <table class="data">
+    <thead><tr><th>kind</th><th>id</th><th>node</th><th>state</th><th>image / template</th><th>age</th></tr></thead>
+    <tbody>
+      {% for s in long_running %}
+      <tr>
+        <td>{{ s.kind }}</td>
+        <td><code>{{ s.id[:16] }}</code></td>
+        <td>{{ s.node_id }}</td>
+        <td>{{ s.state }}</td>
+        <td>{{ s.label }}</td>
+        <td>{{ s.age_label }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Failure rate (last 30 min)</h2>
+  {% if not failure_rate_high %}
+    <p class="muted">No workload above the 25% failure threshold.</p>
+  {% else %}
+  <table class="data">
+    <thead><tr><th>workload</th><th>started</th><th>failed</th><th>rate</th></tr></thead>
+    <tbody>
+      {% for f in failure_rate_high %}
+      <tr class="status-failed">
+        <td>{{ f.workload }}</td>
+        <td>{{ f.started }}</td>
+        <td>{{ f.failed }}</td>
+        <td>{{ "%.0f"|format(f.rate * 100) }}%</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endblock %}

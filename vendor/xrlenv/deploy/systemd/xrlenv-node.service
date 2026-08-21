@@ -1,0 +1,62 @@
+[Unit]
+Description=XRLEnv node agent (spec 04)
+Documentation=https://github.com/your-org/xrlenv
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=xrlenv
+Group=xrlenv
+EnvironmentFile=/etc/xrlenv/node.env
+# P6 CPU isolation opt-in (scripts/enable_cpu_isolation.sh). OPTIONAL (leading
+# '-'): absent on a stock node, so no effect. When present it carries
+# XRLENV_SELFTEST_IMAGE — kept in a SEPARATE file so it survives the node.env
+# rewrite bootstrap/refresh does on every run.
+EnvironmentFile=-/etc/xrlenv/cpu_isolation.env
+ExecStart=/opt/xrlenv/.venv/bin/xrlenv-node serve \
+  --control-plane ${XRLENV_CONTROL_PLANE} \
+  --node-id ${XRLENV_NODE_ID} \
+  --runs-root /var/lib/xrlenv/runs
+Restart=always
+RestartSec=5s
+# Reconnect storms shouldn't trigger systemd's restart limit.
+StartLimitIntervalSec=300
+StartLimitBurst=20
+WorkingDirectory=/opt/xrlenv
+StandardOutput=journal
+StandardError=journal
+# Egress restriction (spec 07): the node-agent enters a managed container's
+# network namespace (`nsenter -t <pid> -n iptables …`) to install the egress
+# allowlist. That requires CAP_SYS_PTRACE (open the root-owned container's
+# /proc/<pid>/ns/net — the exact failure without it), CAP_SYS_ADMIN (setns
+# into the netns), and CAP_NET_ADMIN (iptables/ip6tables within it). Granted
+# as *ambient* caps so the non-root `xrlenv` user keeps them across the setuid,
+# and bounded to exactly these three. This is not a net-new exposure: the
+# node-agent already has docker-socket access (root-equivalent); these caps
+# just let the nsenter enforcement path work without escalating to full root.
+# AmbientCapabilities is compatible with NoNewPrivileges=true (systemd applies
+# the ambient set at exec, before the no-new-privs lock).
+AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_ADMIN CAP_SYS_PTRACE
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_ADMIN CAP_SYS_PTRACE
+# Spec 19 sandboxing: refuse new privileges, lock down the agent process.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/xrlenv /var/cache/xrlenv /etc/xrlenv
+# Per-instance writable /tmp namespace. Required because
+# ProtectSystem=strict makes the entire filesystem read-only
+# except paths in ReadWritePaths — including /tmp, which Python's
+# tempfile module (used by GitSourceBuilder for the
+# clone-into-tempdir-then-size-check flow, plus other daemon
+# tempfiles) needs writable. Without this directive,
+# ``tempfile.TemporaryDirectory()`` raises ``FileNotFoundError:
+# No usable temporary directory found in ['/tmp', '/var/tmp',
+# '/usr/tmp', '/opt/xrlenv']``. PrivateTmp=true gives the unit
+# its own tmpfs at /tmp; the host's /tmp is unaffected, so daemon
+# tempfiles can't pollute or be polluted by other services.
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

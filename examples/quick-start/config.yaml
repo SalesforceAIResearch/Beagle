@@ -1,0 +1,66 @@
+# config.yaml — beagle's canonical run config. SELF-CONTAINED: the harness's identity + source
+# (repo/ref) live inline here, so there's no separate `agent:` manifest indirection. Role-based
+# (evolvee / evolver); agent-level knobs live ON the agent. Machine facts/secrets stay in .env.
+
+run:
+  dir: ./tmp                  # a run lands in <dir>/<name>/
+  name: darwin-yaml           # run name = campaign id
+  runtime: xrlenv-cluster     # local | xrlenv-cluster
+  parallelism: 8              # concurrent eval trials
+
+# θ — the harness under evolution. opencode: a stable released agent with an experiment copy.
+evolvee:
+  harness:
+    name: opencode         # the agent/harness type (resolved to the `opencode` adapter that runs it)
+    version: 1.18.16            # the experiment-copy version → identity opencode_v1.18.16
+    source:
+      repo: https://github.com/<your-org>/opencode_v1.18.16     # the experiment copy (θ's home)
+      ref: f2fddc2bbe130f02fa1df6ebe6661de054eaaeb7                   # the copy's baseline commit (snapshot of upstream a3647eb)
+      token_env: GH_TOKEN                                             # env var holding the clone token
+      upstream: https://github.com/anomalyco/opencode                 # where the copy was forked from
+      dir: ../beagle-experiments/opencode_v1.18.16                   # local checkout (DarwinX links it in)
+  model:
+    name: gpt-5.5               # --effort works across model families, so this isolates the model.
+  provider: llm-gateway-express-local-proxy   # how THIS agent reaches the LLM (per-agent)
+  forward_env:
+    - LLM_GATEWAY_EXPRESS_API_KEY
+    - LLM_GATEWAY_EXPRESS_API_KEY_LIST
+    - LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL
+  effort: high                # reasoning effort
+  max_turns: 150              # agentic budget (opencode accepts it for uniformity; it has no turn-cap flag)
+  timeout: 12000              # per-rollout wall-clock seconds
+  extra_args:                 # agent-specific CLI, keyed by <agent>_args
+    opencode_args:
+      - --auto
+
+# the mutation operator — cursor uses its own auth (cursor-agent login) + has no evolvable source.
+evolver:
+  harness:
+    name: cursor-agent
+    version: 2026.08.04-aaa8809
+  model:
+    name: gpt-5.5-high
+
+# the optimizer — DarwinX + its typed knobs (launch paths + effort derived from the run/evolvee).
+algorithm:
+  name: darwinx
+  hparams:
+    max_loop_iters: 1
+    fullset_eval_n_attempts: 1
+
+# The data — the benchmark + tasks to evolve on. DarwinX is single-benchmark → the first group.
+#
+# Each benchmark ships a DEFAULT instruction template (framing) — the .j2 next to its adapter. To
+# OVERRIDE it for a run, set `options.instruction_template` (a path to a .j2, or an inline string
+# rendered with {{ problem_statement }}, {{ repo_path }}, {{ task_id }}, **task.extras). Leave it
+# unset to use the benchmark's default. Agent-agnostic: the framing is benchmark-side, not per-agent.
+data:
+  - benchmark: terminal_bench_2_1
+    tasks: [bn-fit-modify]                                 # the primary set to evolve on (→ subset_tasks)
+    # exclude_task_ids: [flaky-task]                       # → MONET_EVAL_EXCLUDE_TASKS (denylist)
+    # options:
+    #   instruction_template: prompts/my_tb_framing.j2      # override this benchmark's default prompt
+    #   # DarwinX task-subset stratification (all optional; omit → the driver's own defaults):
+    #   priority_tasks: [hard-1, hard-2]                    # → MONET_EVAL_PRIORITY_TASKS (front-loaded)
+    #   variance_tasks: [noisy-1]                           # → MONET_EVAL_VARIANCE_TASKS  (avg@k probe set)
+    #   fullset_tasks:  [t1, t2, t3]                        # → MONET_EVAL_FULLSET_TASKS   (the scoring set)

@@ -1,0 +1,808 @@
+version: 1
+name: terminal-bench-2-89-task
+replication: 1
+budget:
+  reserved_runtime_gb: 30
+  buffer_gb: 10
+entries:
+- image_ref: alexgshaw/adaptive-rejection-sampler:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 5552
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/bn-fit-modify:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 573034661
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/break-filter-js-from-html:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 917068123
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/build-cython-ext:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 716951247
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/build-pmars:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 64105874
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/build-pov-ray:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 309955131
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/caffe-cifar-10:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 429931810
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/cancel-async-tasks:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 0
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/chess-best-move:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 522326869
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/circuit-fibsqrt:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 252042557
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/cobol-modernization:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 304129484
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/code-from-image:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 95041
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/compile-compcert:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 0
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/configure-git-webserver:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 65115733
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/constraints-scheduling:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 60132246
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/count-dataset-tokens:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 0
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/crack-7z-hash:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 670434842
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/custom-memory-heap-crash:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 4155549767
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/db-wal-recovery:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 420190822
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/distribution-search:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 271582337
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/dna-assembly:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 7712
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/dna-insert:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 7238
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/extract-elf:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 920250949
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/extract-moves-from-video:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 0
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/feal-differential-cryptanalysis:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 17910940
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/feal-linear-cryptanalysis:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 274694732
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/filter-js-from-html:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 905835021
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/financial-document-processor:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 49960922
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/fix-code-vulnerability:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 335719992
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/fix-git:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 189894493
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/fix-ocaml-gc:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1062185605
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/gcode-to-text:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2094618
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/git-leak-recovery:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 139328925
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/git-multibranch:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 539735154
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/gpt2-codegolf:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 768723202
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/headless-terminal:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 27420269
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/hf-model-inference:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 8635926043
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/install-windows-3.11:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1468395345
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/kv-store-grpc:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 0
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/large-scale-text-editing:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 131355189
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/largest-eigenval:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 94259541
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/llm-inference-batching-scheduler:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 111659
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/log-summary-date-ranges:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 5994965
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/mailman:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 342609777
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/make-doom-for-mips:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 344465607
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/make-mips-interpreter:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1437925087
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/mcmc-sampling-stan:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 507238519
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/merge-diff-arc-agi-task:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 9230
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/model-extraction-relu-logits:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 91260867
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/modernize-scientific-stack:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 902505148
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/mteb-leaderboard:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 12518267437
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/mteb-retrieve:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 12465911760
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/multi-source-data-merger:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 406634695
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/nginx-request-logging:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 38453626
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/openssl-selfsigned-cert:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 4695
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/overfull-hbox:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 233796062
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/password-recovery:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 112299921
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/path-tracing:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 998188203
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/path-tracing-reverse:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 327922747
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/polyglot-c-py:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 262754731
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/polyglot-rust-c:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 697872160
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/portfolio-optimization:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 459346812
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/protein-assembly:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 6628
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/prove-plus-comm:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1210380406
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/pypi-server:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 86030755
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/pytorch-model-cli:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 571317
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/pytorch-model-recovery:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 8410565692
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/qemu-alpine-ssh:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 0
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/qemu-startup:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 0
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/query-optimize:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 170271035
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/raman-fitting:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 88805
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/regex-chess:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 17298531
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/regex-log:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 0
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/reshard-c4-data:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2624295188
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/rstan-to-pystan:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 62559809
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/sam-cell-seg:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1110400930
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/sanitize-git-repo:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 239611326
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/schemelike-metacircular-eval:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 60770
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/sparql-university:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 10481
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/sqlite-db-truncate:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 4096
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/sqlite-with-gcov:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 12640708
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/torch-pipeline-parallelism:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 0
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/torch-tensor-parallelism:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 0
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/train-fasttext:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 716087644
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/tune-mjcf:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 120287010
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/video-processing:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 595439027
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/vulnerable-secret:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 252063641
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/winning-avg-corewars:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 630522331
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/write-compressor:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 698953399
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0

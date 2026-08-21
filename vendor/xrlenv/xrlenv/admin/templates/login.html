@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>XRLEnv admin — sign in</title>
+  <link rel="stylesheet" href="/static/xrlenv.css?v=admin-ia-5">
+</head>
+<body class="login-page">
+  <main class="login-main">
+    <form class="login-card" method="post" action="/login">
+      <div class="login-brand">xrlenv</div>
+      <h1>Sign in</h1>
+      <p class="login-hint">
+        Paste a consumer, viewer, or operator token. A consumer/viewer token
+        gives a read-only view scoped to its owner; an operator token sees the
+        whole cluster and can run actions.
+      </p>
+      {% if error %}
+      <p class="login-error" role="alert">{{ error }}</p>
+      {% endif %}
+      <input type="hidden" name="next" value="{{ next }}">
+      <label class="login-field">
+        <span>Token</span>
+        <input type="password" name="token" autocomplete="current-password"
+               autofocus required spellcheck="false" placeholder="write_… / read_… / …">
+      </label>
+      <button type="submit" class="login-submit">Sign in</button>
+    </form>
+  </main>
+</body>
+</html>

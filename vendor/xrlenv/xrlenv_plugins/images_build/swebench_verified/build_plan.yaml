@@ -1,0 +1,103 @@
+version: 1
+name: swebench-verified-smoke-8
+replication: 1
+budget:
+  reserved_runtime_gb: 30
+  buffer_gb: 10
+entries:
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-7166:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1070658379
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-7166
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11099:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1107856672
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11099
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-18189:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1041319476
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-18189
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-12907:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1091216468
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-12907
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-14182:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1095023550
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-14182
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-13615:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1026792603
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-13615
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11138:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1108549492
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11138
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-12489:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1021237456
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-12489

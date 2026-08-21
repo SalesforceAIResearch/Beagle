@@ -1,0 +1,75 @@
+# Default QC profile — the general agent-debugger taxonomy.
+#
+# Rule proposers (deterministic, offline) cover the locally-visible categories;
+# LLM proposers (run only when a client is configured) cover the semantic ones.
+# Filters remove the blog's named false positives; the merger dedups.
+name: default
+
+proposers:
+  # ── rule proposers: deterministic, high-precision, local ──────────────────
+  - {name: tool_error, type: rule, rule: tool_error}        # broad; filters drop expected ones
+  - {name: incomplete_run, type: rule, rule: incomplete_run}      # run never finished
+  - {name: early_truncation, type: rule, rule: early_truncation}  # model truncated a reply mid-turn
+  - {name: behavioral_loop, type: rule, rule: behavioral_loop}
+  # high-precision slice of premature completion: claims success, last test red
+  - {name: premature_completion, type: rule, rule: premature_completion}
+
+  # ── LLM proposers: semantic, need a model ─────────────────────────────────
+  # (named with an _llm suffix so a proposer name never collides with a
+  #  category name — a category can be emitted by several proposers)
+  - name: instruction_not_followed_llm
+    type: llm
+    category: instruction_not_followed
+    chunk_size: 10
+    chunk_format: xml
+    context: {lm_response: true, tool_call: true, user_input: true, system_prompt: false}
+    rubric: >
+      The agent abandons or ignores the user's actual task: it drops the current
+      goal and starts doing something else, or violates an explicit instruction
+      or constraint. (Stopping too early belongs to premature_completion, not
+      here.)
+
+  - name: premature_completion_llm
+    type: llm
+    category: premature_completion
+    chunk_size: 10
+    chunk_format: xml
+    context: {lm_response: true, tool_call: true, user_input: true, system_prompt: false}
+    rubric: >
+      The agent stops and declares success while the task is not actually done or
+      not adequately verified — a bare sign-off ("Done.") with no check, or
+      validating only a narrow literal example instead of the general
+      requirement (shallow self-verification). It thinks it's finished, yet isn't.
+
+  - name: fabricated_facts_llm
+    type: llm
+    category: fabricated_facts
+    chunk_size: 10
+    chunk_format: xml
+    context: {lm_response: true, tool_call: true, user_input: true, system_prompt: false}
+    rubric: >
+      The agent asserts facts not grounded in tool outputs or retrieved evidence,
+      or fabricates data — e.g. hard-codes/mocks a result in code instead of
+      fetching real data from the API/tool. Do not flag ordinary reasoning or
+      clearly-labeled assumptions.
+
+  # no-progress / can't-replan, expressed as a semantic behavioral-loop check
+  - name: no_progress
+    type: llm
+    category: behavioral_loop
+    chunk_size: 12
+    chunk_format: xml
+    context: {lm_response: true, tool_call: true, user_input: false, system_prompt: false}
+    rubric: >
+      Across these turns the agent makes no real progress toward the goal: it
+      retries variations of the same failing action, re-reads or re-edits the
+      same things without advancing, and never steps back to re-plan or change
+      strategy. Flag the turn where it should have replanned.
+
+filters:
+  - {name: failing_tests_are_normal, type: rule}
+  - {name: fake_dates, type: rule}
+  - {name: irrelevant_search_results, type: rule}
+
+issue_mergers:
+  - {name: dedup}

@@ -1,0 +1,73 @@
+# Skeleton pyproject.toml for an external xrlenv benchmark plug-in.
+#
+# Search-and-replace before publishing:
+#   - ``xrlenv-example-bench``   → your distribution name on PyPI
+#   - ``example_bench``          → your benchmark's Python package name
+#                                  (must match the directory under
+#                                  xrlenv_plugins/benchmarks/)
+#   - the version, description, author, and dependency list.
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "xrlenv-example-bench"
+version = "0.1.0"
+description = "An xrlenv benchmark plug-in for <your benchmark name>."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Your Name", email = "you@example.com" }]
+dependencies = [
+    # The xrlenv core SDK is the runtime dep. Version constraint left
+    # open while xrlenv is pre-1.0; pin tighter (e.g.
+    # ``"xrlenv>=0.5,<2"``) when shipping a real external benchmark
+    # against a stable release. The plug-in uses xrlenv's EnvAdapter
+    # protocol + manifest schema; nothing else.
+    "xrlenv",
+    # Your benchmark's own runtime deps (harness library, datasets, etc.).
+]
+
+# B11.2 — register this plug-in with xrlenv's discovery mechanism. The
+# entry-point key is the human-readable plug-in name (used in error
+# messages); the value points at a callable returning Path or
+# Iterable[Path] to manifest.yaml file(s) on disk.
+[project.entry-points."xrlenv.benchmarks"]
+example_bench = "xrlenv_plugins.benchmarks.example_bench.plugin:plugin_manifests"
+
+# Hatchling needs to know which top-level packages to ship. The
+# ``xrlenv_plugins`` namespace contribution must be listed
+# explicitly because it's a PEP-420 namespace package (no
+# __init__.py at the namespace levels).
+[tool.hatch.build.targets.wheel]
+packages = ["xrlenv_plugins"]
+
+# Force-include non-Python plug-in payload (manifest.yaml here) so it
+# reaches the installed wheel and the entry-point callable can resolve
+# its path via ``importlib.resources``.
+#
+# Two patterns to choose between for `scripts/`:
+#
+# (a) Operator-facing scripts only (e.g. build-task-images.sh that
+#     the operator runs from a shell, never loaded inside the
+#     adapter): keep them at the package root; they don't need to be
+#     force-included into the wheel because operators run them from a
+#     checkout. **The skeleton ships this pattern by default — note
+#     that ``scripts/`` is intentionally NOT in the force-include
+#     table below.**
+#
+# (b) Scripts loaded by the adapter at runtime (e.g. a grader
+#     uploaded via D12 verifier_uploads): place them INSIDE the
+#     namespace package at
+#     ``xrlenv_plugins/benchmarks/example_bench/scripts/`` so that
+#     ``importlib.resources.files("xrlenv_plugins.benchmarks.example_bench")
+#     / "scripts" / "your-script.sh"`` resolves uniformly under
+#     editable installs and built wheels. The
+#     ``examples/pip_new_datasets_or_benchmark/echo_bench/`` worked
+#     example uses this pattern; if you switch to (b), add a line
+#     like
+#     ``"xrlenv_plugins/benchmarks/example_bench/scripts" = "xrlenv_plugins/benchmarks/example_bench/scripts"``
+#     to the table below.
+[tool.hatch.build.targets.wheel.force-include]
+"xrlenv_plugins/benchmarks/example_bench/manifest.yaml" = "xrlenv_plugins/benchmarks/example_bench/manifest.yaml"

@@ -1,0 +1,134 @@
+# seta-env exclusion list — task ids the sweep + build-plan generator SKIP.
+#
+# TWO axes (both excluded by run_full_sweep.sh / build_plan_gen / the sweep):
+#  1. BUILD-unbuildable — upstream Dockerfile can't build (original 5).
+#  2. RUNTIME-excluded — built + ran under harbor 0.20's oracle but scored 0.
+#     Root-caused + categorized in STATUS.md. Some FIXABLE-but-deferred, others permanent.
+#
+# FIXED (NOT here): 13 pure-cache (sysbox 8 1004 1117 1347 311 119 1225 830 1059 484
+# 345 846 + solve.sh overlay 309); 10 base-image tasks restored to the t-bench base by
+# `build_cache --stage all` + built type: local (validated 10/15; STATUS.md §1.3);
+# 8 dropped-command tasks (26 227 412 475 669 946 1287 1349) restored via an ENTRYPOINT
+# boot wrapper (build_cache.DROPPED_COMMAND_TASKS + type: local; oracle-validated 8/11 —
+# STATUS.md "dropped-command"); AND 4 verifier-as-root tasks (15 304 729 1092) fixed by
+# `[verifier] user = "root"` in task.toml (VERIFIER_ROOT_TASKS; no rebuild — STATUS.md §1.5).
+#
+# Parser: first whitespace token on a non-blank, non-'#' line is the task id.
+
+# ── 1. build-unbuildable (upstream Dockerfile) ──────────────────────────────
+25     # COPY sample.log — file not committed anywhere in the task; no RUN creates it.
+305    # RUN wget .../320px-...png -> HTTP 400 (Wikimedia rejects the thumbnail URL).
+387    # RUN python3 /tmp/setup_logs.py -> python3: not found (never apt-installed).
+683    # RUN python3 heredoc -> python3: not found (same missing-python3 bug as 387).
+999    # COPY mock_journalctl.log — file not committed anywhere; no RUN creates it.
+
+# ── runtime: verified upstream solve/content failures — the oracle solution itself,
+# run under the fixed harbor path (verifier-as-root where needed), does NOT produce the
+# state its own tests require. Re-diagnosed 2026-08-04 from the actual trial logs; the
+# earlier "base-image HARD / curl->uv / gcc-timeout" labels were WRONG GUESSES. (The 4
+# custom-user tasks 15/304/729/1092 that WERE mis-filed here are now FIXED via
+# VERIFIER_ROOT_TASKS — [verifier] user=root — not here.)
+172    # solve `apt install wget=1.21.4-1ubuntu4.1` fails (pinned version gone from the 24.04 repo) -> test's wget: FileNotFoundError
+409    # solve installs pyenv but the target python 3.8/3.9 versions are NOT built -> test_python_versions_installed FAIL
+414    # solve's Android SDK setup incomplete -> adb not runnable (test_adb_command_works FAIL)
+535    # solve does not produce /usr/local/bin/gm-custom (GraphicsMagick source build) -> test_wrapper_script FAIL
+962    # solve does not install python 3.8/3.11 from source -> test_python38/311_installation FAIL
+308    # GTK2-from-source rebuild scored 0 under the oracle (heavy source build; content/timeout — needs deeper triage)
+
+# ── runtime: base-image legacy (FROM ubuntu:14.04, EOL) — a base SWAP can't fix it (the
+# task premise IS the legacy system); apt mirrors moved to old-releases + 14.04 pip too
+# old for modern PyPI. Needs a legacy-base rehab.
+197    # base-image legacy (ubuntu:14.04 EOL — apt mirrors gone + pip too old)
+
+# ── runtime: dropped-command + cap — Harbor dropped a non-trivial single-service compose
+# `command:` AND the task needs a capability, so the fix is BOTH the ENTRYPOINT boot
+# wrapper (build_cache.DROPPED_COMMAND_TASKS) AND a sysbox marker for the cap. Deferred
+# (needs sysbox-node oracle validation). Commands verbatim from `git show HEAD:Dataset/<id>`.
+# (The 8 NO-cap dropped-command tasks that PASS the oracle are FIXED —
+# build_cache.DROPPED_COMMAND_TASKS + type: local — not here: 26 227 412 475 669 946 1287 1349.)
+144    # dropped-command + cap SYS_ADMIN (/setup-hostname.sh)
+164    # dropped-command + cap NET_ADMIN (/app/init.sh) — was mislabeled multi-service
+189    # dropped-command + cap NET_ADMIN (/root/init_network.sh) — was mislabeled multi-service
+960    # dropped-command + cap SYS_NICE (/entrypoint.sh sleep infinity)
+1309   # dropped-command + SYSTEMD (grafana via `service grafana-server start`; startup race) — needs a sysbox systemd marker too. ENTRYPOINT restore alone: oracle 0.
+
+# ── runtime: dropped-command restored but STILL failed the oracle — the ENTRYPOINT boot
+# wrapper ran the service, but the task needs MORE than the dropped command (verified via
+# oracle 2026-08-04). Not fixable by the command restore alone.
+775    # dropped-command ran, but the on-disk config-drift the premise needs is NOT set up (oracle reload correctly yields the unchanged LOG_LEVEL=INFO) — content/setup gap
+1246   # dropped-command ran (workers start + get SIGSTOP'd), but the log-freshness test is timing-fragile (workers stale >10s vs the 10s threshold) — oracle timing race
+
+# ── runtime: cap-only (sysbox-candidate) — single-service, no dropped command, but the
+# compose grants a capability/privileged the raw-container path lacks. Fixable by a sysbox
+# marker alone (same mechanism as the 12 FIXED sysbox tasks); deferred pending per-task
+# oracle validation. (These were mislabeled multi-service.)
+19     # cap-only: privileged (docker.sock) — sysbox-candidate
+971    # cap-only: NET_ADMIN+SYS_MODULE+privileged — sysbox-candidate
+1103   # cap-only: NET_ADMIN+NET_RAW — sysbox-candidate
+1121   # cap-only: NET_ADMIN — sysbox-candidate
+
+# ── runtime: init:true (tini PID-1 reaper) — compose sets `init: true`; no custom command.
+1184   # init:true (tini) — needs a PID-1 reaper; deferred
+
+# ── runtime: multi-service — GENUINELY >1 service (verified via git compose): needs the
+# sidecar hosts + the <id>-main image built+pushed (deferred).
+890    # multi-service (4 svc: dev/staging/prod-bastion)
+892    # multi-service (2 svc: ssh key-exchange client+server)
+973    # multi-service (2 svc: client+worker)
+1133   # multi-service (7 svc: web/db/app/workstations/firewall)
+1198   # multi-service (3 svc: bastion sshd)
+
+# ── runtime: uncategorized — failed the sweep but the compose is vanilla single-service
+# (no command/cap/multi); the real failure reason was NOT root-caused. Re-triage needed.
+193    # uncategorized (vanilla compose; was mislabeled multi-service)
+
+# ── runtime: host-global sysctl (vm.swappiness, non-namespaced) — un-containerizable (runc read-only, sysbox permission-denied, privileged disabled).
+101    # host-sysctl (un-containerizable)
+407    # host-sysctl (un-containerizable)
+
+# ── runtime: loop device (losetup) — needs host /dev/loop; un-containerizable.
+152    # loop-device (un-containerizable)
+1127   # loop-device (un-containerizable)
+
+# ── runtime: non-hermetic external fetch (yt-dlp/YouTube bot-block, downloads).
+18     # non-hermetic download
+93     # non-hermetic download
+336    # non-hermetic download
+383    # non-hermetic download
+430    # non-hermetic download
+
+# ── runtime: upstream-invalid: shell-context — solution writes ~/.bashrc/.profile but the verifier shell is non-login (Dataset==Harbor solve.sh byte-identical, both incomplete).
+97     # upstream: shell-context
+136    # upstream: shell-context
+220    # upstream: shell-context
+270    # upstream: shell-context
+277    # upstream: shell-context
+295    # upstream: shell-context
+
+# ── runtime: upstream content-logic — oracle solve ran clean but the reference genuinely doesn't satisfy the test.
+40     # upstream: content-logic
+46     # upstream: content-logic
+170    # upstream: content-logic
+173    # upstream: content-logic
+186    # upstream: content-logic
+211    # upstream: content-logic
+237    # upstream: content-logic
+261    # upstream: content-logic
+416    # upstream: content-logic
+845    # upstream: content-logic
+883    # upstream: content-logic
+1020   # upstream: content-logic
+1228   # upstream: content-logic
+1336   # upstream: content-logic
+
+# ── runtime: harness/infra — verifier no-reward / container race / mount-src absent / content reward-0 under sysbox.
+183    # harness/infra
+288    # harness/infra
+310    # harness/infra
+370    # harness/infra
+786    # harness/infra
+859    # harness/infra
+869    # harness/infra
+873    # harness/infra
+1174   # harness/infra
+1216   # harness/infra

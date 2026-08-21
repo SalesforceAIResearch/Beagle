@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}capacity{% endblock %}
+{% block content %}
+<h1>Capacity planning (templates)</h1>
+<p class="page-subtitle">
+  Per-template planning estimate, <strong>not live health</strong> — how many of
+  each template a node could hold. Live connectivity is on
+  <a href="/nodes">nodes</a>, per-node runtime signals on
+  <a href="/health">health</a>, and disk / cache usage on
+  <a href="/images/cache">node storage</a>. Estimator computed at
+  {{ computed_at_label }}.
+</p>
+
+{% if not matrix_present %}
+  <p>No nodes or templates registered yet. Roster nodes via
+  <code>nodes.yaml</code> and register templates via the
+  <code>xrlenv/templates/</code> package directory.</p>
+{% else %}
+
+<p class="warn">
+  Phase-0 admin reconstructs an estimator from on-disk state with a
+  generic hardware profile (8 vCPU / 32 GB / 200 GB). Live per-node
+  hardware lands in phase 1 via the heartbeat extension. Estimator
+  computed at {{ computed_at_label }}.
+</p>
+
+{% for node in nodes %}
+<h2>{{ node.id }}
+  <small>({{ node.active_sandboxes }} active)</small>
+</h2>
+<table class="data">
+  <thead>
+    <tr>
+      <th>template</th>
+      <th>max_concurrent</th>
+      <th>cpu_cap</th>
+      <th>mem_cap</th>
+      <th>disk_cap</th>
+      <th>binding</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for cell in node.cells %}
+    <tr>
+      <td>{{ cell.template }}</td>
+      <td>{{ cell.max_concurrent }}</td>
+      <td>{{ cell.cpu_cap }}</td>
+      <td>{{ cell.mem_cap }}</td>
+      <td>{{ cell.disk_cap }}</td>
+      <td><code>{{ cell.binding_constraint }}</code></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endfor %}
+
+{% endif %}
+{% endblock %}

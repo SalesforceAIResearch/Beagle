@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}raw rollout {{ record.displayed_name or record.rollout_id[:16] }}{% endblock %}
+{% block content %}
+
+<h1>Raw rollout
+  <code>{{ record.displayed_name or record.rollout_id[:16] }}</code>
+</h1>
+<p class="muted">
+  <a href="/rollouts">&larr; back to rollouts</a>
+</p>
+
+<table class="data" style="max-width: 60rem">
+  <tbody>
+    <tr>
+      <th style="text-align: right">rollout_id</th>
+      <td><code>{{ record.rollout_id }}</code></td>
+    </tr>
+    {% if record.displayed_name %}
+    <tr>
+      <th style="text-align: right">displayed_name</th>
+      <td><code>{{ record.displayed_name }}</code></td>
+    </tr>
+    {% endif %}
+    <tr class="status-{{ record.status }}">
+      <th style="text-align: right">status</th>
+      <td>{{ record.status }}</td>
+    </tr>
+    <tr>
+      <th style="text-align: right">task_key</th>
+      <td>
+        {% if record.task_key %}
+          {# ``urlencode`` is required: HTML escaping protects the
+             attribute but does not preserve query-string-meaningful
+             bytes. Values containing &, ?, =, /, or spaces would
+             otherwise be split or re-parsed by the browser instead
+             of round-tripping as one exact filter value. #}
+          <a href="/rollouts/raw?task_key={{ record.task_key|urlencode }}"><code>{{ record.task_key }}</code></a>
+          <span class="muted">(anti-affinity key; click to list sibling rollouts)</span>
+        {% else %}
+          <em class="muted">(not set)</em>
+        {% endif %}
+      </td>
+    </tr>
+    <tr>
+      <th style="text-align: right">group_id</th>
+      <td>
+        {% if record.group_id %}
+          <a href="/rollouts/raw?group_id={{ record.group_id|urlencode }}"><code>{{ record.group_id }}</code></a>
+          <span class="muted">(grouping key; click to list this run's rollouts)</span>
+        {% else %}
+          <em class="muted">(not set; harness didn't pass xrlenv.group_id label)</em>
+        {% endif %}
+      </td>
+    </tr>
+    <tr>
+      <th style="text-align: right">image</th>
+      <td><code>{{ record.image }}</code></td>
+    </tr>
+    <tr>
+      <th style="text-align: right">node</th>
+      <td>{{ record.node_id or "-" }}</td>
+    </tr>
+    <tr>
+      <th style="text-align: right">container</th>
+      <td>
+        {% if record.container_id %}
+          <code>{{ record.container_id[:12] }}</code>
+          {% if record.container_name %} (<code>{{ record.container_name }}</code>){% endif %}
+        {% else %}
+          -
+        {% endif %}
+      </td>
+    </tr>
+    <tr>
+      <th style="text-align: right">created_at</th>
+      <td>{{ created_at_iso }}</td>
+    </tr>
+    {% if record.finished_at %}
+    <tr>
+      <th style="text-align: right">finished_at</th>
+      <td>{{ finished_at_iso }}</td>
+    </tr>
+    {% endif %}
+    {% if record.error %}
+    <tr class="status-{{ record.status }}">
+      <th style="text-align: right">{{ "error" if record.status == "failed" else "reason" }}</th>
+      <td><pre style="white-space: pre-wrap">{{ record.error }}</pre></td>
+    </tr>
+    {% endif %}
+    <tr>
+      <th style="text-align: right">artifact_path</th>
+      <td>
+        {% if record.artifact_path %}
+          <code>{{ record.artifact_path }}</code>
+        {% else %}
+          <em class="muted">(not set; smoke driver didn't pass artifact_path)</em>
+        {% endif %}
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+{# ─── Artifact-path resolution ──────────────────────────────────────── #}
+{% if record.artifact_path %}
+<h2 style="margin-top: 2rem">Artifacts</h2>
+{% if artifact_status == "missing" %}
+  <p class="muted">
+    The path <code>{{ record.artifact_path }}</code> doesn't resolve
+    on this host's filesystem. Likely the consumer ran on a
+    different machine; SSH there and inspect directly. xrlenv
+    never uploads artifact bytes to the cluster.
+  </p>
+{% elif artifact_status == "denied" %}
+  <p class="muted">
+    The path <code>{{ record.artifact_path }}</code> exists but is
+    not readable by the admin process. Adjust permissions on the
+    consumer host or run admin as a user with access.
+  </p>
+{% elif artifact_status == "not_a_dir" %}
+  <p class="muted">
+    <code>{{ record.artifact_path }}</code> is not a directory.
+  </p>
+{% elif artifact_status == "ok" %}
+  <p class="muted">
+    Reading from local filesystem at
+    <code>{{ record.artifact_path }}</code>:
+  </p>
+  {% if not artifact_listing %}
+    <p class="empty"><em>(directory is empty)</em></p>
+  {% else %}
+    <table class="data">
+      <thead>
+        <tr>
+          <th>name</th>
+          <th>size</th>
+          <th>kind</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in artifact_listing %}
+        <tr>
+          <td>
+            {% if entry.kind == "dir" %}
+              📁 {{ entry.name }}/
+            {% else %}
+              📄 <a href="/raw-rollouts/{{ record.rollout_id }}/artifact/{{ entry.name }}"
+                   target="_blank" rel="noopener">{{ entry.name }}</a>
+            {% endif %}
+          </td>
+          <td>
+            {% if entry.kind == "file" %}
+              {{ entry.size_bytes }} B
+            {% else %}
+              -
+            {% endif %}
+          </td>
+          <td>{{ entry.kind }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted">
+      Click a file name to preview its contents (text files render
+      inline; binaries / oversize files download as octet-stream).
+      Sub-directories aren't traversable in the admin UI to keep the
+      attack surface minimal — SSH to the consumer host for deeper
+      inspection, or relocate the artifacts to a shared filesystem
+      the admin host can read.
+    </p>
+  {% endif %}
+{% endif %}
+{% endif %}
+
+{% endblock %}

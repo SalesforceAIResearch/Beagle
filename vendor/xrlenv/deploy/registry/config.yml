@@ -1,0 +1,51 @@
+# xrlenv pull-through registry mirror (Phase A) — registry:3 (distribution 3.x) in
+# *proxy* mode in front of Docker Hub. Workers point Docker's `registry-mirrors`
+# at this service; the first cluster-wide pull of an image fetches from Docker
+# Hub and caches the blobs on FSx, and every later pull (including a re-pull
+# after a node evicts the image) is served over the internal network instead of
+# the internet. A proxy can't be `docker push`ed to — that's Phase B's private
+# registry. If this mirror is unreachable, dockerd falls back to Docker Hub
+# automatically (registry-mirrors semantics), so it's a bounded-risk accelerator.
+#
+# Storage is the `filesystem` driver writing plain content-addressed files —
+# safe on the FSx/Lustre bind-mount (flock + atomic temp-then-rename verified).
+# This is NOT the dockerd data-root (overlay) that cannot live on Lustre.
+#
+# Upstream auth: anonymous by default (fine for validation / light use, but
+# Docker Hub rate-limits anonymous pulls hard — ~100/6h). To warm the full
+# benchmark set, set DOCKERHUB_USER / DOCKERHUB_TOKEN in the repo .env (the
+# single source of truth — same keys bootstrap/refresh use); run-registry-proxy.sh
+# maps them to the registry's proxy.username/password. Never commit the PAT.
+version: 0.1
+log:
+  level: info
+  fields:
+    service: xrlenv-registry-proxy
+storage:
+  filesystem:
+    rootdirectory: /var/lib/registry
+  cache:
+    blobdescriptor: inmemory
+  # Deletes stay off: this is a read-through cache we want to retain. Size FSx
+  # for the full compressed set (~1.2-1.5 TB) and GC offline if ever needed.
+  delete:
+    enabled: false
+http:
+  addr: :5000
+  headers:
+    X-Content-Type-Options: [nosniff]
+proxy:
+  remoteurl: https://registry-1.docker.io
+  # ttl = retention before the proxy scheduler PURGES cached content (after which
+  # the next pull re-fetches from Docker Hub). 90 days — the benchmark set is
+  # immutable per-commit and not expected to change for months. This is the
+  # SINGLE SOURCE OF TRUTH for retention: registry:3 (the image
+  # run-registry-proxy.sh deploys) honors it, so a clean redeploy gets 90-day
+  # retention with no manual steps. (registry:2.8.3 ignored this field and
+  # hardcoded 7 days — that's why we run registry:3.)
+  ttl: 2160h
+health:
+  storagedriver:
+    enabled: true
+    interval: 10s
+    threshold: 3

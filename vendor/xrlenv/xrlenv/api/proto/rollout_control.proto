@@ -1,0 +1,824 @@
+// Spec 05 — Rollout Control Protocol (phase-0 subset).
+//
+// Consumer-facing gRPC service. The trainer / smoke driver dials the
+// control plane and drives rollouts end-to-end without sharing the
+// control-plane Python process.
+//
+// Phase-0 surface (this file):
+//   - Eight unary RPCs mirroring xrlenv.client.transport.ClientTransport:
+//     StartRollout, Step, Finish, Cancel, CancelGroup, Replay,
+//     Heartbeat, SetFinalReward.
+//   - JSON-over-bytes for inner free-form payloads (init/action/obs/
+//     metadata/info). Keeps the proto small and lets the pydantic
+//     models on either side be the single source of truth — no
+//     proto-mirror models to keep in sync. Top-level scalar/typed
+//     fields stay first-class.
+//   - All four spec-02 reward modes work over this wire:
+//       * env_step      — reward from the env on each step.
+//       * in_sandbox_final — server runs reward.cmd inside the sandbox
+//         on done; client reads the result via Finish.
+//       * trainer_final — trainer pushes the scalar via SetFinalReward
+//         after the rollout terminates.
+//       * consumer_final — client-side reward_fn computes the reward
+//         from the sealed trajectory; client pushes the result via
+//         SetFinalReward (RolloutSession.finish does this
+//         automatically when reward_mode=consumer_final + reward_fn
+//         was provided to Client.rollout). No server→client callback
+//         is needed; the consumer SDK runs the reward locally and the
+//         server just stores the value.
+//
+// Deferred (phase 1):
+//   - Server-streaming Step (high-throughput trainer adapters).
+//   - Server-streaming Replay (large-trajectory bulk download).
+
+syntax = "proto3";
+
+package xrlenv.rollout_control.v1;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Common types
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Rollout status mirrors xrlenv.types.RolloutStatus.
+enum RolloutStatus {
+  ROLLOUT_STATUS_UNSPECIFIED = 0;
+  ROLLOUT_STATUS_QUEUED = 1;
+  ROLLOUT_STATUS_STARTING = 2;
+  ROLLOUT_STATUS_RUNNING = 3;
+  ROLLOUT_STATUS_CANCELLING = 4;
+  ROLLOUT_STATUS_FINISHING = 5;
+  ROLLOUT_STATUS_FINISHED = 6;
+  ROLLOUT_STATUS_TRUNCATED = 7;
+  ROLLOUT_STATUS_CANCELLED = 8;
+  ROLLOUT_STATUS_FAILED = 9;
+}
+
+// Reward mode — server may need to short-circuit if we're asked for
+// consumer_final and that's not yet supported on the gRPC path.
+enum RewardMode {
+  REWARD_MODE_UNSPECIFIED = 0;
+  REWARD_MODE_ENV_STEP = 1;
+  REWARD_MODE_IN_SANDBOX_FINAL = 2;
+  REWARD_MODE_TRAINER_FINAL = 3;
+  REWARD_MODE_CONSUMER_FINAL = 4;
+}
+
+// Optional per-rollout deadlines. All fields optional; absent =
+// inherit from manifest defaults. Mirrors the user-facing subset of
+// :class:`xrlenv.types.Deadline`; less-commonly-overridden fields
+// (image_pull_timeout_s, init_timeout_s, reward_timeout_s,
+// teardown_timeout_s) stay manifest-default in the gRPC path —
+// add fields here if a real consumer needs to override them.
+message Deadline {
+  optional double hard_s = 1;
+  optional double queue_timeout_s = 2;
+  optional double setup_timeout_s = 3;
+  optional double step_timeout_s = 4;
+  optional double idle_ttl_s = 5;
+}
+
+// P0a (cluster-resource-isolation-plan) — effective CPU/memory request
+// for a raw container. The docker-py drop-in derives this from the
+// harness's ``host_config`` (``NanoCpus`` / ``CpuQuota``+``CpuPeriod``
+// for CPU, ``Memory`` for memory) instead of silently dropping those
+// limits. The control plane treats it as an explicit scheduling input:
+// the scheduler / capacity estimator place the container on a node that
+// can satisfy it. Field numbers 1-4 mirror node_control.v1.ResourceSpec
+// so the control plane's translation to AcquireContainerCommand is
+// trivial. All-zero (proto3 default) means "no harness request — use
+// the raw-container default budget".
+message ResourceSpec {
+  double cpu_request       = 1;
+  double cpu_limit         = 2;
+  uint64 mem_request_bytes = 3;
+  uint64 mem_limit_bytes   = 4;
+  string cpu_isolation     = 5;  // P6 CpuIsolation: '' (=off) | 'best_effort' | 'required'
+}
+
+// P0b (cluster-resource-isolation-plan) — container-shape RuntimeLimits
+// the drop-in derives from the harness's ``host_config`` (``PidsLimit``,
+// ``ShmSize``, ``Tmpfs``, ``ReadonlyRootfs``). Kept separate from
+// ResourceSpec: these do NOT affect scheduling, only container
+// creation. Field numbers mirror node_control.v1.RuntimeLimits so the
+// control plane's translation to AcquireContainerCommand is trivial.
+// An unset field means "docker default — do not constrain".
+message RuntimeLimits {
+  int64  pids_limit       = 1;
+  uint64 shm_size_bytes   = 2;
+  map<string, string> tmpfs = 3;
+  bool   readonly_rootfs  = 4;
+  bool   cpu_pinning      = 5;  // opt-in cpuset pin; false = quota-only. MUST mirror node_control RuntimeLimits (shared duck-typed converter reads .cpu_pinning off both).
+}
+
+// One trajectory step. ``action`` / ``obs`` / ``info`` are JSON-
+// serialised payloads (UTF-8 bytes) so the schema is whatever the
+// adapter declares — phase-0 doesn't lock that down.
+message Step {
+  uint32 index = 1;
+  bytes action_json = 2;
+  bytes obs_json = 3;
+  double reward = 4;
+  bool done = 5;
+  bool truncated = 6;
+  bytes info_json = 7;
+  double ts = 8;
+}
+
+// One sealed (or partial) trajectory.
+message Trajectory {
+  string rollout_id = 1;
+  string template = 2;
+  repeated Step steps = 3;
+  RolloutStatus status = 4;
+  optional string reason = 5;
+  double final_reward = 6;
+  bytes metadata_json = 7;
+}
+
+// Per-rollout failure surfaced via batch_rollout / cancel_group.
+message FailedRollout {
+  optional string rollout_id = 1;
+  string reason = 2;
+  string error_kind = 3;
+  string error_message = 4;
+  optional Trajectory partial = 5;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// RPC request / response messages
+// ──────────────────────────────────────────────────────────────────────────────
+
+message StartRolloutRequest {
+  string template = 1;
+  bytes init_json = 2;                    // dict[str, Any] payload
+  optional string request_id = 3;         // idempotency key
+  optional string task_key = 4;           // anti-affinity / fairness
+  optional string group_id = 5;           // batch / cancel-group annotation
+  optional Deadline deadline = 6;
+  optional string backend = 7;            // user-side policy: which sandbox runtime
+                                          // (docker / cubesandbox / ...). Coordinator
+                                          // falls back to DEFAULT_BACKEND
+                                          // (xrlenv.control.defaults) when unset.
+  optional string network = 8;            // user-side policy: none / open /
+                                          // egress-allowlist. Coordinator falls back to
+                                          // DEFAULT_NETWORK when unset; Pattern A's
+                                          // resolver overrides per-task in Slice 9b.
+                                          // Wire is a string; the Python pydantic
+                                          // model validates against NetworkPolicy
+                                          // literal so typos are rejected.
+}
+
+message StartRolloutResponse {
+  string rollout_id = 1;
+  bytes init_obs_json = 2;                // first observation
+  RewardMode reward_mode = 3;
+}
+
+message StepRequest {
+  string rollout_id = 1;
+  bytes action_json = 2;
+}
+
+message StepResponse {
+  bytes obs_json = 1;
+  double reward = 2;
+  bool done = 3;
+  bool truncated = 4;
+  bytes info_json = 5;
+}
+
+message FinishRequest {
+  string rollout_id = 1;
+}
+
+message FinishResponse {
+  Trajectory trajectory = 1;
+}
+
+message CancelRequest {
+  string rollout_id = 1;
+  string reason = 2;
+}
+
+message CancelResponse {
+  Trajectory trajectory = 1;
+}
+
+message CancelGroupRequest {
+  string group_id = 1;
+  string reason = 2;
+}
+
+message CancelGroupReport {
+  string group_id = 1;
+  repeated string cancelled = 2;          // rollout_ids that we cancelled
+  repeated string already_terminal = 3;   // rollout_ids already in a terminal state
+}
+
+message CancelGroupResponse {
+  CancelGroupReport report = 1;
+}
+
+// TerminateRawGroup — the raw-container analogue of CancelGroup. CancelGroup
+// tears down RL *rollouts* by group_id; this tears down *raw containers*
+// (raw_rollouts rows) carrying the same ``xrlenv.group_id`` label. Lets a
+// consumer that aborts a run (Ctrl-C) actively destroy its still-running
+// containers instead of leaving them for the raw-liveness reaper.
+message TerminateRawGroupRequest {
+  string group_id = 1;
+  string reason = 2;
+}
+
+message TerminateRawGroupReport {
+  string group_id = 1;
+  repeated string terminated = 2;          // raw rollout_ids we tore down
+  repeated string already_terminal = 3;    // raw rollout_ids already terminal
+}
+
+message TerminateRawGroupResponse {
+  TerminateRawGroupReport report = 1;
+}
+
+message ReplayRequest {
+  string rollout_id = 1;
+}
+
+message ReplayResponse {
+  Trajectory trajectory = 1;
+}
+
+message HeartbeatRequest {
+  string rollout_id = 1;
+  // Batched heartbeat: the SDK's per-process keepalive beats many live raw
+  // sessions in one RPC, so heartbeat overhead scales with consumer processes,
+  // not sessions. When non-empty this supersedes ``rollout_id``; ``rollout_id``
+  // stays for single-rollout (gym/step) heartbeats and older clients.
+  repeated string rollout_ids = 2;
+}
+
+message HeartbeatResponse {}
+
+message SetFinalRewardRequest {
+  string rollout_id = 1;
+  double final_reward = 2;
+}
+
+message SetFinalRewardResponse {}
+
+// D21 — cluster status query for the Consumer SDK. Replaces the
+// connect-mode probe-and-retry hack in ``xrlenv_plugins/benchmarks/terminal_bench_2/examples/tb2_acceptance_smoke.py``
+// with a direct "how many nodes are attached, with which backends?"
+// surface. Reads ``state.list_nodes()`` (the NodeRegistry's persistent
+// mirror) so the answer is consistent across multiple consumer SDK
+// callers.
+message NodeInfo {
+  string node_id = 1;
+  // ``connected`` (heartbeating) or ``lost`` (watchdog tripped).
+  string status = 2;
+  repeated string backends = 3;
+  // Wall-clock seconds since epoch (control-plane clock).
+  double connected_at = 4;
+  double last_seen_at = 5;
+  string stream_epoch = 6;
+  string instance_id = 7;
+}
+
+message ListNodesRequest {
+  // Empty for now; future filters (status, backend, etc.) can land
+  // as oneof fields without breaking wire compat.
+}
+
+message ListNodesResponse {
+  repeated NodeInfo nodes = 1;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Service
+// ──────────────────────────────────────────────────────────────────────────────
+
+service RolloutControl {
+  // Spec-19 scope required: ``consumer.rollout`` (set by the
+  // BearerScopeInterceptor when the bearer token's role is ``consumer``).
+  rpc StartRollout    (StartRolloutRequest)    returns (StartRolloutResponse);
+  rpc Step            (StepRequest)            returns (StepResponse);
+  rpc Finish          (FinishRequest)          returns (FinishResponse);
+  rpc Cancel          (CancelRequest)          returns (CancelResponse);
+  rpc CancelGroup     (CancelGroupRequest)     returns (CancelGroupResponse);
+  rpc Replay          (ReplayRequest)          returns (ReplayResponse);
+  rpc Heartbeat       (HeartbeatRequest)       returns (HeartbeatResponse);
+  rpc SetFinalReward  (SetFinalRewardRequest)  returns (SetFinalRewardResponse);
+  rpc ListNodes       (ListNodesRequest)       returns (ListNodesResponse);
+
+  // P1.7.A.1 — Raw container session for case 2/3 evaluation harnesses.
+  // AcquireContainer creates a "raw" rollout (no EnvAdapter,
+  // no step trajectory) and spawns a container scheduled to a
+  // node. The rollout exists for accounting / per-rollout
+  // scoping / GC; lifecycle follows the container. ContainerExec
+  // and DestroyContainer carry both rollout_id and container_id
+  // so the control-plane can fan out to the right node and the
+  // node-side dispatcher can enforce the container_id ↔ rollout_id
+  // ownership map. Same ``consumer.rollout`` scope.
+  rpc AcquireContainer  (AcquireContainerRequest)  returns (AcquireContainerResponse);
+  rpc ContainerExec     (ContainerExecRequest)     returns (ContainerExecResponse);
+  rpc DestroyContainer  (DestroyContainerRequest)  returns (DestroyContainerResponse);
+  // Group teardown for raw containers (the raw analogue of CancelGroup) —
+  // destroy every still-running raw container carrying ``xrlenv.group_id``.
+  rpc TerminateRawGroup (TerminateRawGroupRequest) returns (TerminateRawGroupResponse);
+
+  // P1.7.C.2 — multi-service compose project (harbor tasks with sidecars).
+  // Brings a whole compose stack up on one node; exec/archive then address the
+  // ``main`` service via the container_id in the response (ContainerExec /
+  // ContainerGetArchive above, unchanged). DestroyComposeProject downs the whole
+  // project. Same ``consumer.rollout`` scope as AcquireContainer.
+  rpc AcquireComposeProject (AcquireComposeProjectRequest) returns (AcquireComposeProjectResponse);
+  rpc DestroyComposeProject (DestroyComposeProjectRequest) returns (DestroyComposeProjectResponse);
+
+  // P1.7.A.2 — raw container archive transfer.
+  rpc ContainerPutArchive (ContainerPutArchiveRequest) returns (ContainerPutArchiveResponse);
+  rpc ContainerGetArchive (ContainerGetArchiveRequest) returns (ContainerGetArchiveResponse);
+  // WS1 — server-streaming variant so a large archive (verifier logs /
+  // artifacts) is delivered as a sequence of bounded chunks instead of one
+  // oversized unary response that trips the 128 MiB gRPC message limit. This
+  // is the CONSUMER-facing hop; it is separate from, and downstream of, the
+  // node->control chunking that keeps the heartbeat stream intact. The unary
+  // ContainerGetArchive above stays for back-compat with older consumers; new
+  // clients prefer this and fall back to unary on UNIMPLEMENTED.
+  rpc ContainerGetArchiveStream (ContainerGetArchiveRequest) returns (stream ContainerGetArchiveChunkResponse);
+  // WS1 (upload twin) — client-streaming variant so a large solution/ upload (e.g. an
+  // oracle bundling a 340 MB SDK) is sent as a sequence of bounded chunks instead of one
+  // oversized unary request that trips the 128 MiB gRPC message limit on this hop. The
+  // unary ContainerPutArchive above stays for back-compat; new clients prefer this and
+  // fall back to unary on UNIMPLEMENTED. Downstream, the control plane re-chunks onto the
+  // node->control heartbeat stream (ContainerPutArchiveChunk) so that hop stays intact too.
+  rpc ContainerPutArchiveStream (stream ContainerPutArchiveChunkRequest) returns (ContainerPutArchiveResponse);
+
+  // Spec 07 — restrict a running container's egress to an IP/CIDR allowlist.
+  rpc ApplyEgress (ApplyEgressRequest) returns (ApplyEgressResponse);
+
+  // Stage-2 admission/capacity (notes/admission-stage-2-queue-clocks.md)
+  // — poll the admission-queue position of an in-flight request. A
+  // consumer supplies the same request_id it set on AcquireContainer
+  // and polls this while that acquire blocks, so a queued request is
+  // visible ("position N of M") instead of a silent wait.
+  rpc QueueStatus (QueueStatusRequest) returns (QueueStatusResponse);
+
+  // P1.7.A.2 — streaming exec for long-running runs (swebench
+  // 30+ min, terminal-bench 1-2 hour). Server-streaming RPC: the
+  // consumer sends one request and receives N
+  // ``ContainerExecChunkResponse`` messages until the terminator
+  // (chunk with ``done=true``) arrives. Mirrors the spec-21
+  // multi-reply ``StreamContainerExecCommand`` shape.
+  rpc ContainerExecStream (ContainerExecStreamRequest) returns (stream ContainerExecChunkResponse);
+
+  // P1.7.B.2 — operator-side FFD bin-packing for an explicit ref
+  // list. Invoked by ``xrlenv images plan --refs <file>``; NOT
+  // exposed on the consumer-facing SDK (would violate the docker-
+  // py drop-in contract). The coordinator snapshots per-node free
+  // disk via ``ReportImagesCommand``, runs
+  // ``plan_opportunistic_placements``, persists per-ref
+  // ``preferred_home`` rows in StateStore so subsequent raw-
+  // container acquires honor the plan via
+  // ``Scheduler.place(preferred_home_node=...)``. Optional eager
+  // prefetch dispatches ``EnsurePresentCommand`` per assignment.
+  rpc PlanImageDistribution (PlanImageDistributionRequest) returns (PlanImageDistributionResponse);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// P1.7.A.1 — Raw container session messages
+// ──────────────────────────────────────────────────────────────────────────────
+
+// AcquireContainerRequest field wiring status (P1.7.A.1):
+//
+// Fan-out is queued — the RolloutControlServicer handlers currently
+// abort UNIMPLEMENTED. When fan-out lands, the wiring status of each
+// field follows the matching node-control AcquireContainerCommand
+// annotations (see node_control.proto). Fields below are tagged
+// inline with their target slice so external SDK builders know
+// which fields to populate today vs which to leave defaulted until
+// the field actually flows.
+message AcquireContainerRequest {
+  // Image ref (tag or digest); must already be present on the chosen
+  // node (case 2/3 harnesses pull outside this RPC; phase-1 doesn't
+  // implicit-pull on this path).
+  // [P1.7.A.1 — WIRED once fan-out lands]
+  string image                  = 1;
+  // CMD override; empty = image default. swebench's harness uses
+  // ``["tail", "-f", "/dev/null"]`` to keep the container alive
+  // while it execs work into it.
+  // [P1.7.A.1 — WIRED once fan-out lands]
+  repeated string command       = 2;
+  // Optional container name; empty = docker auto-names. Returned in
+  // response.container_name regardless.
+  // [P1.7.A.1 — WIRED once fan-out lands]
+  optional string name          = 3;
+  // Backend choice; default per DEFAULT_BACKEND when unset.
+  // [P1.7.A.1 — HARDCODED to "docker" at the dispatcher; field
+  // accepted but ignored. Phase-2 CubeSandbox wires this through.]
+  optional string backend       = 4;
+  // Network policy ("none" | "open" | "egress-allowlist");
+  // default per DEFAULT_NETWORK when unset.
+  // [P1.7.A.1 — DEFERRED to P1.7.A.2 (alongside ResourceSpec
+  // wiring); raw containers currently spawn with docker default.]
+  optional string network       = 5;
+  // Extra docker labels. The node always merges
+  // ``xrlenv.rollout_id`` and ``xrlenv.session_kind=raw`` on top —
+  // operators should not override those keys.
+  // [P1.7.A.1 — WIRED once fan-out lands]
+  map<string, string> labels    = 6;
+  // Idempotency key (mirrors StartRolloutRequest.request_id).
+  // [P1.7.A.1 — DEFERRED: same idempotency-cache integration that
+  // StartRollout uses; not yet wired for raw containers.]
+  optional string request_id    = 7;
+  // Anti-affinity hint for the scheduler's per-node fairness cap.
+  // [P1.7.A.1 — DEFERRED: scheduler integration lands with the
+  // node-pick step of the fan-out; ignored until then.]
+  optional string task_key      = 8;
+  // Batch / cancel-group annotation.
+  // [P1.7.A.1 — DEFERRED: cancel_group works on rollout rows; raw
+  // rollouts will participate once the rollout-row creation lands
+  // in the fan-out step.]
+  optional string group_id      = 9;
+  // Overall session deadline; the control plane destroys the
+  // container if the operator hasn't by then.
+  // [P1.7.A.1 — DEFERRED: deadline-watcher integration with the
+  // raw-container path lands alongside the rollout-row creation.]
+  optional Deadline deadline    = 10;
+  // Environment variables passed to the container at spawn
+  // (docker ``-e KEY=VALUE``).
+  // [P1.7.A.1 — WIRED once fan-out lands]
+  map<string, string> environment = 11;
+  // P1.7.B.2 — strict image check opt-out. When false (proto3
+  // default), the node runs ``ImageCacheManager.ensure_present(image)``
+  // before container spawn — pulls/builds/no-ops as appropriate
+  // (the new default UX). When true, the node refuses if image
+  // isn't already present locally (legacy P1.7.A.1 strict
+  // contract). SDK kwarg is positive-form
+  // (``Client.acquire_container(..., ensure_image_present=True)``);
+  // wire field is negative-form so proto3 default-false aligns
+  // with the new default behaviour.
+  bool strict_image_check = 12;
+  // B5.4 — operator-side opt-in to honoring the docker daemon's
+  // ``userns-remap`` config for this container. ``"host"`` (default
+  // — proto3 default-empty string treated as "host" at the node)
+  // preserves existing behavior: host UIDs. ``"remap"`` translates
+  // to docker-py's ``userns_mode=""`` — i.e. "use the daemon's
+  // userns-remap if set." Requires daemon-level userns-remap
+  // configured separately; ``"remap"`` is a silent no-op on
+  // daemons without it. Field mirrors AcquireContainerCommand.
+  // userns_mode on node_control.proto.
+  string userns_mode = 13;
+  // Optional ENTRYPOINT override (docker ``--entrypoint``). Empty
+  // repeated = image default. The harness convention "clear the
+  // image entrypoint" is expressed as a single-element list
+  // ``[""]`` (matches docker CLI's ``--entrypoint ""`` semantics —
+  // proto3 can't tell "unset" from "empty list" for repeated
+  // fields, but a one-element ``[""]`` is unambiguous). Forwarded
+  // to ``DockerBackend`` as the ``entrypoint`` kwarg on
+  // ``docker run``.
+  // [WIRED] — entrypoint plumbing.
+  repeated string entrypoint = 14;
+  // Optional ``USER`` override (docker ``--user``). When unset
+  // (empty string), the container runs as the image's declared
+  // ``USER`` directive. Used by case-2/3 graders that need to
+  // assert which UID a test container runs as
+  // (e.g. swebench's ``DOCKER_USER = "root"``).
+  // [WIRED] — see issue #6 for the broader allowlist→blocklist
+  // design call that motivated wiring this kwarg.
+  string user = 15;
+  // Optional ``cap_add`` list (docker ``--cap-add``). Empty list =
+  // default capabilities. Linux capabilities to add to the
+  // container's bounding set — e.g. ``SYS_PTRACE`` for
+  // debugger-driven tests. Some SWE-bench Verified per-repo specs
+  // require this for their grader containers to pass; silently
+  // dropping it produces wrong verdicts (patch correct, test
+  // setup wrong).
+  // [WIRED] — see issue #6.
+  repeated string cap_add = 16;
+  // Optional ``devices`` list (docker ``--device``). Empty list =
+  // no host-device passthrough. Each entry is a docker-py device
+  // spec — ``/dev/x``, ``/dev/x:/dev/y``, or ``/dev/x:/dev/y:rwm``.
+  // Unblocks SCUBA-style nested-VM benchmarks (need ``/dev/kvm``)
+  // and userland VPN tooling (``/dev/net/tun``). Validated by the
+  // control plane against the cluster's policy.allowed_devices
+  // (loaded from nodes.yaml); the drop-in pre-validates against
+  // DEFAULT_POLICY to fast-fail without an RPC round-trip.
+  // [WIRED] — see issue #6 and xrlenv/control/kwargs_policy.py.
+  repeated string devices = 17;
+  // Optional ``privileged`` flag (docker ``--privileged``). Level-2
+  // policy opt-in: rejected by default at the control plane; operators
+  // opt in by setting ``allow_privileged: true`` in the nodes.yaml
+  // policy section. The drop-in does NOT fast-fail Level-2 kwargs
+  // (it can't see operator policy); the control plane is the sole
+  // authoritative enforcement point for Level 2.
+  // [WIRED] — see issue #6 audit M1.
+  bool privileged = 18;
+  // Optional ``network_mode`` (docker ``--network``). Empty = docker
+  // default (``bridge``). ``host`` is Level-2 (operator opts in via
+  // ``allow_host_network: true``); ``container:...`` is Level-3
+  // (always rejected, no policy override). Other values pass through.
+  // [WIRED] — see issue #6 audit M1.
+  string network_mode = 19;
+  // Optional bind-mount specs (docker ``--volume`` host-path form).
+  // Each entry is ``"/host/path:/container/path[:mode]"``. Level-2
+  // policy opt-in: rejected by default; operators allow specific
+  // host paths by listing them in ``policy.allowed_host_paths``.
+  // [WIRED] — see issue #6 audit M1.
+  repeated string binds = 20;
+  // Issue #12 — wire-level deadline override for the
+  // AcquireContainer RPC. ``0`` (proto3 default) means
+  // "use the transport default" — currently 600 s, aligned with
+  // ``ImageCacheConfig.default_pull_timeout_s`` so a legitimate
+  // cold-pull surfaces the node's own "pull failed" error rather
+  // than racing it with a wire timeout. Consumers with known-huge
+  // images (SWE-bench Pro 5–15 GB tags, multi-GB GPU images)
+  // pass a larger value (e.g. 1800) via
+  // ``Client.acquire_container(acquire_timeout_s=...)``.
+  // [WIRED]
+  double acquire_timeout_s = 21;
+  // Issue #18 (Ask #1) — how long the control-plane admission queue
+  // will hold this acquire waiting for cluster capacity before
+  // giving up with CapacityExhausted. ``0`` (proto3 default) means
+  // "use the server default" — currently 3600 s, sized so a
+  // consumer over-requesting concurrency against a smaller cluster
+  // sees a longer wall time rather than a hard error. Distinct from
+  // ``acquire_timeout_s`` (the per-node pull deadline once a node is
+  // chosen); this bounds the *queue* wait before placement.
+  // [WIRED]
+  double queue_timeout_s = 22;
+  // Issue #18 — wall-clock cap on this raw session's lifetime. The
+  // control plane force-reaps the container once the cap passes, so
+  // a consumer that dies mid-rollout (process killed, never called
+  // destroy) can't leak the container + its capacity reservation +
+  // its raw_rollouts row indefinitely. ``0`` (proto3 default) means
+  // "use the server default" — a generous safety-net cap (4 h),
+  // well above any single grading task. Raise it for genuinely
+  // longer work.
+  // [WIRED]
+  double session_deadline_s = 23;
+  // P0a (cluster-resource-isolation-plan) — effective CPU/memory
+  // request the drop-in derived from the harness's docker host_config.
+  // All-zero (proto3 default) means "no harness request — the control
+  // plane uses the raw-container default budget". When set, the
+  // scheduler / capacity estimator treat it as the container's
+  // effective ResourceSpec. RuntimeLimits (pids/shm/tmpfs/read-only)
+  // ride ``runtime_limits`` (field 25) — they do not affect scheduling.
+  ResourceSpec resources = 24;
+  // P0b — container-shape limits the drop-in derived from the
+  // harness's host_config (PidsLimit / ShmSize / Tmpfs /
+  // ReadonlyRootfs). Unset = harness specified none.
+  RuntimeLimits runtime_limits = 25;
+  // OCI runtime selector (e.g. "sysbox-runc"). Empty = unset = the docker
+  // daemon's default runtime (must be runc — asserted at bootstrap). NOT a
+  // RuntimeLimit: it changes isolation/init/placement, gated by
+  // KwargsPolicy.allowed_runtimes and a per-node supported-runtimes filter.
+  string container_runtime = 26;
+}
+
+message AcquireContainerResponse {
+  string rollout_id     = 1;  // owns this container session; subsequent
+                              // exec/destroy calls carry it.
+  string container_id   = 2;  // docker-side container id (long form).
+  string container_name = 3;  // docker-side container name.
+  string node_id        = 4;  // which node the container lives on; useful
+                              // for operator debugging via the admin panel.
+  // Issue #18 (Ask #1) — seconds this acquire spent parked in the
+  // admission queue waiting for capacity. ``0`` on the fast path
+  // (capacity was available immediately). The docker-py drop-in
+  // surfaces a non-zero value to the consumer so they learn their
+  // requested concurrency exceeds what the cluster can sustain.
+  double queue_wait_s  = 5;
+}
+
+// Stage-2 admission/capacity — poll a request's admission-queue rank.
+message QueueStatusRequest {
+  // The request_id the consumer set on the matching AcquireContainer.
+  string request_id = 1;
+}
+
+message QueueStatusResponse {
+  // 1-based rank in the FIFO (1 = next to be admitted); 0 when the
+  // request is not currently queued.
+  uint32 position    = 1;
+  // Total requests waiting in the admission queue right now.
+  uint32 queue_depth = 2;
+  // "queued" while the request waits; "not_in_queue" once it has been
+  // admitted (or was never queued — fast-path placement).
+  string state       = 3;
+}
+
+message ContainerExecRequest {
+  string rollout_id      = 1;
+  string container_id    = 2;
+  repeated string cmd    = 3;
+  double timeout_s       = 4;
+  optional string cwd    = 5;
+  map<string, string> env = 6;
+  optional string user   = 7;  // uid:gid or username; empty = container default.
+}
+
+message ContainerExecResponse {
+  int32 exit_code = 1;
+  bytes stdout    = 2;
+  bytes stderr    = 3;
+  bool  timed_out = 4;
+}
+
+message DestroyContainerRequest {
+  string rollout_id   = 1;
+  string container_id = 2;
+  bool   force        = 3;  // ``docker rm -f`` semantics when true.
+}
+
+message DestroyContainerResponse {
+  // Empty; success is signalled by gRPC OK status.
+}
+
+// P1.7.C.2 — multi-service compose project (consumer-facing).
+
+message AcquireComposeProjectRequest {
+  // Rewritten, image-ref-only compose document (plugin-assembled: ``main``
+  // synthesized from harbor's base layer). The CP vets it against KwargsPolicy
+  // (§3.5), digest-pins the main image, stamps the reserved xrlenv.* labels, and
+  // derives the subnet claim from it.
+  string compose_yaml = 1;
+  // Image refs to ensure-present before ``up`` (main + sidecars).
+  repeated string images = 2;
+  // Service harbor execs the agent into; empty = ``main``.
+  string main_service = 3;
+  // Whole-stack footprint (cpu_request / mem_request), plugin-computed
+  // (main's declared cpu/mem + sidecar allowance). The scheduler reserves this
+  // via ``place(reserve=footprint)``; the CP can't derive main's declared size,
+  // so it arrives here.
+  ResourceSpec footprint = 4;
+  // Admission-queue wait budget (mirrors AcquireContainerRequest.queue_timeout_s).
+  double queue_timeout_s = 5;
+  // Wall-clock cap on the project's lifetime; the CP force-reaps past it
+  // (mirrors AcquireContainerRequest.session_deadline_s).
+  double session_deadline_s = 6;
+  // ``up --wait`` ceiling forwarded to the node; 0 = node default.
+  double up_timeout_s = 7;
+  // Optional explicit compose project name; empty = CP-derived from the session.
+  string project_name = 8;
+  // Anti-affinity / cancel-cohort / idempotency (mirror the container request).
+  optional string task_key = 9;
+  optional string group_id = 10;
+  map<string, string> labels = 11;
+  optional string request_id = 12;
+}
+
+message AcquireComposeProjectResponse {
+  string rollout_id          = 1;  // owns the project session; destroy carries it.
+  string node_id             = 2;  // node the project runs on.
+  // ``main`` service's FULL docker container id — the handle for subsequent
+  // ContainerExec / ContainerGetArchive / ContainerPutArchive.
+  string main_container_id   = 3;
+  string main_container_name = 4;
+  string project_name        = 5;
+  // Every service's full container id (``service -> container_id``), incl. main.
+  map<string, string> service_container_ids = 6;
+  double queue_wait_s        = 7;  // seconds parked in the admission queue.
+}
+
+message DestroyComposeProjectRequest {
+  string rollout_id   = 1;
+  string project_name = 2;
+}
+
+message DestroyComposeProjectResponse {
+  // Empty; success is signalled by gRPC OK status.
+}
+
+// P1.7.A.2 — archive transfer for raw containers.
+
+message ContainerPutArchiveRequest {
+  string rollout_id   = 1;
+  string container_id = 2;
+  string target_dir   = 3;  // dir to extract into; mkdir -p as root
+  bytes  tarball      = 4;  // tar bytes (plain or gzipped); docker auto-detects
+}
+
+message ContainerPutArchiveResponse {
+  // Empty; success is signalled by gRPC OK status.
+}
+
+// WS1 (upload twin) — the client streams N of these to ContainerPutArchiveStream, each
+// carrying a slice of the tarball, terminated by ``done=true`` (sent even for an empty
+// tarball so the server always sees one terminator). The FIRST chunk carries the routing
+// metadata (``rollout_id`` / ``container_id`` / ``target_dir``); every chunk carries
+// ``data``. Reassembled server-side in stream order.
+message ContainerPutArchiveChunkRequest {
+  string rollout_id   = 1;  // set on the FIRST chunk only
+  string container_id = 2;  // set on the FIRST chunk only
+  string target_dir   = 3;  // set on the FIRST chunk only
+  bytes  data         = 4;  // slice of the tarball; empty on a pure terminator
+  bool   done         = 5;  // set on exactly the last chunk (end-of-stream)
+}
+
+message ContainerGetArchiveRequest {
+  string rollout_id   = 1;
+  string container_id = 2;
+  string source_path  = 3;  // path inside the container to tar up
+}
+
+message ContainerGetArchiveResponse {
+  bytes  tarball      = 1;
+}
+// WS1 — one ContainerGetArchiveRequest to ContainerGetArchiveStream elicits N
+// of these, each carrying a slice of the tarball, terminated by ``done=true``
+// (sent even for an empty tarball so the consumer always sees one terminator).
+// Reassembled client-side in stream order.
+message ContainerGetArchiveChunkResponse {
+  bytes data = 1;
+  bool  done = 2;
+}
+
+// Spec 07 — egress restriction. The control plane translates this into a
+// node-side ApplyEgressCommand; the node compiles + installs the iptables rules.
+
+message EgressAllowEntry {
+  string cidr           = 1;  // IPv4 CIDR the sandbox may reach
+  repeated uint32 ports = 2;  // empty = all ports; else restrict dports (tcp+udp)
+}
+
+message ApplyEgressRequest {
+  string rollout_id     = 1;
+  string container_id   = 2;
+  repeated EgressAllowEntry allow = 3;  // empty = block all external egress
+  optional string dns_resolver = 4;     // allow :53 to this CIDR; empty = none
+}
+
+message ApplyEgressResponse {
+  // Empty; success is signalled by gRPC OK status.
+}
+
+// P1.7.A.2 — streaming exec.
+//
+// One ``ContainerExecStreamRequest`` elicits N
+// ``ContainerExecChunkResponse`` messages, the last of which
+// has ``done=true`` and carries the final ``exit_code`` /
+// ``timed_out``. Consumer iterates with the gRPC stream until
+// ``done`` is observed (or the stream is gRPC-side closed by an
+// abort).
+
+message ContainerExecStreamRequest {
+  string rollout_id      = 1;
+  string container_id    = 2;
+  repeated string cmd    = 3;
+  double timeout_s       = 4;
+  optional string cwd    = 5;
+  map<string, string> env = 6;
+  optional string user   = 7;
+}
+
+message ContainerExecChunkResponse {
+  bytes stdout      = 1;
+  bytes stderr      = 2;
+  bool  done        = 3;
+  int32 exit_code   = 4;
+  bool  timed_out   = 5;
+}
+
+// P1.7.B.2 — operator-side FFD bin-packing for raw-container
+// image distribution. Operator invokes via ``xrlenv images plan
+// --refs <file>``; the coordinator snapshots the cluster's
+// per-node free-disk budget via ``ReportImagesCommand``, runs the
+// existing ``plan_opportunistic_placements`` FFD primitive, and
+// persists per-ref ``preferred_home`` rows in StateStore (status=
+// ``registered``) so subsequent raw-container acquires honor the
+// plan via ``Scheduler.place(preferred_home_node=...)``. The
+// audience's harness code is unchanged through this entire flow —
+// the CLI is operator-side, decoupled from the consumer's drop-in.
+
+message ImagePlanRow {
+  string image_ref      = 1;
+  // Conservative size hint in bytes; planner uses for FFD bin-
+  // packing. Reality measured after pull/build is unrelated;
+  // hint should never under-budget.
+  uint64 size_bytes_hint = 2;
+  // Replication factor — how many nodes should carry this image.
+  // Default 1 (one preferred home per ref). >1 spreads the image
+  // across multiple homes for higher availability + per-node load
+  // balancing on hot images.
+  uint32 replication    = 3;
+}
+
+message PlanImageDistributionRequest {
+  repeated ImagePlanRow rows = 1;
+  // When true, after planning the coordinator dispatches
+  // ``EnsurePresentCommand`` to each preferred_home node so
+  // images arrive before the first acquire (eager). When false
+  // (default), the per-node ``ImageCacheManager.ensure_present``
+  // pulls/builds on first acquire (lazy).
+  bool eager_prefetch        = 2;
+}
+
+message ImagePlanResult {
+  string image_ref           = 1;
+  string preferred_home_node = 2;  // empty if "deferred-no-home"
+  string status              = 3;  // "placed" | "deferred" | "failed"
+  string error               = 4;  // populated when status=="failed"
+}
+
+message PlanImageDistributionResponse {
+  repeated ImagePlanResult assignments = 1;
+}

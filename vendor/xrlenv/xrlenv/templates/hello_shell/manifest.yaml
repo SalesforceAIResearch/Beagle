@@ -1,0 +1,20 @@
+# hello-shell — platform spine smoke template (manifest contract only).
+#
+# Runs a Python+aiohttp container; the in-sandbox stub drives ShellEnvAdapter.
+# Action: a string command. Observation: stdout/stderr/exit_code dict.
+# Reward: 0 per step (env_step mode); the example script terminates after
+# `max_steps`. Used by examples/single_rollout.py + tests/smoke/single_rollout.py.
+#
+# Per-experiment policy (deadlines, resources, idle TTL, mounts) lives in
+# the user's run-config — see examples/default.run-config.yaml.
+
+name: hello-shell
+version: "0.1"
+image: xrlenv/hello-shell:0.1
+
+env_adapter:
+  module: xrlenv.templates.hello_shell.adapter
+  class: ShellEnvAdapter
+
+reward:
+  mode: env_step

@@ -1,0 +1,39 @@
+# Spec-06 template manifest for the ``example_bench`` plug-in.
+# See ``specs/06-templates-and-environments.md`` for the full schema.
+
+name: example-bench
+version: "0.1"
+
+# Image must be pinned by digest in production (spec 19). For local
+# development against an unpinned tag, register without a digest_resolver
+# wired and the catalog logs a warning.
+image: docker.io/library/your-image:tag-or-sha256
+digest: sha256:replace-with-real-digest
+
+resources:
+  cpu_request: 1.0
+  cpu_limit: 2.0
+  mem_request_bytes: 2147483648    # 2 GiB
+  mem_limit_bytes: 4294967296      # 4 GiB
+  disk_request_bytes: 10737418240  # 10 GiB
+
+# EnvAdapter to invoke inside the sandbox. ``module`` is a Python
+# import path; the sandbox's stub-runtime layer imports + instantiates
+# ``class_name`` at env_setup time.
+env_adapter:
+  module: xrlenv_plugins.benchmarks.example_bench.adapter
+  class_name: ExampleBenchEnvAdapter
+
+# Reward contract. Replace with the mode your benchmark uses
+# (env_step / in_sandbox_final / consumer_final). See spec 02.
+reward:
+  mode: env_step
+
+# Per-phase timeouts (seconds). Tune to your benchmark's longest
+# realistic step.
+init_timeout_s: 120.0
+setup_timeout_s: 60.0
+step_timeout_s: 60.0
+teardown_timeout_s: 30.0
+hard_s_default: 1800.0
+ttl_default_s: 3600.0

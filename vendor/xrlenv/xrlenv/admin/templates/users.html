@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}users{% endblock %}
+{% block content %}
+<h1>Users</h1>
+<p class="page-subtitle">
+  Per-tenant raw-rollout activity, grouped by <code>owner_id</code>. Operator-only.
+  <span class="hint">Success = released &divide; total. <code>paced</code> = acquires the
+  scheduler declined at capacity (backpressure, retried) &mdash; excluded from total.</span>
+</p>
+{% if rows %}
+<p class="page-subtitle hint" style="margin-top:-0.4rem">
+  &#9432; Totals are <strong>cumulative</strong> and preserved across the retention GC
+  (pruned rows fold into a durable per-owner tally). They cover activity
+  {% if inception %}since <strong>{{ inception }}</strong>{% else %}since lifetime tracking was enabled{% endif %}
+  &mdash; rollouts pruned before that are not backfilled.
+  {% if span_start %}Individual rollout records stay browsable only for the retention
+  window (<strong>{{ span_start }}</strong> &ndash; <strong>{{ span_end }}</strong>).{% endif %}
+</p>
+{% endif %}
+
+{% if not rows %}
+  <p>No raw rollouts recorded yet.</p>
+{% else %}
+<table class="data">
+  <thead>
+    <tr>
+      <th>owner</th>
+      <th class="num">total</th>
+      <th class="num">active</th>
+      <th class="num">released</th>
+      <th class="num">failed</th>
+      <th class="num">cancelled</th>
+      <th class="num">reaped</th>
+      <th class="num" title="capacity_rejected: scheduler declined at capacity; retried, not a failure">paced</th>
+      <th class="num">success</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td><code>{{ row.owner }}</code></td>
+      <td class="num">{{ row.total }}</td>
+      <td class="num">{{ row.active }}</td>
+      <td class="num status-released">{{ row.released }}</td>
+      <td class="num status-failed">{{ row.failed }}</td>
+      <td class="num status-cancelled">{{ row.cancelled }}</td>
+      <td class="num status-reaped">{{ row.reaped }}</td>
+      <td class="num status-capacity_rejected">{{ row.paced }}</td>
+      <td class="num" title="released / total">
+        {%- if row.success_pct is none -%}&ndash;{%- else -%}{{ row.success_pct|round(1) }}%{%- endif -%}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  {% if rows|length > 1 %}
+  <tfoot>
+    <tr class="totals-row">
+      <td><b>all</b></td>
+      <td class="num">{{ totals.total }}</td>
+      <td class="num">{{ totals.active }}</td>
+      <td class="num">{{ totals.released }}</td>
+      <td class="num">{{ totals.failed }}</td>
+      <td class="num">{{ totals.cancelled }}</td>
+      <td class="num">{{ totals.reaped }}</td>
+      <td class="num">{{ totals.paced }}</td>
+      <td class="num">
+        {%- if totals.success_pct is none -%}&ndash;{%- else -%}{{ totals.success_pct|round(1) }}%{%- endif -%}
+      </td>
+    </tr>
+  </tfoot>
+  {% endif %}
+</table>
+{% endif %}
+{% endblock %}

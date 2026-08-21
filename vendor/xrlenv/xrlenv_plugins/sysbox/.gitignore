@@ -1,0 +1,6 @@
+# Belt-and-suspenders: the vendored binaries live OUT of the tree on shared
+# storage (SYSBOX_VENDOR_ROOT in pin.env, default /path/to/data/
+# xrlenv_sysbox_vendor). This entry only catches an accidental legacy in-tree
+# vendor/ dir — the ~40 MB unofficial build must never be committed to either
+# the dev or prod repo (one canonical copy on shared storage, no drift).
+vendor/

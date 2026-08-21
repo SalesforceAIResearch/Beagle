@@ -1,0 +1,376 @@
+{% extends "base.html" %}
+{% block title %}rollout {{ record.rollout_id[:16] }}{% endblock %}
+{% block content %}
+
+<div class="rollout-detail-page">
+<header class="rollout-header">
+  <p class="overline">rollout trace</p>
+  <h1><code>{{ record.rollout_id }}</code></h1>
+  <div class="rollout-metrics" aria-label="rollout summary">
+    <span class="metric-pill status-pill">
+      <span class="status-dot status-{{ record.status }}" aria-hidden="true"></span>
+      {{ record.status }}
+      {% if record.reason %}<span class="metric-subtle">/ {{ record.reason }}</span>{% endif %}
+    </span>
+    <span class="metric-pill">
+      <span class="metric-label">reward</span>
+      <strong>{{ record.final_reward }}</strong>
+    </span>
+    <span class="metric-pill">
+      <span class="metric-label">steps</span>
+      <strong>{{ record.step_count }}</strong>
+    </span>
+  </div>
+</header>
+
+<form method="get" action="/rollouts/{{ record.rollout_id }}" class="filters rollout-toolbar">
+  <label>find
+    <input type="text" name="find" value="{{ find or '' }}"
+           placeholder="substring across action / obs / info">
+  </label>
+  <button type="submit">search</button>
+  <a class="btn export-link" href="/rollouts/{{ record.rollout_id }}/download">
+    Download trajectory <span>JSONL</span>
+  </a>
+  {% if find %}
+    <span class="match-summary">{{ match_indices|length }} match(es)</span>
+  {% endif %}
+</form>
+
+{# ─── 0. Failure callout ──────────────────────────────────────────
+     A rollout that ended in ``failed`` or ``cancelled`` with a
+     non-trivial reason gets a top-of-page warning so operators see
+     the cause without scrolling to the bottom rollout-info table.
+     The session SDK packs ``<exc-type>: <message>`` into the cancel
+     ``reason`` for the ``aborted_with_exception`` path, so this
+     callout doubles as the post-mortem for an exception that took
+     down the rollout before the first step landed. Source-of-truth
+     for the full traceback is still ``coordinator.log`` in the run
+     dir + the consumer SDK's stderr — we can't ship traceback frames
+     through the proto today (that's a deferred enhancement).
+─────────────────────────────────────────────────────────────────── #}
+{% if record.status in ("failed", "cancelled", "truncated") and record.reason %}
+<section class="detail-section failure-callout">
+  <h2>Failure</h2>
+  <p class="warn">{{ record.reason }}</p>
+  <p class="muted hint">Categorical reason from the platform (truncation,
+     consumer cancel, exception summary, etc.). The Coordinator log
+     section below has the lifecycle trail (start / cancel / image
+     events). Full Python traceback for an ``aborted_with_exception``
+     lives in the consumer SDK's stderr — the platform doesn't carry
+     traceback frames through the proto.</p>
+</section>
+{% endif %}
+
+{# ─── 1. Task ─────────────────────────────────────────────────────
+     Task-related metadata at the very top — for tb2 this is the
+     ``rewards`` breakdown, ``init_obs`` excerpt, ``reward_error``
+     etc.; benchmark-specific. Opaque to the platform (we don't
+     impose a shape), so the page just pretty-prints whatever's
+     there. Section is hidden when metadata is empty so a
+     just-started rollout doesn't render an empty card.
+─────────────────────────────────────────────────────────────────── #}
+{% if metadata %}
+<section class="detail-section">
+  <h2>Task</h2>
+  <pre class="json-block" data-json>{{ metadata|tojson(indent=2) }}</pre>
+</section>
+{% endif %}
+
+{# ─── 2. Steps ────────────────────────────────────────────────────
+     Per-step display is benchmark-agnostic: every Step has
+     ``action`` and ``observation`` (opaque JSON). The platform's
+     other Step fields (reward / done / truncated / ts) are
+     deliberately NOT in the per-step header — those are recorded
+     in the JSONL trajectory and surface in the platform-info card
+     at the bottom. The step navigator (prev / next / jump / arrow
+     keys) hides every <li> except the current one.
+─────────────────────────────────────────────────────────────────── #}
+<section class="detail-section">
+  <h2>Steps</h2>
+  {% if trajectory and trajectory.steps %}
+    <div class="step-nav" id="step-nav">
+      <button type="button" class="btn" data-action="prev">◀ prev</button>
+      <span class="step-position">
+        step
+        <input type="number" id="step-jump"
+               min="0" max="{{ trajectory.steps[-1].index }}"
+               value="{{ trajectory.steps[0].index }}">
+        of {{ trajectory.steps|length }}
+      </span>
+      <button type="button" class="btn" data-action="next">next ▶</button>
+      {% if find %}
+        <span class="match-summary">
+          {{ match_indices|length }} match(es)
+          {% if match_indices %}
+            · <button type="button" class="btn btn-sm" data-action="prev-match">prev match</button>
+            <button type="button" class="btn btn-sm" data-action="next-match">next match</button>
+          {% endif %}
+        </span>
+      {% endif %}
+      <span class="muted hint">arrow keys / j / k</span>
+    </div>
+    <ol class="steps"
+        data-step-indices="{{ trajectory.steps|map(attribute='index')|join(',') }}"
+        data-match-indices="{{ match_indices|join(',') }}">
+      {% for s in trajectory.steps %}
+        <li data-index="{{ s.index }}"
+            class="{% if find and s.index in match_indices %}match{% endif %}">
+          <h3 class="step-heading">step {{ s.index }}</h3>
+          <details open>
+            <summary>action</summary>
+            <pre class="json-block" data-json>{{ s.action|tojson(indent=2) }}</pre>
+          </details>
+          <details open>
+            <summary>observation</summary>
+            <pre class="json-block" data-json>{{ s.obs|tojson(indent=2) }}</pre>
+          </details>
+          {% if s.info %}
+          <details>
+            <summary>info</summary>
+            <pre class="json-block" data-json>{{ s.info|tojson(indent=2) }}</pre>
+          </details>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    <p class="muted">No trajectory body on disk for this rollout.
+       {% if record.status in ("running", "starting") -%}
+       The body lands once the rollout reaches its first step.
+       {%- elif record.step_count == 0 -%}
+       The rollout was {{ record.status }} before completing its first step{% if record.reason %} (see Failure section above){% endif %} — no steps were ever persisted.
+       {%- elif verifier_files is none -%}
+       The rollout recorded {{ record.step_count }} step(s) in the state store, but the run dir is missing — most likely pruned by the run-dir janitor (TTL or rotation policy). Both the JSONL body and any verifier output are gone together.
+       {%- else -%}
+       The rollout recorded {{ record.step_count }} step(s) in the state store and the run dir is intact (verifier output above is from this rollout), but ``trajectory.jsonl`` itself is missing from the run dir. In phase-0 / phase-1 the platform-jsonl sink runs on the control plane and writes the body next to ``meta.json`` + ``coordinator.log`` regardless of which node ran the sandbox, so the file should normally be here. Likely causes: the rollout was started with ``sink=none``, an external process deleted the file (manual ``rm``, log-rotation script), or the admin server's ``runs_root`` is configured differently from the control plane's sink. Check ``coordinator.log`` below for ``trajectory.fetch_failed`` or sink-related events.
+       {%- endif %}
+    </p>
+  {% endif %}
+</section>
+
+{# ─── 3. Verifier output ──────────────────────────────────────────
+     Collapsed by default — operators expand when debugging. The
+     file walk under <run_dir>/verifier/ is benchmark-agnostic;
+     each file's preview / download path is the same regardless
+     of which benchmark wrote it.
+─────────────────────────────────────────────────────────────────── #}
+{% if verifier_files is not none %}
+<section class="detail-section">
+  <h2>Verifier output</h2>
+  {% if verifier_files %}
+    <details>
+      <summary>{{ verifier_files|length }} file(s) under
+        <code>&lt;run_dir&gt;/verifier/</code></summary>
+      <p class="muted hint">
+        Files persisted from the sandbox's verifier directory at
+        reward time. Distinguishes a genuine agent failure
+        (assertions in test.log, partial output) from a verifier
+        that didn't run (no files at all, or only the wrapper's
+        stub).
+      </p>
+      {% for f in verifier_files %}
+        <details class="verifier-file">
+          <summary>
+            <code>{{ f.rel_path }}</code>
+            <span class="muted">· {{ f.size_bytes }} B</span>
+            {% if not f.is_text %}
+              · <a href="/rollouts/{{ record.rollout_id }}/verifier/{{ f.rel_path }}">download</a>
+            {% elif f.truncated %}
+              · <a href="/rollouts/{{ record.rollout_id }}/verifier/{{ f.rel_path }}">download full</a>
+            {% endif %}
+          </summary>
+          {% if f.is_text and f.preview is not none %}
+            <pre class="json-block">{{ f.preview }}</pre>
+            {% if f.truncated %}
+              <p class="muted hint">Preview truncated &mdash; click "download full"
+                 to read the complete file.</p>
+            {% endif %}
+          {% else %}
+            <p class="muted hint">Binary or unknown content type. Use the download
+               link above.</p>
+          {% endif %}
+        </details>
+      {% endfor %}
+    </details>
+  {% else %}
+    <p class="muted">No verifier output captured for this rollout.
+       {% if record.step_count == 0 -%}
+       The rollout ended before completing its first step, so the reward-time verifier never ran{% if record.reason %} (see Failure section above for the cause){% endif %}.
+       {%- else -%}
+       The platform persists the sandbox's verifier directory at reward time when the benchmark provides one; benchmarks that don't ship that convention (or rollouts that ended before reward time) won't have files here. See the Coordinator log section below for the lifecycle trail.
+       {%- endif %}</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{# ─── 4. Coordinator log ──────────────────────────────────────────
+     The control plane writes one JSON-line per lifecycle event
+     (rollout.start, rollout.cancel, image_cache.miss, etc.) to
+     ``<run_dir>/coordinator.log``. Operators previously had to SSH
+     into the host to read it; we now inline the tail and offer a
+     download link for the full file. Open by default for
+     failed/cancelled/truncated rollouts (the user is here to
+     diagnose), collapsed for finished rollouts (just noise).
+─────────────────────────────────────────────────────────────────── #}
+{# ``is defined`` guards against a stale long-running admin process
+   whose Python module pre-dates the helper that injects this key —
+   Jinja's Undefined is not None, so a bare ``is not none`` check
+   would render an empty section. Belt-and-braces: the section only
+   renders when the key was explicitly populated. #}
+{% if coordinator_log_tail is defined and coordinator_log_tail is not none %}
+<section class="detail-section">
+  <h2>Coordinator log</h2>
+  {% if coordinator_log_tail %}
+    <details {% if record.status in ("failed", "cancelled", "truncated") %}open{% endif %}>
+      <summary>
+        {% if coordinator_log_truncated_head -%}
+        last {{ coordinator_log_tail|length }} of {{ coordinator_log_total_bytes }} B
+        {%- else -%}
+        {{ coordinator_log_total_bytes }} B
+        {%- endif %}
+        ·
+        <a href="/rollouts/{{ record.rollout_id }}/coordinator.log">
+          {% if coordinator_log_truncated_head %}download full log{% else %}download{% endif %}
+        </a>
+      </summary>
+      <pre class="json-block">{{ coordinator_log_tail }}</pre>
+    </details>
+  {% else %}
+    <p class="muted">``coordinator.log`` exists but is empty —
+       no lifecycle events were appended (the rollout may not
+       have reached its first state transition).</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{# ─── 5. Rollout info ─────────────────────────────────────────────
+     Platform plumbing (template / status / node / task_key /
+     group_id / step_count / steps on disk). Most operators don't
+     need this on the front page; collapsed at the bottom.
+─────────────────────────────────────────────────────────────────── #}
+<details class="detail-section info-fold">
+  <summary>Rollout info</summary>
+  <table class="info-table">
+    <tbody>
+      <tr><th>template</th><td>{{ record.template }}</td></tr>
+      <tr><th>status</th>
+          <td class="status-{{ record.status }}">{{ record.status }}</td></tr>
+      {% if record.reason %}
+        <tr><th>reason</th><td>{{ record.reason }}</td></tr>
+      {% endif %}
+      <tr><th>node</th><td>{{ record.node_id or "-" }}</td></tr>
+      <tr><th>task_key</th><td>{{ record.task_key or "-" }}</td></tr>
+      <tr><th>group_id</th><td>{{ record.group_id or "-" }}</td></tr>
+      <tr><th>final_reward</th><td>{{ record.final_reward }}</td></tr>
+      <tr><th>step_count</th><td>{{ record.step_count }}</td></tr>
+      {% if step_count_on_disk is not none %}
+        <tr><th>steps on disk</th><td>{{ step_count_on_disk }}</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</details>
+
+</div>
+
+{# Inline JS for the step navigator. ~80 lines, vanilla. Hides
+   every ``.steps li`` except the one matching ``data-current``;
+   reads ``?step=N`` on load to resume; writes back via
+   ``history.replaceState`` so a manual reload preserves position.
+   Match-aware prev/next when ``?find=...`` is active. #}
+<script>
+(function () {
+  Array.prototype.forEach.call(document.querySelectorAll('.json-block[data-json]'), function (pre) {
+    try {
+      pre.textContent = JSON.stringify(JSON.parse(pre.textContent), null, 2);
+    } catch (_) {
+      // Keep the server-rendered fallback when content is not JSON.
+    }
+  });
+
+  var ol = document.querySelector('ol.steps');
+  var nav = document.getElementById('step-nav');
+  if (!ol || !nav) return;
+  var items = Array.prototype.slice.call(ol.querySelectorAll('li'));
+  if (items.length === 0) return;
+  var indexAttr = ol.getAttribute('data-step-indices') || '';
+  var stepIndices = indexAttr ? indexAttr.split(',').map(function (s) {
+    return parseInt(s, 10);
+  }) : items.map(function (_, i) { return i; });
+  var matchAttr = ol.getAttribute('data-match-indices') || '';
+  var matchIndices = matchAttr ? matchAttr.split(',').map(function (s) {
+    return parseInt(s, 10);
+  }) : [];
+  var jumpInput = document.getElementById('step-jump');
+  var prevBtn = nav.querySelector('[data-action="prev"]');
+  var nextBtn = nav.querySelector('[data-action="next"]');
+  var prevMatchBtn = nav.querySelector('[data-action="prev-match"]');
+  var nextMatchBtn = nav.querySelector('[data-action="next-match"]');
+
+  function showByStepIndex(targetIdx) {
+    var pos = stepIndices.indexOf(targetIdx);
+    if (pos < 0) {
+      pos = 0;
+      targetIdx = stepIndices[0];
+    }
+    items.forEach(function (li, i) {
+      li.setAttribute('data-current', i === pos ? 'true' : 'false');
+    });
+    ol.setAttribute('data-current', String(targetIdx));
+    if (jumpInput) jumpInput.value = String(targetIdx);
+    if (prevBtn) prevBtn.classList.toggle('disabled', pos === 0);
+    if (nextBtn) nextBtn.classList.toggle('disabled', pos === stepIndices.length - 1);
+    var url = new URL(window.location.href);
+    url.searchParams.set('step', String(targetIdx));
+    history.replaceState(null, '', url);
+  }
+
+  function step(delta) {
+    var current = parseInt(ol.getAttribute('data-current') || stepIndices[0], 10);
+    var pos = stepIndices.indexOf(current);
+    if (pos < 0) pos = 0;
+    var nextPos = Math.min(stepIndices.length - 1, Math.max(0, pos + delta));
+    showByStepIndex(stepIndices[nextPos]);
+  }
+
+  function stepMatch(delta) {
+    if (matchIndices.length === 0) return;
+    var current = parseInt(ol.getAttribute('data-current') || matchIndices[0], 10);
+    var target = matchIndices[0];
+    if (delta > 0) {
+      target = matchIndices.find(function (i) { return i > current; });
+      if (target === undefined) target = matchIndices[matchIndices.length - 1];
+    } else {
+      var rev = matchIndices.slice().reverse();
+      target = rev.find(function (i) { return i < current; });
+      if (target === undefined) target = matchIndices[0];
+    }
+    showByStepIndex(target);
+  }
+
+  var params = new URLSearchParams(window.location.search);
+  var initial = parseInt(params.get('step') || '', 10);
+  if (isNaN(initial)) {
+    initial = matchIndices.length > 0 ? matchIndices[0] : stepIndices[0];
+  }
+  showByStepIndex(initial);
+
+  if (prevBtn) prevBtn.addEventListener('click', function () { step(-1); });
+  if (nextBtn) nextBtn.addEventListener('click', function () { step(1); });
+  if (prevMatchBtn) prevMatchBtn.addEventListener('click', function () { stepMatch(-1); });
+  if (nextMatchBtn) nextMatchBtn.addEventListener('click', function () { stepMatch(1); });
+  if (jumpInput) {
+    jumpInput.addEventListener('change', function () {
+      var v = parseInt(jumpInput.value, 10);
+      if (!isNaN(v)) showByStepIndex(v);
+    });
+  }
+  window.addEventListener('keydown', function (e) {
+    var t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    if (e.key === 'ArrowLeft' || e.key === 'k') { step(-1); e.preventDefault(); }
+    else if (e.key === 'ArrowRight' || e.key === 'j') { step(1); e.preventDefault(); }
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,45 @@
+# xrlenv PRIVATE registry (Phase B) — registry:3 (distribution 3.x) in normal
+# *writable* mode, backed by FSx. Unlike config.yml (the pull-through PROXY in
+# front of Docker Hub), this registry has NO `proxy:` block, so it can be
+# `docker push`ed to. It is the durable home for images we build ourselves from
+# Dockerfiles (e.g. camel-ai/seta-env Harbor-Dataset tasks, which ship only a
+# Dockerfile, not a prebuilt image): build the image once, push it here, and
+# every worker pulls a digest-pinnable ref over the internal network instead of
+# rebuilding the Dockerfile on each node.
+#
+# Two registries run side by side on the control-plane box and do NOT overlap:
+#   - PROXY  (:5010, config.yml)       — catch-all cache for docker.io refs.
+#   - PRIVATE (:5011, this file)       — curated, push-only, our own image refs.
+# A named ref like `<cp-host>:5011/xrlenv-seta-env/0:main` is served only by this
+# private registry; it has NO Docker-Hub fallback (unlike a registry-mirror miss),
+# so verify completeness before a run.
+#
+# Storage is the `filesystem` driver writing plain content-addressed files — safe
+# on the FSx/Lustre bind-mount (single writer = the one registry process; build
+# hosts push over HTTP, they never touch the blob store directly). This is NOT the
+# dockerd data-root (overlay) that cannot live on Lustre.
+version: 0.1
+log:
+  level: info
+  fields:
+    service: xrlenv-registry-private
+storage:
+  filesystem:
+    rootdirectory: /var/lib/registry
+  cache:
+    blobdescriptor: inmemory
+  # Deletes ON: this is a curated push registry, so an operator may want to GC
+  # stale image refs (offline, in read-only mode) after a benchmark is retired.
+  # The proxy keeps deletes OFF because it's a cache we want to retain; here the
+  # content is authored, not cached, so manual cleanup is a feature.
+  delete:
+    enabled: true
+http:
+  addr: :5000
+  headers:
+    X-Content-Type-Options: [nosniff]
+health:
+  storagedriver:
+    enabled: true
+    interval: 10s
+    threshold: 3

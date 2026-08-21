@@ -1,0 +1,6007 @@
+version: 1
+name: swebench-verified-500-instance
+replication: 1
+budget:
+  reserved_runtime_gb: 30
+  buffer_gb: 10
+entries:
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-12907:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1091216468
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-12907
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-13033:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1091441311
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-13033
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-13236:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1091866910
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-13236
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-13398:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1092160603
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-13398
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-13453:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1092114483
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-13453
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-13579:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1092334704
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-13579
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-13977:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1095092729
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-13977
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-14096:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1095029608
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-14096
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-14182:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1095023550
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-14182
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-14309:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1094541690
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-14309
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-14365:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1096081956
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-14365
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-14369:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1094616394
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-14369
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-14508:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1096045516
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-14508
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-14539:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1096097349
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-14539
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-14598:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1096328823
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-14598
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-14995:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1096937976
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-14995
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-7166:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1070658379
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-7166
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-7336:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1071062363
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-7336
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-7606:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1072571705
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-7606
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-7671:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1072250355
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-7671
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-8707:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1134879217
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-8707
+- image_ref: swebench/sweb.eval.x86_64.astropy_1776_astropy-8872:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1135174188
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: astropy__astropy-8872
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-10097:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1176450381
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-10097
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-10554:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1108769176
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-10554
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-10880:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1107506307
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-10880
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-10914:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1107622143
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-10914
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-10973:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1107680630
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-10973
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-10999:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1107738848
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-10999
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11066:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1108814131
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11066
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11087:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1108585264
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11087
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11095:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1108539275
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11095
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11099:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1107856672
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11099
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11119:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1107858175
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11119
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11133:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1107887614
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11133
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11138:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1108549492
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11138
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11141:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109700151
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11141
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11149:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1107912017
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11149
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11163:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1108530637
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11163
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11179:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1108449414
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11179
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11206:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1108493303
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11206
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11211:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1108520349
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11211
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11239:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1108582885
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11239
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11265:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1108708313
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11265
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11276:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1108596473
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11276
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11292:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1108665836
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11292
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11299:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1108634791
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11299
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11333:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109086308
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11333
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11400:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109218476
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11400
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11433:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1108813219
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11433
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11451:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1108846430
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11451
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11477:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1108928340
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11477
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11490:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1108835905
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11490
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11532:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109117005
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11532
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11551:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109138559
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11551
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11555:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109168139
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11555
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11603:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109283053
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11603
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11728:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109470941
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11728
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11734:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109461811
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11734
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11740:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109488502
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11740
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11749:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109504979
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11749
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11790:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109622062
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11790
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11815:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109625876
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11815
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11820:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109651617
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11820
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11848:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109654916
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11848
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11880:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109545752
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11880
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11885:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109571384
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11885
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11951:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109764550
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11951
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11964:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109782072
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11964
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-11999:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109834117
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-11999
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12039:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109892195
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12039
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12050:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109934340
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12050
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12125:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109870633
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12125
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12143:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109869202
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12143
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12155:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1110043017
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12155
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12193:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1111001705
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12193
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12209:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1111102879
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12209
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12262:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1111107861
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12262
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12273:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1111152446
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12273
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12276:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1111000423
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12276
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12304:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1111165127
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12304
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12308:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1112107873
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12308
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12325:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1111032071
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12325
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12406:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1111381771
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12406
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12419:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1111409360
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12419
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12663:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1111834832
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12663
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12708:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1112129257
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12708
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12713:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1111953247
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12713
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12741:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1111844861
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12741
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12754:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1113360440
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12754
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12774:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1112065035
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12774
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12858:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1112251578
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12858
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-12965:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1113504131
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-12965
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13012:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1113509482
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13012
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13023:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1113461985
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13023
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13028:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1113485543
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13028
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13033:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1113611757
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13033
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13089:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1113657061
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13089
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13109:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1113574851
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13109
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13112:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1113584231
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13112
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13121:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1113621918
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13121
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13128:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1113634254
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13128
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13158:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1113755705
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13158
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13195:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1113681424
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13195
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13212:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1113892891
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13212
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13279:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1114737533
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13279
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13297:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1114789689
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13297
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13315:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115309345
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13315
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13343:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1114833254
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13343
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13344:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1114926160
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13344
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13346:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1114793298
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13346
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13363:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1114877156
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13363
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13401:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1114897817
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13401
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13406:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115002588
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13406
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13410:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115024570
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13410
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13417:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115015412
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13417
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13449:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115092136
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13449
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13512:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115196216
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13512
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13513:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115197162
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13513
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13516:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115180785
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13516
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13551:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115265483
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13551
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13568:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115250821
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13568
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13569:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115356684
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13569
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13590:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115269093
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13590
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13658:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115394274
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13658
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13670:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115558785
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13670
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13741:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115480294
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13741
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13786:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115587698
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13786
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13794:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115572373
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13794
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13807:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115734744
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13807
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13809:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1148278655
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13809
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13810:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115594841
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13810
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13820:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115588632
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13820
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13821:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115622602
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13821
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13837:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1115639991
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13837
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13925:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1148317706
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13925
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13933:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1148345212
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13933
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-13964:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1148533032
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-13964
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14007:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1149313040
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14007
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14011:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1149336880
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14011
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14017:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1148658992
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14017
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14034:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1150137660
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14034
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14053:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1148696011
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14053
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14089:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1148738846
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14089
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14122:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1148786252
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14122
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14140:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1148786830
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14140
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14155:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1148985112
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14155
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14170:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1148809570
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14170
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14238:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1149315222
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14238
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14311:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1149634534
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14311
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14315:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1149423070
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14315
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14349:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1149506567
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14349
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14351:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1149450902
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14351
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14373:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1149493962
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14373
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14376:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1149510989
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14376
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14404:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1149554800
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14404
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14434:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1149564257
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14434
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14493:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1149646736
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14493
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14500:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1149661236
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14500
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14534:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1150115405
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14534
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14539:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1149886789
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14539
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14559:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1149815409
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14559
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14580:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1149851973
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14580
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14608:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1149895795
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14608
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14631:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1149959945
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14631
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14672:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1150018626
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14672
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14725:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1165217457
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14725
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14752:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1150161437
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14752
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14765:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1150157784
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14765
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14771:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1164000891
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14771
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14787:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1164136411
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14787
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14792:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1150180701
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14792
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14855:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1150314143
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14855
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14915:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1164052148
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14915
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-14999:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1164170935
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-14999
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15022:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1165019962
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15022
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15037:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1164232157
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15037
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15098:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1164336073
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15098
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15103:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1164280343
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15103
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15104:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1164263288
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15104
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15127:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1164310211
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15127
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15128:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1164934645
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15128
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15161:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1165131670
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15161
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15252:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1165092309
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15252
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15268:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1165142554
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15268
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15277:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1165093513
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15277
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15278:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1165104856
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15278
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15280:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1165113750
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15280
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15315:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1165167609
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15315
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15368:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1165267430
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15368
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15375:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1165386466
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15375
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15380:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1165361847
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15380
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15382:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1165383767
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15382
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15467:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1167439576
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15467
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15499:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1167480573
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15499
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15503:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1167450068
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15503
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15525:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1167495916
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15525
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15554:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1168344296
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15554
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15561:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1168370156
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15561
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15563:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1168411654
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15563
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15569:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1168382256
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15569
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15572:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1168402452
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15572
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15629:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1168578920
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15629
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15695:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1168693736
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15695
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15731:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1168783263
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15731
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15732:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1168813583
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15732
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15741:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1168775888
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15741
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15814:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1168841393
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15814
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15851:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1168895423
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15851
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15863:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1169547434
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15863
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15916:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1169433228
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15916
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15930:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1169400980
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15930
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15957:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1169444180
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15957
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15973:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1169245788
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15973
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-15987:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1169221965
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-15987
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16032:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1169310967
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16032
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16082:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1169337171
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16082
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16100:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1169452267
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16100
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16116:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1169362021
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16116
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16136:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1169450533
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16136
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16139:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1169562404
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16139
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16145:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1169559508
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16145
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16255:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1169633326
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16255
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16256:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1169637450
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16256
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16263:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1169630649
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16263
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16315:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1169726025
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16315
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16333:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1169695784
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16333
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16429:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1170089275
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16429
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16454:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1197668492
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16454
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16485:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1197664712
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16485
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16493:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1197635139
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16493
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16502:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1197699058
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16502
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16527:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1197699882
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16527
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16560:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1197834180
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16560
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16569:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1197827092
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16569
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16595:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1197857210
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16595
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16612:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1197980640
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16612
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16631:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1198095413
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16631
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16642:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1198119540
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16642
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16661:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1198191732
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16661
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16662:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1198130071
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16662
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16667:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1198157220
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16667
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16801:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1198972739
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16801
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16819:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1198982986
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16819
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16877:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1199073388
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16877
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16899:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1199093088
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16899
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16901:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1199123890
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16901
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16938:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1199073273
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16938
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-16950:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1199804945
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-16950
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-17029:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1199799490
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-17029
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-17084:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1199869705
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-17084
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-17087:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1199259155
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-17087
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-7530:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1167814258
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-7530
+- image_ref: swebench/sweb.eval.x86_64.django_1776_django-9296:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1109627239
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: django__django-9296
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-13989:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1905652202
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-13989
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-14623:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2156043737
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-14623
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-20488:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2417001376
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-20488
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-20676:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2418494038
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-20676
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-20826:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2418894765
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-20826
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-20859:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2419459151
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-20859
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-21568:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2426302642
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-21568
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-22719:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3271160232
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-22719
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-22865:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3233723508
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-22865
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-22871:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3233722287
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-22871
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-23299:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3234808368
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-23299
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-23314:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3234626716
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-23314
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-23412:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3235148614
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-23412
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-23476:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3235126205
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-23476
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-24026:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3288022373
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-24026
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-24149:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3299967707
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-24149
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-24177:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3300031461
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-24177
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-24570:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3300930475
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-24570
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-24627:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3301058010
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-24627
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-24637:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3302027883
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-24637
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-24870:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3302222285
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-24870
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-24970:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3302755008
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-24970
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-25122:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3302858901
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-25122
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-25287:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3308273957
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-25287
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-25311:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3308292550
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-25311
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-25332:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3330548198
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-25332
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-25479:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3310017110
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-25479
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-25775:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3313692047
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-25775
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-25960:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3311502577
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-25960
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-26113:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3313707140
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-26113
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-26208:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3312416008
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-26208
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-26291:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3312795398
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-26291
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-26342:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3312850607
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-26342
+- image_ref: swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-26466:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 3313935746
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: matplotlib__matplotlib-26466
+- image_ref: swebench/sweb.eval.x86_64.mwaskom_1776_seaborn-3069:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1249456920
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: mwaskom__seaborn-3069
+- image_ref: swebench/sweb.eval.x86_64.mwaskom_1776_seaborn-3187:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1253030513
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: mwaskom__seaborn-3187
+- image_ref: swebench/sweb.eval.x86_64.pallets_1776_flask-5014:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1103704773
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pallets__flask-5014
+- image_ref: swebench/sweb.eval.x86_64.psf_1776_requests-1142:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 972426652
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: psf__requests-1142
+- image_ref: swebench/sweb.eval.x86_64.psf_1776_requests-1724:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 973101465
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: psf__requests-1724
+- image_ref: swebench/sweb.eval.x86_64.psf_1776_requests-1766:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 973123574
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: psf__requests-1766
+- image_ref: swebench/sweb.eval.x86_64.psf_1776_requests-1921:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 973262311
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: psf__requests-1921
+- image_ref: swebench/sweb.eval.x86_64.psf_1776_requests-2317:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 973702163
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: psf__requests-2317
+- image_ref: swebench/sweb.eval.x86_64.psf_1776_requests-2931:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 974054200
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: psf__requests-2931
+- image_ref: swebench/sweb.eval.x86_64.psf_1776_requests-5414:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 984464655
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: psf__requests-5414
+- image_ref: swebench/sweb.eval.x86_64.psf_1776_requests-6028:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 984496426
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: psf__requests-6028
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-2905:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1999071733
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-2905
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-3095:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1997210243
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-3095
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-3151:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1997208512
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-3151
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-3305:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1997564262
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-3305
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-3677:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1997699001
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-3677
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-3993:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1999014334
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-3993
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-4075:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1998278678
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-4075
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-4094:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1998368070
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-4094
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-4356:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1998539488
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-4356
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-4629:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1998833736
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-4629
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-4687:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2003018727
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-4687
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-4695:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1998865709
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-4695
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-4966:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2000398444
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-4966
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-6461:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1871147207
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-6461
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-6599:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1958504225
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-6599
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-6721:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1875567313
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-6721
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-6744:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1875631610
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-6744
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-6938:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1875721630
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-6938
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-6992:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1875676212
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-6992
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-7229:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1851503011
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-7229
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-7233:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1851448801
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-7233
+- image_ref: swebench/sweb.eval.x86_64.pydata_1776_xarray-7393:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1851626779
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pydata__xarray-7393
+- image_ref: swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-4551:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1043025280
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pylint-dev__pylint-4551
+- image_ref: swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-4604:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1043044619
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pylint-dev__pylint-4604
+- image_ref: swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-4661:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1043227658
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pylint-dev__pylint-4661
+- image_ref: swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-4970:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1043611910
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pylint-dev__pylint-4970
+- image_ref: swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-6386:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1038123284
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pylint-dev__pylint-6386
+- image_ref: swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-6528:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1038501438
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pylint-dev__pylint-6528
+- image_ref: swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-6903:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1039173528
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pylint-dev__pylint-6903
+- image_ref: swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-7080:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1039406121
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pylint-dev__pylint-7080
+- image_ref: swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-7277:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1041131418
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pylint-dev__pylint-7277
+- image_ref: swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-8898:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1001937531
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pylint-dev__pylint-8898
+- image_ref: swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-10051:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 987619872
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pytest-dev__pytest-10051
+- image_ref: swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-10081:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 987635411
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pytest-dev__pytest-10081
+- image_ref: swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-10356:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 987762475
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pytest-dev__pytest-10356
+- image_ref: swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5262:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 984434270
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pytest-dev__pytest-5262
+- image_ref: swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5631:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 982914825
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pytest-dev__pytest-5631
+- image_ref: swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5787:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 983021415
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pytest-dev__pytest-5787
+- image_ref: swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5809:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 982692196
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pytest-dev__pytest-5809
+- image_ref: swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5840:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 983045781
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pytest-dev__pytest-5840
+- image_ref: swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-6197:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 983209725
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pytest-dev__pytest-6197
+- image_ref: swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-6202:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 983200306
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pytest-dev__pytest-6202
+- image_ref: swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-7205:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 984601821
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pytest-dev__pytest-7205
+- image_ref: swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-7236:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 984684981
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pytest-dev__pytest-7236
+- image_ref: swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-7324:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 984807453
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pytest-dev__pytest-7324
+- image_ref: swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-7432:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 985051858
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pytest-dev__pytest-7432
+- image_ref: swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-7490:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 985153771
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pytest-dev__pytest-7490
+- image_ref: swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-7521:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 985168604
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pytest-dev__pytest-7521
+- image_ref: swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-7571:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 985208578
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pytest-dev__pytest-7571
+- image_ref: swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-7982:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 985518832
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pytest-dev__pytest-7982
+- image_ref: swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-8399:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 986162705
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: pytest-dev__pytest-8399
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-10297:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1432514123
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-10297
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-10844:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1432731292
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-10844
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-10908:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1432435250
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-10908
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-11310:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1433139395
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-11310
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-11578:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1435401447
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-11578
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-12585:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1436986913
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-12585
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-12682:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1454006348
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-12682
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-12973:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1437496044
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-12973
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-13124:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1439411304
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-13124
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-13135:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1439242824
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-13135
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-13142:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1439350745
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-13142
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-13328:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1444650400
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-13328
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-13439:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1444597592
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-13439
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-13496:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1445330383
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-13496
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-13779:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1453619709
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-13779
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-14053:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1453875168
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-14053
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-14087:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1454360782
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-14087
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-14141:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1453936664
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-14141
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-14496:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1454546847
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-14496
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-14629:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1454357793
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-14629
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-14710:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1454940201
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-14710
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-14894:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1456183831
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-14894
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-14983:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1455060911
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-14983
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-15100:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1455395733
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-15100
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-25102:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1842283703
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-25102
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-25232:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1841594146
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-25232
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-25747:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1781952230
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-25747
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-25931:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1843996206
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-25931
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-25973:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1844065722
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-25973
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-26194:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1844665722
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-26194
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-26323:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1847260676
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-26323
+- image_ref: swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-9288:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1454565648
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: scikit-learn__scikit-learn-9288
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10323:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1062485333
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-10323
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10435:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1061704189
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-10435
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10449:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1061909957
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-10449
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10466:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1061988599
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-10466
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10614:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1138147822
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-10614
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10673:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1063319202
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-10673
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-11445:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1064771170
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-11445
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-11510:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1138418775
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-11510
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7440:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1054853996
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-7440
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7454:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1054877633
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-7454
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7462:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1054910340
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-7462
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7590:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1055105487
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-7590
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7748:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1055425638
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-7748
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7757:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1055437317
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-7757
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7889:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1055597213
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-7889
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7910:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1055727797
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-7910
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7985:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1055851371
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-7985
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8035:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1052555476
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-8035
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8056:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1056020212
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-8056
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8120:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1056143402
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-8120
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8265:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1056182069
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-8265
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8269:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1056091760
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-8269
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8459:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1056505794
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-8459
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8475:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1053096255
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-8475
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8548:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1054981286
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-8548
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8551:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1054929287
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-8551
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8593:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1055031772
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-8593
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8595:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1054974313
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-8595
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8621:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1051585792
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-8621
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8638:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1055312966
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-8638
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8721:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1055221216
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-8721
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9229:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1057263548
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-9229
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9230:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1057399822
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-9230
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9258:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1057431949
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-9258
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9281:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1057515315
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-9281
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9320:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1057629666
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-9320
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9367:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1057792684
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-9367
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9461:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1058409320
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-9461
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9591:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1058972102
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-9591
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9602:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1058979095
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-9602
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9658:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1059293104
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-9658
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9673:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1059252102
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-9673
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9698:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1059856235
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-9698
+- image_ref: swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9711:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1059812215
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sphinx-doc__sphinx-9711
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-11618:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1020046289
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-11618
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-12096:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1020644347
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-12096
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-12419:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1020938308
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-12419
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-12481:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1021087274
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-12481
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-12489:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1021237456
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-12489
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-13031:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1022098442
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-13031
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-13091:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1022493441
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-13091
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-13372:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1026212333
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-13372
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-13480:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1026454108
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-13480
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-13551:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1026586053
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-13551
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-13615:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1026792603
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-13615
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-13647:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1026821836
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-13647
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-13757:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1026949494
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-13757
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-13798:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1027004251
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-13798
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-13852:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1027130442
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-13852
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-13877:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1027581792
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-13877
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-13878:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1027259241
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-13878
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-13974:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1027294667
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-13974
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-14248:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1028062076
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-14248
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-14531:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1028404507
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-14531
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-14711:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1028933531
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-14711
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-14976:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1029886960
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-14976
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-15017:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1031931785
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-15017
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-15345:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1032842133
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-15345
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-15349:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1032866329
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-15349
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-15599:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1033558454
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-15599
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-15809:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1033801579
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-15809
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-15875:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1033923769
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-15875
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-15976:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1034289047
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-15976
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-16450:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1035341167
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-16450
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-16597:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1035716437
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-16597
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-16766:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1035987909
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-16766
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-16792:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1036085739
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-16792
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-16886:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1036338639
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-16886
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-17139:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1037190989
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-17139
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-17318:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1037725028
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-17318
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-17630:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1039523513
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-17630
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-17655:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1039751037
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-17655
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-18189:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1041319476
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-18189
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-18199:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1041467376
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-18199
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-18211:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1041385835
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-18211
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-18698:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1042860713
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-18698
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-18763:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1040797250
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-18763
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-19040:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1043454673
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-19040
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-19346:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1044042055
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-19346
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-19495:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1044297866
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-19495
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-19637:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1044648113
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-19637
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-19783:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1045359755
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-19783
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-19954:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1045680814
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-19954
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-20154:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1046117910
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-20154
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-20428:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1046624365
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-20428
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-20438:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1047122605
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-20438
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-20590:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1046529606
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-20590
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-20801:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1047498610
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-20801
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-20916:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1047755475
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-20916
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-21379:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1048785888
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-21379
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-21596:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1049207505
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-21596
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-21612:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1049242953
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-21612
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-21847:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1050354582
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-21847
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-21930:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1050884045
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-21930
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-22080:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1051189912
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-22080
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-22456:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1052449794
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-22456
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-22714:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1053114687
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-22714
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-22914:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1053389715
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-22914
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-23262:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1054316677
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-23262
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-23413:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1054723891
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-23413
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-23534:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1054957330
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-23534
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-23824:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1069467059
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-23824
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-23950:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1064250022
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-23950
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-24066:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1064733776
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-24066
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-24213:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1065110260
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-24213
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-24443:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1064613608
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-24443
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-24539:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1064717633
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-24539
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-24562:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1064802902
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-24562
+- image_ref: swebench/sweb.eval.x86_64.sympy_1776_sympy-24661:latest
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1065035407
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-verified
+    xrlenv.instance_id: sympy__sympy-24661

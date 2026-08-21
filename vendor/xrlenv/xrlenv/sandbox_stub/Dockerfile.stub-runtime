@@ -1,0 +1,91 @@
+# syntax=docker/dockerfile:1.6
+# Canonical stub-runtime layer.
+#
+# The platform's in-sandbox stub (``python3 -m xrlenv.sandbox_stub``)
+# imports pydantic, aiohttp, and pyyaml at startup; xrlenv's whole
+# type system uses pydantic. Every benchmark plug-in's image needs
+# them, so the install lives in ONE place — here — and version pins
+# bump in one place too.
+#
+# Plug-ins should not duplicate this. The canonical way to apply
+# this layer is::
+#
+#     xrlenv stub-runtime layer --base <upstream-tag> --out <final-tag>
+#
+# which builds this Dockerfile with ``BASE_IMAGE=<upstream-tag>``.
+# See ``docs/integration/tb2_developer.md`` for the per-benchmark
+# image-build architecture (this Dockerfile is the platform-owned
+# stub-runtime layer that goes on top of an upstream task image).
+#
+# tb2 reality (89 upstream tasks): ~54 use a ``python:*-slim`` base
+# that already ships python+pip; ~35 use a bare ``ubuntu:24.04`` /
+# ``debian:*-slim`` and don't apt-install python themselves. The
+# conditional apt-install below covers the latter. ``apt-get`` is
+# the right tool because every tb2 base is Debian-derived; if/when
+# a non-Debian base shows up we'll need a per-distro branch here.
+#
+# Audit H1 / D12 stage 1: this layer adds platform infrastructure
+# only. The grader's ``tests/`` and ``run-task-tests.sh`` are NOT
+# baked here — they're uploaded into the sandbox at reward time
+# via the platform's verifier-asset injection.
+
+ARG BASE_IMAGE
+# ``UPSTREAM_USER`` is detected from the base image by the
+# ``xrlenv stub-runtime layer`` CLI (via ``docker inspect
+# --format='{{.Config.User}}'``) and passed in as a build-arg.
+# We default to ``root`` for the (very common) case where the
+# upstream image leaves Config.User empty — Docker's runtime
+# default is root in that case, so this preserves the upstream
+# semantics. If a future tb2 task ships with a non-root USER,
+# the layer will install as root for the apt+pip install but
+# restore the upstream USER at the end so agent + reward exec
+# behave the same as the upstream image (audit M1, 2026-04-29).
+ARG UPSTREAM_USER=root
+
+FROM ${BASE_IMAGE}
+
+# Ownership labels (B7.6 admin-filter follow-on, 2026-05). Every image
+# produced by ``xrlenv stub-runtime layer`` is a sandbox-runnable
+# final task image, so the layer marks itself as such here. The admin
+# /images view filters on these labels — see
+# :func:`xrlenv.node.image_cache.default_ownership_classifier`.
+LABEL org.xrlenv.owned=true
+LABEL org.xrlenv.role=final
+
+# Switch to root only for the install (apt-get + pip both need
+# write access to /var/lib/apt + the system site-packages); the
+# ``USER ${UPSTREAM_USER}`` directive at the bottom restores the
+# upstream image's semantics.
+USER root
+
+# If the base lacks python3 or pip, apt-install them. We test BOTH
+# because some images have python3 but no pip (e.g. ubuntu:24.04
+# minimal). Wrapped in a single RUN so the cache hits a no-op on
+# bases that already have both.
+RUN set -eux; \
+    if ! command -v python3 >/dev/null 2>&1 \
+       || ! python3 -m pip --version >/dev/null 2>&1; then \
+        export DEBIAN_FRONTEND=noninteractive ; \
+        apt-get update ; \
+        apt-get install -y --no-install-recommends \
+            python3 python3-pip python3-venv ca-certificates ; \
+        rm -rf /var/lib/apt/lists/* ; \
+    fi
+
+# Pin floors here; bumping the lower bound bumps every plug-in's
+# next build automatically. ``--break-system-packages`` covers
+# Debian / Ubuntu PEP-668 envs that block global pip install by
+# default; harmless on images without that policy.
+RUN python3 -m pip install --no-cache-dir --break-system-packages \
+        "aiohttp>=3.9" \
+        "pyyaml>=6.0" \
+        "pydantic>=2.7"
+
+# Restore the upstream USER so the platform's stub + agent step()
+# + verifier exec all run as the user the upstream image author
+# intended. This matters when D12 stage 2 (UID separation) lands
+# and benchmarks start setting ``[agent].user`` / ``[verifier].user``
+# in task.toml — at that point the platform needs the per-image
+# USER to honor task.toml's defaults rather than always landing on
+# root because we set it during the install above.
+USER ${UPSTREAM_USER}

@@ -1,0 +1,79 @@
+version: 1
+name: terminal-bench-2-smoke-8
+replication: 1
+budget:
+  reserved_runtime_gb: 30
+  buffer_gb: 10
+entries:
+- image_ref: alexgshaw/fix-git:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 158051230
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/build-pov-ray:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 163062783
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/overfull-hbox:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 131844457
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/cobol-modernization:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 162011504
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/prove-plus-comm:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 491449847
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/constraints-scheduling:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 49849705
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/nginx-request-logging:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 67277698
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+- image_ref: alexgshaw/dna-insert:20251031
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 29724629
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0

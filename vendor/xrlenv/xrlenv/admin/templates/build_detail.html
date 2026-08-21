@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}build {{ plan_id_short }}{% endblock %}
+{% block content %}
+<p><a href="/builds">&larr; build plans</a></p>
+<h1>Build plan <code>{{ plan_id_short }}</code></h1>
+<p class="page-subtitle">
+  <strong>{{ name }}</strong>
+  {% if summary %} &middot; {{ summary }}{% endif %}
+</p>
+
+<section class="image-summary-grid" aria-label="Plan summary">
+  <article class="image-summary-card">
+    <span class="metric-label">status</span>
+    <strong class="status-{{ status }}">{{ status }}</strong>
+  </article>
+  <article class="image-summary-card">
+    <span class="metric-label">applied at</span>
+    <strong>{{ applied_at_abs }}</strong>
+    <span class="muted small">{{ applied_at_rel }}</span>
+  </article>
+  <article class="image-summary-card">
+    <span class="metric-label">applied by</span>
+    <strong><code>{{ applied_by }}</code></strong>
+  </article>
+  <article class="image-summary-card">
+    <span class="metric-label">assignments</span>
+    <strong>{{ assignment_count }}</strong>
+  </article>
+  <article class="image-summary-card">
+    <span class="metric-label">done</span>
+    <strong>{{ per_status.get("done", 0) }}</strong>
+  </article>
+  <article class="image-summary-card">
+    <span class="metric-label">failed</span>
+    <strong class="{% if per_status.get('failed', 0) %}bad{% endif %}">{{ per_status.get("failed", 0) }}</strong>
+  </article>
+  {% if per_status.get("registered", 0) %}
+  <article class="image-summary-card">
+    <span class="metric-label">deferred</span>
+    <strong>{{ per_status.get("registered", 0) }}</strong>
+    <span class="muted small">lazy on first rollout</span>
+  </article>
+  {% endif %}
+  {% if per_status.get("evicted", 0) %}
+  <article class="image-summary-card">
+    <span class="metric-label">evicted</span>
+    <strong>{{ per_status.get("evicted", 0) }}</strong>
+    <span class="muted small">cache reclaim</span>
+  </article>
+  {% endif %}
+</section>
+
+<h2>Benchmarks in this plan</h2>
+<table class="data">
+  <thead>
+    <tr><th>benchmark</th><th>selection</th><th>build path</th></tr>
+  </thead>
+  <tbody>
+    {% for b in benchmarks %}
+    <tr>
+      <td><code>{{ b.name }}</code></td>
+      <td>{{ b.selection_label }}</td>
+      <td>{{ b.build_path or "(default)" }}</td>
+    </tr>
+    {% endfor %}
+    {% if not benchmarks %}
+      <tr><td colspan="3" class="muted">(plan carried no benchmarks)</td></tr>
+    {% endif %}
+  </tbody>
+</table>
+
+<h2>Per-node assignments</h2>
+{% for node in nodes %}
+<details {% if node.failed %}open{% endif %}>
+  <summary>
+    <code>{{ node.node_id }}</code> &middot;
+    {{ node.row_count }} image(s) &middot;
+    <strong>{{ node.done }}</strong>/{{ node.row_count }} done
+    {% if node.failed %}
+      <span class="bad">&nbsp;{{ node.failed }} failed</span>
+    {% endif %}
+    {% if node.registered %}
+      <span class="muted">&nbsp;{{ node.registered }} deferred</span>
+    {% endif %}
+    {% if node.evicted %}
+      <span class="muted">&nbsp;{{ node.evicted }} evicted</span>
+    {% endif %}
+  </summary>
+  <table class="data image-table-dense">
+    <thead>
+      <tr>
+        <th>image</th>
+        <th>benchmark</th>
+        <th>status</th>
+        <th class="num">started</th>
+        <th class="num">completed</th>
+        <th>error</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in node.rows %}
+      <tr>
+        <td><code>{{ r.image_ref }}</code></td>
+        <td><code>{{ r.benchmark }}</code></td>
+        <td><span class="status-{{ r.status }}">{{ r.status }}</span></td>
+        <td class="num">
+          {%- if r.started_at -%}{{ "%.0f"|format(r.started_at) }}{%- else -%}—{%- endif -%}
+        </td>
+        <td class="num">
+          {%- if r.completed_at -%}{{ "%.0f"|format(r.completed_at) }}{%- else -%}—{%- endif -%}
+        </td>
+        <td>
+          {%- if r.error -%}<span class="muted small">{{ r.error }}</span>{%- else -%}—{%- endif -%}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</details>
+{% endfor %}
+{% if not nodes %}
+  <p class="muted">No assignments persisted for this plan.</p>
+{% endif %}
+
+<h2>Plan source</h2>
+<details>
+  <summary>show canonical plan JSON</summary>
+  <pre class="codeblock"><code>{{ plan_json_pretty }}</code></pre>
+</details>
+
+{% endblock %}

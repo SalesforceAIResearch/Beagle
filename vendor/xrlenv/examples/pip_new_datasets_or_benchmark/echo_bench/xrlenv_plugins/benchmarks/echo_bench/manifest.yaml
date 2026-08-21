@@ -1,0 +1,43 @@
+# echo_bench — own-benchmark worked example (scenario 1 of B11.6).
+#
+# spec-06 template manifest. The instance resolver enumerates the
+# three instances in adapter.py:_INSTANCES; each rollout's image is
+# built locally via ``scripts/build-task-images.sh``.
+
+name: echo-bench
+version: "0.1"
+
+# Locally-built per-instance images; matches tb2's convention.
+# Per-instance image refs (``echo-bench/<task>:0.1``) flow from the
+# resolver in adapter.py — no manifest-level image field needed.
+image_pin_mode: per_node_local
+
+# Manifest-level resources are the default; the resolver leaves them
+# unchanged since all 3 instances need the same tiny budget.
+resources:
+  cpu_request: 0.25
+  cpu_limit: 0.5
+  mem_request_bytes: 134217728     # 128 MiB
+  mem_limit_bytes: 268435456        # 256 MiB
+  disk_request_bytes: 1073741824    # 1 GiB
+
+instances:
+  module: xrlenv_plugins.benchmarks.echo_bench.adapter
+  class: EchoBenchInstanceResolver
+
+env_adapter:
+  module: xrlenv_plugins.benchmarks.echo_bench.adapter
+  class: EchoBenchEnvAdapter
+
+reward:
+  mode: in_sandbox_final
+  cmd: ["/opt/xrlenv/run-echo-tests.sh"]
+  output_format: stdout_float
+  on_error: zero_reward
+  timeout_s: 30
+
+# Tight per-phase budgets — this benchmark does nothing slow.
+init_timeout_s: 30
+setup_timeout_s: 30
+step_timeout_s: 30
+teardown_timeout_s: 10

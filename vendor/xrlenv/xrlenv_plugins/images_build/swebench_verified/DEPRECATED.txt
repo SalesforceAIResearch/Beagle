@@ -1,0 +1,6 @@
+Superseded by xrlenv_plugins/benchmarks/swebench_verified/.
+
+build_plan_gen.py + the committed build_plan.yaml now live in the plug-in dir
+(xrlenv_plugins/benchmarks/swebench_verified/) alongside the rest of the ops kit,
+per GUIDELINE_onboard_benchmarks.md (build_plan_gen belongs in the benchmark dir).
+The shared _dockerhub_probe helper stays here and is still imported by the plug-in.

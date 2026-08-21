@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}rollouts{% endblock %}
+{% block content %}
+<h1>Rollouts</h1>
+<p class="page-subtitle">
+  Trainer-driven gym/step (template) rollouts. Evaluation harnesses and other
+  raw-container runs are tracked under
+  <a href="/rollouts/raw">raw containers</a>.
+</p>
+{% set current_page = page|default(1) %}
+{% set current_page_size = page_size|default(32) %}
+{% set size_options = page_size_options|default([32, 64, 128, 256]) %}
+{% set display_records = records[:current_page_size] %}
+
+<form method="get" action="/rollouts/template" class="filters">
+  <input type="hidden" name="page_size" value="{{ current_page_size }}">
+  <label>status
+    <select name="status">
+      <option value="">(any)</option>
+      {% for s in statuses %}
+        <option value="{{ s }}" {% if s == status %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>template
+    <input type="text" name="template" value="{{ template or '' }}" placeholder="(any)">
+  </label>
+  <label>since
+    <input type="text" name="since" value="{{ since or '' }}" placeholder="5m / 2h / 1d">
+  </label>
+  <button type="submit">filter</button>
+</form>
+
+<div class="pagination">
+  <div class="pagination-summary">
+    <span>Page {{ current_page }} - showing {{ display_records|length }}{% if has_next %}+{% endif %} records</span>
+    <form method="get" action="/rollouts/template" class="page-size-form">
+      <input type="hidden" name="status" value="{{ status or '' }}">
+      <input type="hidden" name="template" value="{{ template or '' }}">
+      <input type="hidden" name="since" value="{{ since or '' }}">
+      <input type="hidden" name="page" value="1">
+      <label> | per page
+        <select name="page_size" onchange="this.form.submit()">
+          {% for option in size_options %}
+            <option value="{{ option }}" {% if option == current_page_size %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+  </div>
+  <span class="pagination-links">
+    {% if has_prev %}
+      <a class="btn pagination-arrow" href="{{ prev_page_url }}" aria-label="previous page" title="previous page">&larr;</a>
+    {% else %}
+      <span class="btn disabled pagination-arrow" aria-label="previous page" title="previous page">&larr;</span>
+    {% endif %}
+    {% if has_next %}
+      <a class="btn pagination-arrow" href="{{ next_page_url }}" aria-label="next page" title="next page">&rarr;</a>
+    {% else %}
+      <span class="btn disabled pagination-arrow" aria-label="next page" title="next page">&rarr;</span>
+    {% endif %}
+  </span>
+  <form method="get" action="/rollouts/template" class="pagination-jump">
+    <input type="hidden" name="status" value="{{ status or '' }}">
+    <input type="hidden" name="template" value="{{ template or '' }}">
+    <input type="hidden" name="since" value="{{ since or '' }}">
+    <input type="hidden" name="page_size" value="{{ current_page_size }}">
+    <label>go to page
+      <input type="number" name="page" value="{{ current_page }}" min="1">
+    </label>
+    <button type="submit">go</button>
+  </form>
+</div>
+
+{% if not display_records %}
+  <p>No rollouts match the current filters on this page. Raw-container
+  (evaluation-harness) runs live under
+  <a href="/rollouts/raw">raw containers</a>.</p>
+{% else %}
+<table class="data">
+  <thead>
+    <tr>
+      <th>id</th>
+      <th>status</th>
+      <th>template</th>
+      <th>node</th>
+      <th>steps</th>
+      <th>final reward</th>
+      <th>duration</th>
+      <th>age</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in display_records %}
+    <tr class="status-{{ r.status.value }}">
+      <td><a href="/rollouts/{{ r.rollout_id }}"><code>{{ r.rollout_id[:16] }}</code></a></td>
+      <td>{{ r.status.value }}</td>
+      <td>{{ r.template }}</td>
+      <td>{{ r.node_id or "-" }}</td>
+      <td>{{ r.steps|length }}</td>
+      <td>{{ "%.3f"|format(r.final_reward) }}</td>
+      {% set duration = (durations|default({})).get(r.rollout_id) %}
+      {% set fallback_end = r.last_touched_at if r.status.is_terminal else now %}
+      {% set duration_s = duration.seconds if duration else fallback_end - r.created_at %}
+      <td title="duration source: {{ duration.source if duration else 'state timestamps' }}">
+        {{ "%.1f"|format(duration_s / 60) }} min
+        {% if (duration.live if duration else not r.status.is_terminal) %}
+          <span class="muted">live</span>
+        {% endif %}
+      </td>
+      {% set age_total_s = (now - r.created_at)|int %}
+      <td>{{ "%02d:%02d:%02d"|format(age_total_s // 3600, (age_total_s // 60) % 60, age_total_s % 60) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}
