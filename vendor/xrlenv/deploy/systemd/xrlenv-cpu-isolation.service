@@ -1,15 +1,14 @@
 [Unit]
-Description=XRLEnv P6 — re-establish the delegated xrlenv-shared cpuset cgroup after boot
+Description=XRLEnv CPU isolation — re-establish the delegated xrlenv-shared cpuset cgroup after boot
 # cgroups do NOT survive a reboot, so the delegated /sys/fs/cgroup/xrlenv-shared
-# created by scripts/enable_cpu_isolation.sh is gone after a reboot and the
+# created by deploy/node/enable_cpu_isolation.sh is gone after a reboot and the
 # (non-root) node agent reverts to non-capable. This oneshot recreates + re-chowns
 # it AFTER docker is up (it reads the docker cgroup driver) and BEFORE the agent
 # starts (so the agent's NodeHello delegation check passes on the first try).
-# §8.13, notes/cluster-resource-isolation-plan.md.
 After=docker.service
 Wants=docker.service
 Before=xrlenv-node.service
-# Only meaningful on a P6-enabled node — the marker enable_cpu_isolation.sh writes.
+# Only meaningful on a CPU-isolation-enabled node — the marker enable_cpu_isolation.sh writes.
 # On a node that was never enabled (or was reverted) the unit is skipped entirely;
 # the setup script is ALSO a no-op there (it gates on the cgroupfs driver).
 ConditionPathExists=/etc/xrlenv/cpu_isolation.env
@@ -18,7 +17,7 @@ ConditionPathExists=/etc/xrlenv/cpu_isolation.env
 Type=oneshot
 RemainAfterExit=yes
 # Installed locally by enable_cpu_isolation.sh so boot does not depend on the
-# shared /shared-fs mount being up.
+# shared /fsx mount being up.
 ExecStart=/etc/xrlenv/setup_shared_cpuset.sh
 
 [Install]

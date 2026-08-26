@@ -25,7 +25,7 @@ Usage::
     # generate a plan for the whole populated shard, then build+push:
     .venv/bin/python -m xrlenv_plugins.benchmarks.terminalworld.build_plan_gen \\
         --all --output /tmp/tw_build_plan.yaml
-    .venv/bin/python scripts/build_and_push_images.py \\
+    .venv/bin/python deploy/registry/build_and_push_images.py \\
         --plan /tmp/tw_build_plan.yaml --registry <host>:5011
 
     # a subset:
@@ -256,7 +256,7 @@ def main(argv: list[str] | None = None) -> int:
         description=(
             "Generate a build-plan.yaml for terminalworld-verified. Tasks ship "
             "a local Dockerfile in the harbor cache; the plan uses type: local "
-            "entries throughout. Feed the output to scripts/build_and_push_images.py."
+            "entries throughout. Feed the output to deploy/registry/build_and_push_images.py."
         ),
     )
     sel = p.add_mutually_exclusive_group(required=True)

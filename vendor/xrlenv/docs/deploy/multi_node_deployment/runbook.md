@@ -40,7 +40,7 @@ xrlenv up \
   --grpc-port 50051 \
   --metrics-port 9090 \
   --admin-port 8080 \
-  --log-file ~/.xrlenv/xrlenv-up-control.log \
+  --log-file ~/.xrlenv-dev/xrlenv-up-control.log \
   --log-max-bytes 52428800 \
   --log-backup-count 10
 ```
@@ -361,11 +361,11 @@ admin views can show rostered nodes:
 ```yaml
 nodes:
   - id: gcp-a
-    host: internal-ip
+    host: <gcp-node-host>
     provider: gcp
     zone: us-central1-a
   - id: aws-a
-    host: internal-ip
+    host: <aws-node-host>
     provider: aws
     zone: us-west-2a
 ```
@@ -510,7 +510,7 @@ them to preserve whatever auth file is already on disk. The auth
 rewrite happens **before** the daemon restart so docker-py's
 `APIClient` reads the new credentials at process startup (an
 auth-after-restart path leaves the running daemon on the old PAT
-until the next restart cycle — a real bug we hit during phase-1
+until the next restart cycle — a real bug we hit during
 operator validation; see the order-regression test at
 `tests/unit/deploy/test_bootstrap_dockerhub_auth.py`).
 
@@ -619,8 +619,8 @@ these lines as confirmation the streams were torn down, nothing more.
 ### Version-skew warning
 
 Symptom: the control plane logs
-`WARN … version skew: node agent_version=0.0.1+<sha-A>, control
-plane=0.0.1+<sha-B>`. It means the node-agent and the control plane were
+`WARN … version skew: node agent_version=0.1.0+<sha-A>, control
+plane=0.1.0+<sha-B>`. It means the node-agent and the control plane were
 built from different commits. The node's build SHA is **stamped into
 `/etc/xrlenv/node.env` at bootstrap time**; the control plane's is
 computed **live when `xrlenv up` starts**. So committing (or `git pull`)
@@ -684,7 +684,7 @@ matters when a node fills up.
 | `/var/lib/xrlenv/runs/<rollout-id>/` | Per-rollout durable artifacts: trajectory.jsonl, coordinator.log, in-sandbox `/logs/` mirror. | Each rollout adds a directory; size depends on benchmark verbosity. | Yes for old rollouts, **no** if you still want to inspect them. | The control plane's `xrlenv up --retention-days N` GCs anything older than N days. Manual: `sudo rm -rf /var/lib/xrlenv/runs/<old-rollout-id>/`. |
 | `/var/cache/xrlenv/harbor/tasks/` | Operator-populated harbor task assets (the upstream task tree the harbor adapter reads at rollout start). | Set once via `populate-harbor-cache.sh` per task subset; static after that. | Yes — re-populate by re-running the populator. | `sudo rm -rf /var/cache/xrlenv/harbor/tasks/<task-id>/` then re-run `populate-harbor-cache.sh`. |
 | `/var/cache/xrlenv/build-context-cache/` | Git clones for `context_source: type: git` plan entries, plus LRU bookkeeping. | Each new `(repo, ref)` adds a checkout; bounded by `GitSourceBuilder`'s **5 GB total cap with LRU eviction**, so it self-stabilizes. | **Yes always** — the next build re-clones from upstream. | `sudo rm -rf /var/cache/xrlenv/build-context-cache/`. The next `xrlenv build apply --plan` re-clones. |
-| Docker image cache (managed by Docker, not xrlenv) | Pulled / built images. Per spec-15, `ImageCacheManager` evicts cold images under disk pressure. | Each pull / build adds layers; LRU + tier-based eviction reclaims under disk pressure. | Yes for cold images. | `docker image prune` to wipe untagged layers. `docker system prune -a` for more aggressive (also wipes stopped containers). |
+| Docker image cache (managed by Docker, not xrlenv) | Pulled / built images. `ImageCacheManager` evicts cold images under disk pressure. | Each pull / build adds layers; LRU + tier-based eviction reclaims under disk pressure. | Yes for cold images. | `docker image prune` to wipe untagged layers. `docker system prune -a` for more aggressive (also wipes stopped containers). |
 
 There is **no** `/var/cache/xrlenv/runs/` directory — run dirs are
 durable state and live under `/var/lib/xrlenv/runs/` per FHS.

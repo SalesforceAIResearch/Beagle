@@ -1,4 +1,4 @@
-# xrlenv PRIVATE registry (Phase B) — registry:3 (distribution 3.x) in normal
+# xrlenv PRIVATE registry — registry:3 (distribution 3.x) in normal
 # *writable* mode, backed by FSx. Unlike config.yml (the pull-through PROXY in
 # front of Docker Hub), this registry has NO `proxy:` block, so it can be
 # `docker push`ed to. It is the durable home for images we build ourselves from

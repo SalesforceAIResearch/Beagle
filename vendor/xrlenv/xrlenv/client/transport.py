@@ -29,7 +29,11 @@ import grpc
 from xrlenv.api import converters as conv
 from xrlenv.api._pb2 import rollout_control_pb2 as rpb
 from xrlenv.api._pb2 import rollout_control_pb2_grpc as rpb_grpc
-from xrlenv.api.constants import ARCHIVE_CHUNK_BYTES, GRPC_CHANNEL_OPTIONS
+from xrlenv.api.constants import (
+    ARCHIVE_CHUNK_BYTES,
+    GRPC_CHANNEL_OPTIONS,
+    HEARTBEAT_RPC_TIMEOUT_S,
+)
 from xrlenv.backends.base import CpuIsolation, ResourceSpec, RuntimeLimits
 from xrlenv.backends.egress import EgressAllowlist
 from xrlenv.control.admission import DEFAULT_QUEUE_TIMEOUT_S
@@ -57,6 +61,7 @@ from xrlenv.errors import (
     RolloutCancelled,
     RolloutFailed,
     RolloutTruncated,
+    SessionReaped,
     TemplateUnknown,
     XRLEnvError,
 )
@@ -465,6 +470,12 @@ _KIND_TO_EXC: dict[str, type[XRLEnvError]] = {
     "PinCapacityExhausted":     PinCapacityExhausted,
     "ControlPlaneLost":         ControlPlaneLost,
     "NodeLost":                 NodeLost,
+    # Platform-initiated session teardown — the liveness quarantine, but also
+    # the wall-clock deadline sweep and node-side orphan seals; read ``reason``
+    # for which. Rehydrated as its own type so a harness can classify it as
+    # infra-transient rather than reading a bare XRLEnvError that looks like a
+    # stale handle.
+    "SessionReaped":            SessionReaped,
     # A node reply-timeout (create/exec/destroy) surfaced through the CP's
     # _abort_with_xrlenv_error, which stamps the kind. Without this entry it fell
     # through to _classify_unmarked_rpc_error → a bare XRLEnvError, invisible to
@@ -531,6 +542,15 @@ def _rehydrate_xrlenv_error(rpc_error: grpc.aio.AioRpcError) -> XRLEnvError:
         return RolloutFailed(msg, reason=reason or "unknown", partial=partial)
     if cls in (RolloutTruncated, RolloutCancelled):
         return cls(msg, partial=partial)  # type: ignore[call-arg]
+    if cls is SessionReaped:
+        # SessionReaped.__init__ requires ``reason`` (no default), so the bare
+        # ``cls(msg)`` fallback below would raise TypeError instead of rehydrating
+        # the exception. (``RolloutFailed`` is the only other entry that requires
+        # ``reason``; it is intercepted above and never reaches the fallback.)
+        # reason rides the existing _REASON_META_KEY; reaped_at has no metadata
+        # key of its own and does NOT survive the wire round-trip (always None
+        # on the client side).
+        return SessionReaped(msg, reason=reason or "session reaped")
     if cls is not None:
         return cls(msg)
     # No structured metadata — surface the underlying transport problem.
@@ -747,10 +767,19 @@ class GrpcClientTransport:
     async def heartbeat_many(self, rollout_ids: list[str]) -> None:
         # Batched keepalive: one RPC for all of this process's live raw
         # sessions (overhead scales with processes, not sessions).
+        #
+        # DEADLINE, not best-effort. The caller swallows failures so a blip
+        # can't tear the loop down — but a HUNG beat is not a failure, it just
+        # never returns, and the loop is single-threaded: one wedged RPC
+        # silences this process's keepalive forever and every quiet session it
+        # owns is destroyed at the horizon. A timeout well under the beat
+        # cadence turns that hang into an ordinary swallowed error the next
+        # beat retries.
         try:
             await self._stub.Heartbeat(
                 rpb.HeartbeatRequest(rollout_ids=rollout_ids),
                 metadata=self._metadata(),
+                timeout=HEARTBEAT_RPC_TIMEOUT_S,
             )
         except grpc.aio.AioRpcError as exc:
             raise _rehydrate_xrlenv_error(exc) from exc

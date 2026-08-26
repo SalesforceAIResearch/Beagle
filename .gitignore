@@ -235,6 +235,11 @@ experiments/configs/eval_baseline/*
 experiments/results/*
 experiments/results-bak/*
 
+# Personal campaign configs: they carry run dirs and experiment-copy repos that are
+# specific to one machine and one fork, so they are not part of the shipped repo.
+configs_yz/
+configs_final/
+
 # --- vendored external subtree: ship verbatim ------------------------------
 # vendor/xrlenv is a vendored copy of an external repo (de-submoduled). The
 # rules above must not drop files it ships. (Dirs first, then files, so a

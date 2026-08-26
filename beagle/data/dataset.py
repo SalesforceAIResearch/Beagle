@@ -10,7 +10,7 @@ here are fully implemented; construction *from a benchmark* defers to
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from beagle.types import Task, TaskContext, TaskId
@@ -42,6 +42,11 @@ class TaskDataset:
     items: list[TaskItem]
     name: str = ""
     benchmark_spec: BenchmarkSpec | None = None
+    #: Every benchmark contributing to this dataset. One entry for a single-benchmark dataset,
+    #: several for a mixture — where ``benchmark_spec`` is ``None`` precisely because there is
+    #: no single one. Without this a mixture is unscoreable: the Trainer derives the eval
+    #: config from ``benchmark_spec``, so a mixture would resolve to no benchmark at all.
+    benchmark_specs: list[BenchmarkSpec] = field(default_factory=list)
 
     # -- sequence protocol ---------------------------------------------------
 
@@ -60,8 +65,17 @@ class TaskDataset:
 
     # -- transforms (return new datasets, never mutate) ----------------------
 
+    def _like(self, items: list[TaskItem]) -> TaskDataset:
+        """A new dataset over ``items`` keeping this one's provenance.
+
+        Transforms must carry ``benchmark_spec``/``benchmark_specs`` through, or a derived
+        dataset — notably the val half of a split — becomes unscoreable for no visible reason.
+        """
+        return TaskDataset(items, name=self.name, benchmark_spec=self.benchmark_spec,
+                           benchmark_specs=list(self.benchmark_specs))
+
     def filter(self, predicate: Callable[[Task], bool]) -> TaskDataset:
-        return TaskDataset([(t, c) for t, c in self.items if predicate(t)], name=self.name)
+        return self._like([(t, c) for t, c in self.items if predicate(t)])
 
     def select(self, task_ids: list[TaskId]) -> TaskDataset:
         """Keep only ``task_ids``, preserving the requested order. Missing ids raise."""
@@ -70,10 +84,17 @@ class TaskDataset:
             picked = [by_id[i] for i in task_ids]
         except KeyError as e:
             raise KeyError(f"task id {e.args[0]!r} not in dataset {self.name!r}") from None
-        return TaskDataset(picked, name=self.name)
+        return self._like(picked)
 
     def concat(self, other: TaskDataset) -> TaskDataset:
-        return TaskDataset(self.items + other.items, name=self.name or other.name)
+        merged: list[BenchmarkSpec] = list(self.benchmark_specs)
+        for spec in other.benchmark_specs:
+            if spec not in merged:
+                merged.append(spec)
+        # Two datasets from different benchmarks have no single primary any more.
+        primary = self.benchmark_spec if self.benchmark_spec == other.benchmark_spec else None
+        return TaskDataset(self.items + other.items, name=self.name or other.name,
+                           benchmark_spec=primary, benchmark_specs=merged)
 
     def split(self, val_fraction: float = 0.2) -> tuple[TaskDataset, TaskDataset]:
         """Deterministic tail split into ``(train, val)``.
@@ -86,9 +107,7 @@ class TaskDataset:
             raise ValueError("val_fraction must be in [0, 1)")
         n_val = int(round(len(self.items) * val_fraction))
         cut = len(self.items) - n_val
-        train = TaskDataset(self.items[:cut], name=self.name)
-        val = TaskDataset(self.items[cut:], name=self.name)
-        return train, val
+        return self._like(self.items[:cut]), self._like(self.items[cut:])
 
     # -- construction from a benchmark ---------------------------------------
 
@@ -107,7 +126,7 @@ class TaskDataset:
         if hasattr(spec, "to_spec"):     # a BenchmarkConfig (declarative) → its BenchmarkSpec
             spec = spec.to_spec()
         return cls(list(load_tasks(spec)), name=getattr(spec, "name", ""),  # type: ignore[arg-type]
-                   benchmark_spec=spec)  # type: ignore[arg-type]
+                   benchmark_spec=spec, benchmark_specs=[spec])  # type: ignore[arg-type,list-item]
 
 
 __all__ = ["TaskItem", "TaskDataset"]

@@ -219,6 +219,18 @@ class RemoteNodeTransport:
         # reply arrives.
         self._pending_streams: dict[str, asyncio.Queue[pb.CommandReply]] = {}
         self._closed = False
+        # Watchdog-initiated stream teardown (self-heal after a false loss).
+        # Deregistering a node from the in-memory registry does NOT by itself
+        # break the still-alive bidi stream: the servicer generator stays
+        # parked reading from the node / on ``outbox.get()``, the node's
+        # HTTP/2 keepalive pings keep being answered, so the node never sees
+        # an RpcError and never redials — it stays ``lost`` forever with a
+        # live socket (the 2026-08-21 outage). ``request_terminate`` sets
+        # this event; the servicer main loop waits on it and, when set,
+        # returns from the generator so the RPC completes and the node
+        # reconnects (fresh NodeHello → re-register).
+        self._terminate: asyncio.Event = asyncio.Event()
+        self._terminate_reason: str = ""
         # Last-heartbeat-seen timestamp (control-plane wall clock). The
         # NodeRegistry watchdog reads this to decide when a node is dead.
         self._last_heartbeat_at: float = time.monotonic()
@@ -598,6 +610,50 @@ class RemoteNodeTransport:
 
         Returns ``(status, error)`` where status ∈ {"ok", "failed"}.
         """
+        body = await self._dispatch_build_image(
+            image_ref=image_ref, source=source, timeout_s=timeout_s,
+            labels=labels, skip_if_present=skip_if_present, push=False,
+        )
+        return (str(body.status), str(body.error))
+
+    async def build_and_push_image(
+        self,
+        *,
+        image_ref: str,
+        source: Any,   # GitSource | TarballSource (build_plan types)
+        timeout_s: float,
+        labels: dict[str, str] | None = None,
+    ) -> tuple[str, str, str | None]:
+        """Source-build-AND-push dispatch (``xrlenv build push``).
+
+        Same source-lowering as :meth:`build_image` but sets ``push=true`` so
+        the node builds ``image_ref`` and pushes it to the registry the
+        (registry-qualified) ref encodes, resolving the pushed digest.
+        Registry-HEAD skip is implied node-side, so a re-run is cheap and
+        overlapping dispatch never double-pushes (build-once fleet-wide).
+
+        Returns ``(status, error, repo_digest)`` — ``repo_digest`` is the
+        pushed ``<repo>@sha256:...`` on success, ``None`` otherwise.
+        """
+        body = await self._dispatch_build_image(
+            image_ref=image_ref, source=source, timeout_s=timeout_s,
+            labels=labels, skip_if_present=False, push=True,
+        )
+        return (str(body.status), str(body.error), str(body.repo_digest) or None)
+
+    async def _dispatch_build_image(
+        self,
+        *,
+        image_ref: str,
+        source: Any,
+        timeout_s: float,
+        labels: dict[str, str] | None,
+        skip_if_present: bool,
+        push: bool,
+    ) -> Any:
+        """Lower a build-plan source into a ``BuildImageCommand`` (carrying
+        ``push``), send it, and return the node's ``BuildImageReply``. Shared
+        by :meth:`build_image` and :meth:`build_and_push_image`."""
         from xrlenv.control.build_plan import GitSource, TarballSource
 
         header = self._fresh_header(
@@ -608,6 +664,7 @@ class RemoteNodeTransport:
             timeout_s=float(timeout_s),
             labels=dict(labels or {}),
             skip_if_present=bool(skip_if_present),
+            push=bool(push),
         )
         if isinstance(source, GitSource):
             cmd.git.repo = source.repo
@@ -639,8 +696,58 @@ class RemoteNodeTransport:
         reply = await self._send_and_wait(
             msg, header.command_id, timeout_s=cp_timeout,
         )
-        body = reply.build_image
-        return (str(body.status), str(body.error))
+        return reply.build_image
+
+    async def register_scratch_source(
+        self,
+        image_ref: str,
+        source: Any,   # GitSource | TarballSource (build_plan types)
+        *,
+        durable_to: str | None = None,
+    ) -> None:
+        """Ship a spec-21 ``RegisterScratchSourceCommand`` so the node records
+        the content-addressed scratch ref → build source (scratch build-on-
+        demand). No build happens here — ``ensure_present`` builds + pushes to
+        the scratch registry lazily. Raises :class:`XRLEnvError` if the node
+        reports a failure. Called by the coordinator for scratch_build
+        rollouts on the distributed transport."""
+        from xrlenv.control.build_plan import GitSource, TarballSource
+
+        header = self._fresh_header(
+            idempotency_key=f"register_scratch_source:{uuid.uuid4().hex}",
+        )
+        cmd = pb.RegisterScratchSourceCommand(
+            header=header, image_ref=image_ref, durable_to=durable_to or "",
+        )
+        if isinstance(source, GitSource):
+            cmd.git.repo = source.repo
+            cmd.git.ref = source.ref
+            cmd.git.subdir = source.subdir
+            cmd.git.dockerfile = source.dockerfile
+        elif isinstance(source, TarballSource):
+            if source.content_b64 is None:
+                raise TypeError(
+                    f"register_scratch_source: tarball source for image_ref "
+                    f"{image_ref!r} has no content_b64",
+                )
+            import base64
+            cmd.tarball.content = base64.b64decode(source.content_b64)
+            cmd.tarball.dockerfile = source.dockerfile
+        else:
+            raise TypeError(
+                f"register_scratch_source: unsupported source type "
+                f"{type(source).__name__}",
+            )
+        msg = self._control_msg(register_scratch_source=cmd)
+        reply = await self._send_and_wait(
+            msg, header.command_id, timeout_s=60.0,
+        )
+        body = reply.register_scratch_source
+        if body.status != "ok":
+            raise XRLEnvError(
+                f"node failed to register scratch source for {image_ref!r}: "
+                f"{body.error or 'unknown'}",
+            )
 
     async def cancel_build_image(
         self, *, image_ref: str, timeout_s: float = 30.0,
@@ -1717,6 +1824,44 @@ class RemoteNodeTransport:
         """
         self._on_heartbeat = cb
 
+    def request_terminate(self, reason: str) -> None:
+        """Ask the servicer to END this node's control stream so the node
+        observes the RPC completing and REDIALS (fresh NodeHello →
+        re-register). Called from the heartbeat watchdog's loss path:
+        marking a node lost only removes it from the in-memory registry,
+        which does not break the live bidi stream, so without this the
+        node can never recover from a transient/false loss. Idempotent —
+        the second call is a no-op."""
+        if self._terminate.is_set():
+            return
+        self._terminate_reason = reason
+        self._terminate.set()
+
+    @property
+    def terminate_event(self) -> asyncio.Event:
+        """The event the servicer main loop waits on to close the stream
+        (set by :meth:`request_terminate`)."""
+        return self._terminate
+
+    @property
+    def terminate_reason(self) -> str:
+        return self._terminate_reason
+
+    def send_keepalive(self) -> None:
+        """Enqueue an empty-body ``ControlMsg`` so an otherwise-idle control
+        plane still proves liveness to the node. Defense-in-depth for
+        ``request_terminate``: a node that stops receiving keepalives — because
+        its transport was deregistered, or this stream went half-open — redials
+        on its own even if the active stream-abort never reached it. Empty body
+        (no command) → the node treats it purely as a liveness beat: it does not
+        dispatch it or advance replay coordinates. Consuming a control ``seq`` is
+        harmless (seq resets per epoch; there is no command replay buffer).
+        Non-blocking + no-op once closed/terminating."""
+        if self._closed or self._terminate.is_set():
+            return
+        with suppress(asyncio.QueueFull):
+            self._outbox.put_nowait(self._control_msg())
+
     @property
     def last_heartbeat_at(self) -> float:
         return self._last_heartbeat_at
@@ -2021,30 +2166,48 @@ class NodeControlServicer(pb_grpc.NodeControlServicer):
         # ``Task was destroyed but it is pending!`` warnings.
         outbox_get: asyncio.Task[pb.ControlMsg] | None = None
         reader_wait: asyncio.Task[bool] | None = None
+        # ``term_wait`` wakes an otherwise-idle pump when the watchdog asks
+        # to close this stream (``transport.request_terminate``), so a node
+        # marked lost during a control-plane stall is actively disconnected
+        # and reconnects instead of lingering half-open forever.
+        term_wait: asyncio.Task[bool] | None = None
+
+        async def _drain(*waiters: asyncio.Task[Any] | None) -> None:
+            for w in waiters:
+                if w is not None and not w.done():
+                    w.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await w
 
         try:
-            while not reader_done.is_set():
+            while not reader_done.is_set() and not transport.terminate_event.is_set():
                 outbox_get = asyncio.create_task(outbox.get())
                 reader_wait = asyncio.create_task(reader_done.wait())
+                term_wait = asyncio.create_task(transport.terminate_event.wait())
                 done, _pending = await asyncio.wait(
-                    {outbox_get, reader_wait},
+                    {outbox_get, reader_wait, term_wait},
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 if outbox_get in done:
                     yield outbox_get.result()
                     outbox_get = None  # consumed; nothing to cancel
-                    if not reader_wait.done():
-                        reader_wait.cancel()
-                        with suppress(asyncio.CancelledError):
-                            await reader_wait
+                    await _drain(reader_wait, term_wait)
                     reader_wait = None
+                    term_wait = None
                 else:
-                    if not outbox_get.done():
-                        outbox_get.cancel()
-                        with suppress(asyncio.CancelledError):
-                            await outbox_get
+                    # reader_done (stream ended) or terminate (watchdog close).
+                    await _drain(outbox_get)
                     outbox_get = None
+                    await _drain(reader_wait, term_wait)
                     reader_wait = None
+                    term_wait = None
+                    if transport.terminate_event.is_set():
+                        LOGGER.info(
+                            "node=%s control stream closed by control plane "
+                            "(reason=%s); the node will reconnect and re-register.",
+                            transport.node_id,
+                            transport.terminate_reason or "unspecified",
+                        )
                     break
         except asyncio.CancelledError:
             # The gRPC server cancels in-flight bidi RPCs on graceful
@@ -2064,7 +2227,7 @@ class NodeControlServicer(pb_grpc.NodeControlServicer):
             # covers GeneratorExit at the yield, CancelledError out of
             # asyncio.wait, and any other early-exit path that
             # bypassed the in-loop cleanup.
-            for leftover in (outbox_get, reader_wait):
+            for leftover in (outbox_get, reader_wait, term_wait):
                 if leftover is not None and not leftover.done():
                     leftover.cancel()
                     with suppress(asyncio.CancelledError):

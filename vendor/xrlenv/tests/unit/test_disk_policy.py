@@ -5,7 +5,7 @@ disk decisions. If the cache maintains free disk at/below the
 scheduler's placement-admit floor, a node the cache calls *healthy* is
 simultaneously scheduler-*excluded* → gets no work → generates no
 eviction pressure → stays pinned excluded forever (observed on
-``aws-node-host``, 2026-07-01: 24 GiB free / 4.8% on a 500 GiB disk,
+``aws-ip-10-0-7-8``, 2026-07-01: 24 GiB free / 4.8% on a 500 GiB disk,
 connected but zero placements for hours).
 
 ``xrlenv.disk_policy`` is the single source of truth that both planes
@@ -53,7 +53,7 @@ def test_cache_band_sits_strictly_above_admit_floor(total: int) -> None:
     band must be strictly ABOVE the scheduler's admit floor on every
     disk size. Pre-fix the cache floor was the absolute 15/25 GiB, which
     EQUALS the 5% admit floor on a 500 GiB disk and is BELOW it on
-    ≥1 TiB — exactly the collision that deadlocked 174-9."""
+    ≥1 TiB — exactly the collision that deadlocked node 7-8."""
     admit = disk_admit_free_floor_bytes(total)
     start = cache_evict_floor_bytes(total, CACHE_EVICT_START_MARGIN)
     target = cache_evict_floor_bytes(total, CACHE_EVICT_TARGET_MARGIN)

@@ -1,7 +1,7 @@
 """Built-in templates that ship with the platform.
 
 Phase-0 carries one template here: ``hello_shell`` — the spine smoke
-template that drives ``tests/smoke/single_rollout.py`` and the platform's
+template that drives ``tests/smoke/cluster_bringup/single_rollout.py`` and the platform's
 own integration tests. Benchmark plug-ins live under
 :mod:`xrlenv_plugins.benchmarks` instead; the platform never edits
 per-benchmark.

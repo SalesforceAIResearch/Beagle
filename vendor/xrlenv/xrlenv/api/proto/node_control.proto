@@ -75,6 +75,7 @@ message ControlMsg {
     AcquireComposeProjectCommand acquire_compose_project = 46;  // P1.7.C.2 — multi-service compose up
     DestroyComposeProjectCommand destroy_compose_project = 47;  // P1.7.C.2 — multi-service compose down
     ContainerPutArchiveChunk   container_put_archive_chunk = 48;  // chunked put_archive (oversized-upload fix; N frames share command_id)
+    RegisterScratchSourceCommand register_scratch_source = 49;  // scratch build-on-demand — register content-addressed ref -> source
     Ack                       ack     = 90;
   }
 }
@@ -555,6 +556,13 @@ message BuildImageCommand {
   // recovery) where most entries are already built. Default false
   // preserves the existing "always rebuild" behavior.
   bool skip_if_present = 7;
+  // When true, the node BUILDS then PUSHES image_ref to the registry embedded
+  // in the (registry-qualified) ref — ``build_and_push`` — and returns the
+  // pushed digest in ``BuildImageReply.repo_digest``. Used by ``xrlenv build
+  // push`` to populate the private registry fleet-wide. Registry-HEAD skip is
+  // implied (already-pushed refs are not rebuilt: resumable + overlap-safe).
+  // Default false = today's local-tag-only build.
+  bool push = 8;
 }
 
 message GitSourceProto {
@@ -577,6 +585,10 @@ message BuildImageReply {
   string error     = 3;
   // Build duration in seconds (clone + docker build, not wire time).
   double duration_s = 4;
+  // The pushed ``<repo>@sha256:...`` when the command carried ``push=true`` and
+  // the push succeeded; empty for a local-tag build or on any failure. The
+  // control plane pins the fleet to this digest (invariant 4).
+  string repo_digest = 5;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -614,6 +626,37 @@ message CancelBuildImageCommand {
 }
 
 message CancelBuildImageReply {
+  string image_ref = 1;
+  string status    = 2;  // 'ok' | 'failed'
+  string error     = 3;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// RegisterScratchSourceCommand: scratch build-on-demand registration
+//
+// For a scratch_build template (spec 06 image_build:), the coordinator
+// computes the content-addressed scratch ref + build source and dispatches
+// one RegisterScratchSourceCommand to the chosen node BEFORE create. The node
+// records (image_ref -> source, durable_to); the later
+// ``ImageCacheManager.ensure_present(image_ref)`` builds the source AND pushes
+// it to the scratch registry embedded in the ref (build_and_push), copying to
+// ``durable_to`` when set. This is a lightweight *registration* — no build
+// happens synchronously here (mirrors lazy_registrations).
+// See notes/scratch-registry-build-on-demand.md.
+// ──────────────────────────────────────────────────────────────────────────────
+
+message RegisterScratchSourceCommand {
+  CommandHeader header = 1;
+  string image_ref     = 2;
+  oneof source {
+    GitSourceProto     git     = 3;
+    TarballSourceProto tarball = 4;
+  }
+  // Optional user-owned durable registry ref; empty => scratch-only.
+  string durable_to    = 5;
+}
+
+message RegisterScratchSourceReply {
   string image_ref = 1;
   string status    = 2;  // 'ok' | 'failed'
   string error     = 3;
@@ -1340,6 +1383,7 @@ message CommandReply {
     EvictImageReply  evict_image           = 29;          // operator-driven node-cache eviction
     ContainerGetArchiveChunk container_get_archive_chunk = 30;  // chunked get_archive (oversized-reply fix)
     AcquireComposeProjectReply acquire_compose_project = 31;  // P1.7.C.2 — multi-service compose up
+    RegisterScratchSourceReply register_scratch_source = 32;  // scratch build-on-demand registration ack
     // ContainerExecCommand reuses ExecReply (tag 13).
     // DestroyContainerCommand reuses DestroyReply (tag 11).
     // ContainerPutArchiveCommand reuses PutArchiveReply (tag 16).

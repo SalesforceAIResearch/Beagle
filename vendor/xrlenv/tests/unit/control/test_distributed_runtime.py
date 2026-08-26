@@ -512,9 +512,9 @@ def test_resolve_advertise_endpoint_substitutes_primary_ip_for_wildcard(
     host verbatim when detection fails (never invents an address)."""
     import xrlenv.control.distributed_runtime as dr
 
-    monkeypatch.setattr(dr, "_primary_outbound_ip", lambda: "internal-ip")
+    monkeypatch.setattr(dr, "_primary_outbound_ip", lambda: "10.0.0.7")
     for wildcard in ("0.0.0.0", "::", "", "127.0.0.1", "localhost", "::1"):
-        assert dr._resolve_advertise_endpoint(wildcard, 50051) == "internal-ip:50051"
+        assert dr._resolve_advertise_endpoint(wildcard, 50051) == "10.0.0.7:50051"
 
     # Detection unavailable → keep the configured host rather than guess.
     monkeypatch.setattr(dr, "_primary_outbound_ip", lambda: None)

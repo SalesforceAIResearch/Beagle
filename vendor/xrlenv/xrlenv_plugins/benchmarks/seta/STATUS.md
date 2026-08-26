@@ -204,7 +204,7 @@ installed) · `999` (COPY uncommitted file). Details in `black_list.txt`.
 
 The base-restore is **codified**, so the standard build flow applies it:
 1. **build host** (one-time): `sudo PRIVATE_REGISTRY=<host>:5011 bash
-   scripts/configure_docker_registry.sh --restart` (adds the HTTP registry to
+   deploy/registry/configure_docker_registry.sh --restart` (adds the HTTP registry to
    `insecure-registries`).
 2. `build_cache.py --stage all` — rewrites the 10 tasks' cache Dockerfiles to the
    t-bench base (`BASE_IMAGE_FIX_TASKS`).
@@ -250,7 +250,7 @@ re-blacklisted with the real reason — exactly as base-image went 15→10.
 # .env auto-loads (import xrlenv) — needs XRLENV_GRPC_HOST + XRLENV_CONSUMER_TOKEN
 # + XRLENV_PRIVATE_REGISTRY_HOST/_PORT. Use the .env consumer token (the
 # ~/.xrlenv/secrets/consumer.token file is stale).
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 
 # THE GATE — build_cache --stage all (populate + patches/ overlays + sysbox markers),
 # then the green set (present − black_list.txt), content-retrying reward-0 flakes:

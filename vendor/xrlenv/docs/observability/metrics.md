@@ -84,6 +84,7 @@ admin panel for per-entity drill-down.
 |--------|------|--------|-------------|
 | `xrlenv_sandbox_active` | gauge | `node`, `template` | Currently-running sandboxes. |
 | `xrlenv_queue_depth` | gauge | `template` | Pending rollouts in the admission queue. |
+| `xrlenv_raw_sessions_suspect` | gauge | — | Raw sessions currently marked `suspect`: past the liveness TTL, consumer silent, session retained. Normally that means "inside the quarantine horizon"; during a mass die-off it also includes sessions already past the horizon but still queued behind `XRLENV_RAW_LIVENESS_REAP_BATCH`. Re-read after both liveness passes each sweep, so a session marked and reaped in the same sweep never leaves the gauge reading high. A rise-then-drain pattern is consumer stalls being ridden out; a rise that does not drain is consumers actually dying. |
 
 **Adaptive admission (emitted only when `--adaptive-admission` is on):**
 
@@ -96,7 +97,10 @@ admin panel for per-entity drill-down.
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `xrlenv_sandbox_create_failed_total` | counter | `template`, `reason` | Bootstrap-phase failures by reason. |
-| `xrlenv_admission_total` | counter | `result` | Admission outcomes: `admitted`, `queued`, `queue_timeout`, `cancelled_in_queue`. |
+| `xrlenv_admission_total` | counter | `result` | Admission outcomes: `admitted`, `queued`, `queue_timeout`, `cancelled_in_queue`, `rejected_full` (the queue has stopped accepting — control-plane shutdown). |
+| `xrlenv_raw_liveness_suspect_total` | counter | — | Raw sessions marked `suspect` after going silent past the liveness TTL. |
+| `xrlenv_raw_liveness_recovered_total` | counter | — | Suspect sessions whose consumer signalled again before the reap fired — usually inside the quarantine horizon, but also a session already past the horizon that recovered while the sweep was destroying its siblings (the reconciler re-checks candidacy before each destroy and skips it). Work that a destroy-on-TTL reaper would have thrown away. |
+| `xrlenv_raw_liveness_reaped_total` | counter | — | Raw sessions force-destroyed after staying silent for the full quarantine horizon. |
 
 ## Example Prometheus alert rules
 

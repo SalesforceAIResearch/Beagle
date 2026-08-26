@@ -5,9 +5,9 @@ containers/images, not corpora). Every golden-path benchmark's ``build_cache`` /
 ``run_oracle_sweep`` / ``build_plan_gen`` routes its cache-root resolution through here.
 
 **Renamed 2026-07-31.** The env var ``XRLENV_HARBOR_CACHE`` -> ``XRLENV_BENCHMARK_CACHE``, and
-the shared cache path ``/path/to/data/xrlenv_harbor_cache`` ->
-``/path/to/benchmark-cache`` (one shared cache serves every benchmark; the
-"harbor" name was misleading now that non-harbor benchmarks share it).
+the cache path's ``xrlenv_harbor_cache`` basename -> ``xrlenv_benchmark_cache`` (one shared
+cache serves every benchmark; the "harbor" name was misleading now that non-harbor benchmarks
+share it).
 
 The OLD var and OLD path are **hard-rejected** — a downstream user still pointing at the retired
 cache would silently read stale/absent data and get **unreliable results**, so every benchmark
@@ -24,10 +24,10 @@ LEGACY_ENV_VAR = "XRLENV_HARBOR_CACHE"
 LEGACY_PATH_MARKER = "xrlenv_harbor_cache"
 
 _MIGRATION = (
-    f"Export {CACHE_ENV_VAR}=/path/to/benchmark-cache (the NEW path). "
-    f"The old {LEGACY_ENV_VAR} env var and the old .../{LEGACY_PATH_MARKER} path are RETIRED — "
-    f"reusing them yields unreliable results; the correct, populated caches live ONLY under the "
-    f"new path."
+    f"Set {CACHE_ENV_VAR} (in .env) to your benchmark cache ROOT — a path without "
+    f"'{LEGACY_PATH_MARKER}' in it. The old {LEGACY_ENV_VAR} env var and any "
+    f".../{LEGACY_PATH_MARKER} path are RETIRED — reusing them yields unreliable results; the "
+    f"correct, populated caches live ONLY under the new path."
 )
 
 

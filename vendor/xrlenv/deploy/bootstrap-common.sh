@@ -258,7 +258,7 @@ Remove the stale venv and re-run: 'sudo rm -rf ${INSTALL_ROOT}/.venv && sudo -E 
     # install copies sources into /opt/xrlenv/.venv/lib/.../site-packages
     # which the xrlenv user owns, sidestepping the issue. The cost: the
     # operator has to re-run the bootstrap (idempotent + fast) to pick
-    # up source edits — fine for phase-0 acceptance smoke, where node
+    # up source edits — fine for an acceptance smoke, where node
     # code rarely changes.
     # Issue #18 (Ask #2, audit M1): stamp the build SHA from the
     # install source that actually ran — only the checkout path can
@@ -406,7 +406,7 @@ EOF
 # Wire ``XRLENV_NODE_TOKEN`` (issued by the operator on the control
 # plane via ``xrlenv tokens issue node``) into a systemd drop-in so
 # the daemon authenticates against the gRPC interceptor on first
-# connect. Skipped when unset — operators running unauth phase-0
+# connect. Skipped when unset — operators running unauthenticated
 # smokes can leave it out.
 #
 # Drop-in (vs editing /etc/xrlenv/node.env directly): keeps secrets
@@ -519,7 +519,7 @@ EOF
 validate_required_env_for_bootstrap() {
     # Operator-set knobs the bootstrap can't infer.
     require_env XRLENV_CONTROL_PLANE \
-        "Pass control-plane host:port (e.g. XRLENV_CONTROL_PLANE=internal-ip:50051) before re-running."
+        "Pass control-plane host:port (e.g. XRLENV_CONTROL_PLANE=10.0.0.1:50051) before re-running."
     require_env XRLENV_NODE_ID \
         "Pass a stable node identifier (e.g. XRLENV_NODE_ID=aws-i-0123...) or rely on the bootstrap's metadata-service auto-detect."
 

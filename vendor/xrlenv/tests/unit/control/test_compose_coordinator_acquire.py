@@ -7,6 +7,7 @@ to the node, the footprint carried on the session, and failure cleanup. No docke
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -163,6 +164,43 @@ async def test_acquire_pins_main_digest_in_compose_and_images() -> None:
     assert "preferred_home_node" in coord._scheduler.place_kwargs  # type: ignore[attr-defined]
 
 
+async def test_destroy_compose_project_clears_suspect_bookkeeping() -> None:
+    # Regression coverage for a gap left by commit ce4aad0 ("two-phase consumer
+    # liveness" fixup): that commit added per-teardown-site leak tests for
+    # destroy(), handle_node_lost(), seal_orphan() and drop_orphan_session(),
+    # but _finalize_confirmed_compose_destroy() — the compose-project teardown
+    # path (raw_container_service.py, invoked via destroy_compose_project) — is
+    # a FIFTH site that pops _last_seen_at/_suspect_since/_inflight_rpcs/
+    # _heartbeated and was never independently tested. It happens to pop them
+    # correctly today; this pins that so a future refactor of the compose
+    # finalize path can't silently reintroduce the leak the parent commit's
+    # docstring warned about ("missing one would leak an entry per session for
+    # the control plane's lifetime").
+    node = _Node()
+    coord = _coord(node)
+    result = await coord.acquire_compose_project(
+        compose_yaml=_COMPOSE,
+        images=["reg/ns/tw:main", "postgres:14"],
+        footprint=FOOTPRINT,
+    )
+    rid = result.rollout_id
+    coord.mark_heartbeat([rid])
+    # Simulate what the raw-GC reconciler's mark pass would do once this
+    # compose session goes quiet past the TTL — mark_suspect is idempotent and
+    # side-effect-free enough to drive directly, without needing a live sweep.
+    coord.mark_suspect(rid)
+    assert coord.suspect_count() == 1
+    assert rid in coord._last_seen_at
+    assert rid in coord._heartbeated
+
+    await coord.destroy_compose_project(rollout_id=rid)
+
+    assert coord._suspect_since == {}
+    assert coord._last_seen_at == {}
+    assert coord._inflight_rpcs == {}
+    assert coord._heartbeated == set()
+
+
 async def test_acquire_vet_rejection_leaves_no_session() -> None:
     node = _Node()
     coord = _coord(node)  # DEFAULT_POLICY → privileged denied
@@ -313,7 +351,7 @@ async def test_acquire_excludes_node_with_overlapping_subnet() -> None:
 async def test_acquire_no_exclusion_for_disjoint_subnet() -> None:
     node = _Node()
     coord = _coord(node, resolver=False)
-    _inject_existing_project(coord, node_id="node-A", subnet="internal-ip/8")
+    _inject_existing_project(coord, node_id="node-A", subnet="10.0.0.0/8")
     await coord.acquire_compose_project(
         compose_yaml=_STATIC_IP_COMPOSE, images=["reg/ns/tw:main"],
         footprint=FOOTPRINT,
@@ -574,3 +612,57 @@ async def test_concurrent_same_subnet_admission_path_different_nodes() -> None:
         digest_resolver=None,
     )
     await _assert_concurrent_land_on_different_nodes(coord)
+
+
+@pytest.mark.asyncio
+async def test_compose_session_is_reaped_through_a_real_reconciler_sweep() -> None:
+    """Drive a compose session through the ACTUAL sweep, not the coordinator API.
+
+    Every other compose liveness test calls ``mark_suspect`` / ``destroy_compose_
+    project`` directly, which exercises the coordinator but never the reconciler
+    that runs in production. The two phases route compose teardown down a
+    different node method (``destroy_compose_project``, not ``destroy_container``),
+    so a compose-specific break in the sweep would pass all of them.
+    """
+    from xrlenv.control.raw_gc_reconciler import RawGCReconciler
+
+    node = _Node()
+    coord = _coord(node)
+    result = await coord.acquire_compose_project(
+        compose_yaml=_COMPOSE,
+        images=["reg/ns/tw:main", "postgres:14"],
+        footprint=FOOTPRINT,
+        main_service="main",
+    )
+    rid = result.rollout_id
+    coord._liveness_ttl_s = 120.0
+    coord._liveness_quarantine_s = 900.0
+    coord.mark_heartbeat([rid])
+
+    class _Registry:
+        # The reconciler drives the docker-diff sweep off node_ids; the compose
+        # node fake has no container inventory, so keep it empty and let the
+        # liveness phases (the point of this test) run.
+        node_ids: tuple[str, ...] = ()
+
+        def get(self, node_id: str) -> Any:
+            return node
+
+    reconciler = RawGCReconciler(
+        registry=_Registry(),  # type: ignore[arg-type]
+        coordinator=coord,
+    )
+
+    # Inside the horizon: suspect, but the project must survive.
+    coord._last_seen_at[rid] = time.time() - 300.0
+    report = await reconciler.reconcile_once()
+    assert report["__liveness__"] == {"reaped": 0, "suspect": 1}
+    assert node.down_calls == [], "a compose project inside the horizon was torn down"
+
+    # Past it: the sweep must reach the COMPOSE teardown path, not the raw one.
+    coord._last_seen_at[rid] = time.time() - 1000.0
+    report = await reconciler.reconcile_once()
+    assert report["__liveness__"]["reaped"] == 1
+    assert len(node.down_calls) == 1, "compose teardown never reached the node"
+    assert coord.list_sessions() == []
+    assert coord._suspect_since == {}

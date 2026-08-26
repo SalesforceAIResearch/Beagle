@@ -7,7 +7,7 @@ Prerequisites:
 
 Run::
 
-    uv run python tests/smoke/single_rollout.py
+    uv run python tests/smoke/cluster_bringup/single_rollout.py
 
 Expected output: a sequence of step results from echoing strings inside the
 sandbox, then a sealed Trajectory with status=finished.

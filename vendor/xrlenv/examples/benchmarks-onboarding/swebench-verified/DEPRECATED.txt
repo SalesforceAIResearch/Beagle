@@ -1,9 +1,0 @@
-Please use xrlenv_plugins/benchmarks/swebench_verified for the onboarded
-SWE-bench Verified plug-in (GUIDELINE layout: build_cache.py + build_plan_gen.py
-+ run_oracle_sweep.py + run_full_sweep.sh + README/STATUS/tests).
-
-This directory was the original docker-py-drop-in onboarding *example*; its
-mechanism (docker.from_env() -> xrlenv.from_env(), swebench's run_instance
-unmodified) is preserved in the plug-in's run_oracle_sweep.py. The general
-"onboard your own docker-py harness" tutorial now lives at
-docs/build_with_xrlenv/work_with_xrlenv_managed_containers/docker_py_dropin.md.

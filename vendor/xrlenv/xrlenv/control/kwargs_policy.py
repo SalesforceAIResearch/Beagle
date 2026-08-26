@@ -450,8 +450,8 @@ def _host_path_allowed(host: str, allowed: tuple[str, ...]) -> bool:
     entry OR is nested under one (each entry is a directory prefix — allowing a
     directory allows its subtree). The ``+ "/"`` guard stops ``/mnt/data`` from
     matching a sibling like ``/mnt/database``. Needed for dynamic per-run bind
-    paths (e.g. a Sysbox pool node real-binding ``/path/to/data<hash>``
-    under an allowed ``/path/to/data`` prefix)."""
+    paths (e.g. a Sysbox pool node real-binding ``/fsx/.../golden_cache/<hash>``
+    under an allowed ``/fsx/.../evoclaw-golden`` prefix)."""
     for entry in allowed:
         base = entry.rstrip("/")
         if host == base or host.startswith(base + "/"):

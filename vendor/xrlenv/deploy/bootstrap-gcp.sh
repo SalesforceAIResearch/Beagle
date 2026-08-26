@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # bootstrap-gcp.sh — thin wrapper around ``xrlenv bootstrap --target gcp``.
 #
-# B8.1 (P1.x slice 5, shipped 2026-05-11) replaced the bash bootstrap
-# logic with a Python subcommand at ``xrlenv/cli/bootstrap.py``. This
+# The bash bootstrap logic was replaced with a Python subcommand at
+# ``xrlenv/cli/bootstrap.py``. This
 # wrapper preserves the historical operator interface:
 #
 #     sudo -E bash deploy/bootstrap-gcp.sh [<control-plane>] [<node-id>]
@@ -20,12 +20,11 @@ if (( $# >= 1 )); then export XRLENV_NODE_ID="$1"; shift; fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# P6 hard CPU isolation is opt-in and OFF by default (a stock node advertises
+# Hard CPU isolation is opt-in and OFF by default (a stock node advertises
 # isolation_capable=false and behaves as today). To make a node capable, run
-# `sudo bash scripts/enable_cpu_isolation.sh` on the worker (or set
-# XRLENV_ENABLE_CPU_ISOLATION=1 in the bootstrap env) — see the "P6 CPU isolation
-# (opt-in)" note in deploy/bootstrap-aws.sh and §8.10/§8.11 of
-# notes/cluster-resource-isolation-plan.md.
+# `sudo bash deploy/node/enable_cpu_isolation.sh` on the worker (or set
+# XRLENV_ENABLE_CPU_ISOLATION=1 in the bootstrap env) — see the "CPU isolation
+# (opt-in)" note in deploy/bootstrap-aws.sh.
 
 # Invoke the bootstrap module as a flat script (NOT
 # ``python3 -m xrlenv.cli.bootstrap``) because importing

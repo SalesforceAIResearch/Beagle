@@ -19,7 +19,7 @@ synthesized — a task with no ``docker_image`` fails loud):
   After ``build_cache --stage all --registry <host>`` repins their ``docker_image``
   to ``<host>/lhtb/<task>:main``, they become ``context_source: {type: local}`` build
   entries (+ one per compose sidecar) → built and pushed to the ``:5011`` private
-  registry by ``scripts/build_and_push_images.py``.
+  registry by ``deploy/registry/build_and_push_images.py``.
 
 So the plan is a genuine **mixture** on the full path (6 local, ~40 registry) and
 all-registry out-of-box (cache not repinned). The one plan feeds both consumers:
@@ -207,7 +207,7 @@ def generate_plan(
     probe = None
     print_summary = None
     if probe_sizes:
-        from xrlenv_plugins.images_build._dockerhub_probe import (
+        from xrlenv_plugins.benchmarks._dockerhub_probe import (
             announce_auth_status,
             print_probe_summary,
             probe_image_size,
@@ -296,7 +296,7 @@ def _local_entry(
 ) -> dict[str, Any]:
     """One ``type: local`` build entry pointing at ``path`` (a task's
     ``environment/`` dir, or a per-service build sub-context). Mirrors the
-    terminalworld generator's entry shape so ``scripts/build_and_push_images.py``
+    terminalworld generator's entry shape so ``deploy/registry/build_and_push_images.py``
     consumes both identically. ``benchmark`` is only the ``xrlenv.benchmark`` label
     (always ``lhtb``); the image ref is passed in whole (already the repinned
     private-registry ref), never composed from ``benchmark`` here."""

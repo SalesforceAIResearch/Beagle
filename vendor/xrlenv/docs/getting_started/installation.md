@@ -119,7 +119,7 @@ operators override per-shell without editing the file:
 
 ```bash
 # .env says XRLENV_GRPC_HOST=127.0.0.1, but for this command:
-XRLENV_GRPC_HOST=internal-ip .venv/bin/xrlenv build apply ...
+XRLENV_GRPC_HOST=<control-plane-host> .venv/bin/xrlenv build apply ...
 ```
 
 ### Required vs optional

@@ -176,6 +176,32 @@ class _CacheEntry:
     last_used_at: float
 
 
+@dataclass
+class BuildAndPushResult:
+    """Outcome of :meth:`GitSourceBuilder.build_and_push` — the scratch
+    build-on-demand flow (``notes/scratch-registry-build-on-demand.md``).
+
+    ``repo_digest`` is the ``<repo>@sha256:...`` the registry assigned the
+    pushed manifest; the control plane pins the run to it (invariant 4). It is
+    ``None`` only when the push succeeded but the daemon reported no
+    ``RepoDigests`` (should not happen against a conforming registry)."""
+
+    status: str
+    error: str | None = None
+    repo_digest: str | None = None
+
+
+def _strip_tag(image_ref: str) -> str:
+    """Drop a trailing ``:tag`` (a ``:`` after the last ``/``), leaving the
+    registry-qualified repository. Leaves a bare ``host:port/repo`` (no tag)
+    untouched and never strips a registry-host port."""
+    slash = image_ref.rfind("/")
+    tail = image_ref[slash + 1:]
+    if ":" in tail:
+        return image_ref[: slash + 1] + tail.split(":", 1)[0]
+    return image_ref
+
+
 class GitSourceBuilder:
     """Clone-and-build pipeline for ``GitSource`` entries.
 
@@ -219,6 +245,227 @@ class GitSourceBuilder:
             source_registry_root or (self._cache_root.parent / "source-registry")
         )
         self._source_specs: dict[str, GitSource | TarballSource] | None = None
+        # Scratch build-on-demand singleflight: coalesce concurrent
+        # build_and_push calls for the same image_ref so a burst of rollouts
+        # for one task builds + pushes exactly once on this node.
+        self._inflight: dict[str, asyncio.Future[BuildAndPushResult]] = {}
+        # Scratch build-on-demand registrations: content-addressed
+        # scratch ref → build source. Shipped by the control plane for
+        # scratch_build templates (like lazy benchmark-builder
+        # registrations); in-memory, re-shipped on reconnect. When
+        # ``lookup_producer`` finds a ref here it returns a producer that
+        # builds AND pushes to the scratch registry embedded in the ref.
+        self._scratch_specs: dict[str, GitSource | TarballSource] = {}
+        # Scratch ref → durable destination ref. When set, the scratch
+        # producer copies the built image to the user-owned durable registry
+        # (digest-preserved) after build_and_push, so it survives scratch GC.
+        self._scratch_durable: dict[str, str] = {}
+
+    def register_scratch_source(
+        self,
+        image_ref: str,
+        source: GitSource | TarballSource,
+        *,
+        durable_to: str | None = None,
+    ) -> None:
+        """Register a content-addressed scratch ref → build source.
+
+        The control plane calls this for ``scratch_build`` templates so a
+        later ``ensure_present(scratch_ref)`` on this node builds the context
+        and pushes it to the scratch registry embedded in ``image_ref``
+        (via :meth:`build_and_push`) instead of a plain local-tag build.
+
+        ``durable_to`` (optional) is a user-owned registry ref; when set, the
+        built image is also copied there (digest-preserved) so it outlives the
+        scratch GC. A copy failure is non-fatal — the image is still usable
+        from scratch — and is logged, not raised.
+        """
+        self._scratch_specs[image_ref] = source
+        if durable_to:
+            self._scratch_durable[image_ref] = durable_to
+        else:
+            self._scratch_durable.pop(image_ref, None)
+
+    def _get_docker_client(self) -> Any:
+        """Lazily construct (and memoize) the docker-py client so test
+        fixtures can inject a fake without import-time daemon contact."""
+        if self._docker_client is None:
+            import docker
+            self._docker_client = docker.from_env()
+        return self._docker_client
+
+    async def build_and_push(
+        self,
+        *,
+        image_ref: str,
+        source: GitSource | TarballSource,
+        timeout_s: float,
+        labels: dict[str, str] | None = None,
+        check_registry_first: bool = True,
+    ) -> BuildAndPushResult:
+        """Build ``source``, push the result to the registry embedded in
+        ``image_ref``, and resolve the pushed manifest digest.
+
+        The scratch build-on-demand flow: ``image_ref`` is the content-
+        addressed ``<scratch-host>/scratch/<input_digest>`` ref, so ``docker
+        push`` targets that registry. Two properties:
+
+        - **Singleflight** — concurrent calls for the same ``image_ref`` on
+          this node are coalesced into one build+push.
+        - **Build once for the fleet** — when ``check_registry_first`` and the
+          ref already exists in the registry (another node built it), the
+          local build is skipped and the existing digest is resolved by a
+          cheap registry HEAD.
+
+        Returns a :class:`BuildAndPushResult`; never raises for an ordinary
+        build/push failure (surfaced as ``status="failed"``).
+        """
+        existing = self._inflight.get(image_ref)
+        if existing is not None:
+            return await existing
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[BuildAndPushResult] = loop.create_future()
+        self._inflight[image_ref] = fut
+        try:
+            result = await self._build_and_push_impl(
+                image_ref=image_ref, source=source, timeout_s=timeout_s,
+                labels=labels, check_registry_first=check_registry_first,
+            )
+            if not fut.done():
+                fut.set_result(result)
+            return result
+        except BaseException as exc:
+            # Propagate to any coalesced waiter, then re-raise.
+            if not fut.done():
+                fut.set_exception(exc)
+            raise
+        finally:
+            self._inflight.pop(image_ref, None)
+
+    async def _build_and_push_impl(
+        self,
+        *,
+        image_ref: str,
+        source: GitSource | TarballSource,
+        timeout_s: float,
+        labels: dict[str, str] | None,
+        check_registry_first: bool,
+    ) -> BuildAndPushResult:
+        start = time.monotonic()
+        if check_registry_first:
+            digest = await self._registry_digest_if_present(image_ref)
+            if digest is not None:
+                LOGGER.info(
+                    "scratch build_and_push: %s already in registry "
+                    "(digest %s) — skipping build", image_ref, digest,
+                )
+                return BuildAndPushResult("ok", None, digest)
+        status, error = await self.build(
+            image_ref=image_ref, source=source,
+            timeout_s=timeout_s, labels=labels,
+        )
+        if status != "ok":
+            return BuildAndPushResult("failed", error, None)
+        remaining = max(timeout_s - (time.monotonic() - start), 60.0)
+        try:
+            digest = await self._push_and_resolve_digest(
+                image_ref, timeout_s=remaining,
+            )
+        except _BuildError as exc:
+            return BuildAndPushResult("failed", f"push failed: {exc}", None)
+        return BuildAndPushResult("ok", None, digest)
+
+    async def _registry_digest_if_present(self, image_ref: str) -> str | None:
+        """Cheap registry HEAD: return ``<repo>@sha256:...`` if ``image_ref``
+        already exists in its registry, else ``None``. Any error (absent,
+        registry unreachable) maps to ``None`` so the caller builds."""
+        client = self._get_docker_client()
+        loop = asyncio.get_running_loop()
+
+        def _probe() -> str | None:
+            try:
+                data = client.images.get_registry_data(image_ref)
+            except Exception:
+                return None
+            digest = getattr(data, "id", None)
+            if not digest:
+                return None
+            return f"{_strip_tag(image_ref)}@{digest}"
+
+        return await loop.run_in_executor(None, _probe)
+
+    async def _push_and_resolve_digest(
+        self, image_ref: str, *, timeout_s: float,
+    ) -> str | None:
+        """Push ``image_ref`` to its registry and return the assigned
+        ``<repo>@sha256:...``. Raises :class:`_BuildError` on push failure
+        (docker-py reports push errors in the JSON stream rather than by
+        raising, so we scan the stream)."""
+        client = self._get_docker_client()
+        loop = asyncio.get_running_loop()
+
+        def _push() -> str | None:
+            for chunk in client.images.push(image_ref, stream=True, decode=True):
+                if isinstance(chunk, dict) and chunk.get("error"):
+                    raise _BuildError(str(chunk["error"]))
+            img = client.images.get(image_ref)
+            repo_digests: list[str] = [
+                str(d) for d in (img.attrs.get("RepoDigests") or [])
+            ]
+            want_repo = _strip_tag(image_ref)
+            for rd in repo_digests:
+                if rd.split("@", 1)[0] == want_repo:
+                    return rd
+            return repo_digests[0] if repo_digests else None
+
+        try:
+            return await asyncio.wait_for(
+                loop.run_in_executor(None, _push), timeout=timeout_s,
+            )
+        except TimeoutError as exc:
+            raise _BuildError(
+                f"docker push exceeded {timeout_s:.0f}s deadline",
+            ) from exc
+
+    async def _copy_to_durable(
+        self, src_ref: str, dst_ref: str, *, timeout_s: float,
+    ) -> None:
+        """Copy the freshly built+pushed scratch image ``src_ref`` to the
+        user-owned ``dst_ref`` so it outlives the scratch GC. Prefers
+        ``crane``/``skopeo`` (registry-to-registry, digest-preserving, no
+        daemon); falls back to docker retag-and-push of the already-local
+        image. Raises :class:`_BuildError` on failure."""
+        loop = asyncio.get_running_loop()
+        await asyncio.wait_for(
+            loop.run_in_executor(
+                None, lambda: self._copy_blocking(src_ref, dst_ref),
+            ),
+            timeout=timeout_s,
+        )
+
+    def _copy_blocking(self, src_ref: str, dst_ref: str) -> None:
+        crane = shutil.which("crane")
+        if crane is not None:
+            _run_blocking([crane, "copy", "--insecure", src_ref, dst_ref])
+            return
+        skopeo = shutil.which("skopeo")
+        if skopeo is not None:
+            _run_blocking([
+                skopeo, "copy",
+                "--src-tls-verify=false", "--dest-tls-verify=false",
+                f"docker://{src_ref}", f"docker://{dst_ref}",
+            ])
+            return
+        # Docker fallback: the image was just built locally as ``src_ref``;
+        # retag to the durable ref and push. Content-identical (same layers),
+        # though not manifest-digest-preserving the way crane/skopeo is.
+        client = self._get_docker_client()
+        repo = _strip_tag(dst_ref)
+        tag = dst_ref[len(repo) + 1:] if len(dst_ref) > len(repo) else "latest"
+        client.images.get(src_ref).tag(repo, tag=tag)
+        for chunk in client.images.push(f"{repo}:{tag}", stream=True, decode=True):
+            if isinstance(chunk, dict) and chunk.get("error"):
+                raise _BuildError(f"durable push error: {chunk['error']}")
 
     async def build(
         self,
@@ -760,6 +1007,40 @@ class GitSourceBuilder:
         ref (the cache then attempts a registry pull, matching the
         old behavior for unregistered refs).
         """
+        # Scratch build-on-demand takes priority: build AND push to the
+        # content-addressed scratch registry embedded in the ref, so the
+        # image is materialized once for the fleet and pulled by peers
+        # (notes/scratch-registry-build-on-demand.md).
+        scratch_source = self._scratch_specs.get(image_ref)
+        if scratch_source is not None:
+            durable_to = self._scratch_durable.get(image_ref)
+
+            async def _produce_scratch(_ref: str, timeout_s: float) -> None:
+                result = await self.build_and_push(
+                    image_ref=_ref, source=scratch_source,
+                    timeout_s=timeout_s, labels={},
+                )
+                if result.status != "ok":
+                    raise RuntimeError(
+                        f"scratch build-and-push failed for {_ref}: "
+                        f"{result.error or 'unknown'}",
+                    )
+                if durable_to:
+                    # Best-effort: the image is already usable from scratch, so
+                    # a durable-copy failure must not fail the rollout.
+                    try:
+                        await self._copy_to_durable(
+                            _ref, durable_to, timeout_s=max(timeout_s, 120.0),
+                        )
+                    except Exception as exc:
+                        LOGGER.warning(
+                            "scratch: durable copy of %s -> %s failed "
+                            "(image still available in scratch): %s",
+                            _ref, durable_to, exc,
+                        )
+
+            return _produce_scratch
+
         if self._source_specs is None:
             self._source_specs = self._load_source_specs()
         spec = self._source_specs.get(image_ref)
@@ -934,6 +1215,17 @@ class _BuildError(RuntimeError):
     the public boundary so callers don't pattern-match exceptions."""
 
 
+def _run_blocking(cmd: list[str]) -> None:
+    """Run ``cmd`` to completion, raising :class:`_BuildError` on non-zero
+    exit (used by the crane/skopeo durable-copy path, which runs in a thread)."""
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        out = f"{proc.stdout}{proc.stderr}".strip()
+        raise _BuildError(
+            f"command {cmd[0]!r} exited {proc.returncode}: {out[:500]}",
+        )
+
+
 async def _run_subprocess(
     cmd: list[str], *, cwd: Path | None, timeout_s: float,
 ) -> None:
@@ -969,5 +1261,6 @@ __all__ = [
     "REBUILD_COST_GIT",
     "REBUILD_COST_LABEL",
     "REBUILD_COST_TARBALL",
+    "BuildAndPushResult",
     "GitSourceBuilder",
 ]

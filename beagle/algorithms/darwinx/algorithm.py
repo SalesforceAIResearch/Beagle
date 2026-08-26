@@ -65,7 +65,7 @@ class DarwinX(EvolveAlgorithm):
     by launching that driver, NOT via a generational cadence imposed by the framework.
 
     Its knobs are the typed :class:`DarwinXConfig` (launch paths, driver loop/eval knobs, and the
-    ``ATELIER_*`` verification-gate knobs) — ``build("darwinx", repo_root=…, max_loop_iters=1)``
+    ``DARWINX_GATE_*`` verification-gate knobs) — ``build("darwinx", repo_root=…, max_loop_iters=1)``
     validates against it, and an unknown knob fails loud.
     """
 
@@ -115,8 +115,8 @@ class DarwinX(EvolveAlgorithm):
         # from the evolvee's token_env (the manifest's, e.g. GH_TOKEN).
         _launch.prepare_git_auth(evolvee.spec.config.get("token_env"))
         _launch.prepare_import_path()
-        from self_evolve import pool, tree                     # noqa: E402 (path prepared above)
-        from self_evolve.pipeline import PipelineConfig, SelfEvolvePipeline  # noqa: E402
+        from evolve import pool, tree                     # noqa: E402 (path prepared above)
+        from evolve.pipeline import PipelineConfig, SelfEvolvePipeline  # noqa: E402
 
         config_path = _launch.emit_campaign_config(
             evolvee=evolvee, evolver=evolver, run_config=config,
@@ -126,7 +126,7 @@ class DarwinX(EvolveAlgorithm):
         # the EVOLVER_SPEC_KEY block in config_path (config-based injection — no env var).
         shim.set_editor(evolver)
         # Bucket-2 config → the driver's env channel (config wins): runtime/seed from the run,
-        # and this algorithm's own gate/verifier knobs (ATELIER_*) from its typed config.
+        # and this algorithm's own gate/verifier knobs (DARWINX_GATE_*) from its typed config.
         import os
 
         _launch.prepare_runtime_env(config, evolvee.source())
@@ -141,7 +141,43 @@ class DarwinX(EvolveAlgorithm):
         # The two-phase supervisor sequence: score the root baseline (bootstrap precursor), then
         # evolve — a single run can't pick its own unscored root.
         _launch.run_campaign(SelfEvolvePipeline, cfg, tree)
-        return _launch.read_best(tree, pool, cfg, evolvee_source=evolvee.source())
+        best = _launch.read_best(tree, pool, cfg, evolvee_source=evolvee.source())
+        if best is not None and val is not None:
+            self._validate(best, val)
+        return best
+
+    def _validate(self, best: Candidate, val: Evaluate) -> None:
+        """Score the campaign winner on the held-out data and record the verdict.
+
+        The driver gates candidates in-loop (``DARWINX_GATE_MIXTURE_*`` / ``DARWINX_GATE_CROSS_BENCH_*``
+        from :class:`DarwinXConfig`), so this is not that gate — it is the acceptance check on
+        the one harness we are about to hand back, measured on data the loop never selected
+        against. A winner that only looks good on the data it was chosen with is the failure
+        this catches.
+
+        The result is attached rather than acted on: promotion policy belongs to the caller,
+        and silently returning ``None`` for a candidate that cost a campaign to produce would
+        throw away something worth inspecting.
+        """
+        from beagle.eval.validation import capture, summarize
+
+        try:
+            results = capture(val, best)
+        except Exception as e:                       # a broken validator must not lose the run
+            best.metadata["validation_error"] = repr(e)
+            print(f"[darwinx] held-out validation failed to run: {e!r}")
+            return
+
+        report = summarize(results)
+        best.metadata["validation"] = {
+            "values": report.values(),
+            "sigmas": report.sigmas(),
+            "uncalibrated": report.uncalibrated(),
+            "low_coverage": report.low_coverage(),
+            "empty_slices": report.empty_slices,
+        }
+        print("[darwinx] held-out validation of the winner:")
+        print(report.to_feedback())
 
     def _launch_paths(self) -> tuple[str, str, str]:
         """Resolve the launch-infra paths from the typed config (config-based, no env var).

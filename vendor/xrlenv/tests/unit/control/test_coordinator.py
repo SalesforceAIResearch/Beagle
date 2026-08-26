@@ -21,7 +21,7 @@ from xrlenv.control.template_catalog import (
     TemplateCatalog,
     TemplateManifest,
 )
-from xrlenv.errors import RolloutFailed, TemplateUnknown
+from xrlenv.errors import RolloutFailed, TemplateUnknown, XRLEnvError
 from xrlenv.types import RolloutStatus
 
 # ── Helpers & fakes ──────────────────────────────────────────────────────────
@@ -119,6 +119,8 @@ class FakeNodeAgent:
 def _make_coordinator(
     agent: FakeNodeAgent | None = None,
     manifest: TemplateManifest | None = None,
+    *,
+    scratch_registry_host: str | None = None,
 ) -> tuple[RolloutCoordinator, InMemoryStateStore]:
     if agent is None:
         agent = FakeNodeAgent()
@@ -136,7 +138,10 @@ def _make_coordinator(
     sched.nodes = [agent]
 
     state = InMemoryStateStore()
-    coord = RolloutCoordinator(catalog=catalog, scheduler=sched, state=state)
+    coord = RolloutCoordinator(
+        catalog=catalog, scheduler=sched, state=state,
+        scratch_registry_host=scratch_registry_host,
+    )
     return coord, state
 
 
@@ -1251,3 +1256,296 @@ async def test_preflight_passes_when_node_has_image() -> None:
     rid, _obs = await coord.start_rollout(template_name="t", init={})
     rec = state.get_rollout(rid)
     assert rec.status == RolloutStatus.RUNNING
+
+
+async def test_preflight_scratch_build_cold_cache_falls_through() -> None:
+    """D19 / scratch-registry: a manifest with ``image_pin_mode='scratch_build'``
+    and a node that says the image is absent (cold cache) must NOT raise
+    ``ImageMissingOnNode``.  A cold scratch miss is the *normal* first-use
+    state — the node builds on demand.  This mirrors the registry_digest
+    cold-cache test and pins the exclusion list in the fail-fast guard."""
+    from xrlenv.image_build import ImageBuildSpec
+    from xrlenv.node.image_cache import ImageQueryResult
+
+    class _AbsentNode(FakeNodeAgent):
+        async def query_image(self, _image: str) -> Any:
+            return ImageQueryResult(present=False)
+
+    base = _make_manifest()
+    # scratch_build with an image already set (e.g. a known scratch ref from
+    # a prior build). The node says it's absent — normal cold-cache state.
+    manifest = base.model_copy(
+        update={
+            "image_pin_mode": "scratch_build",
+            "image_build": ImageBuildSpec(context="./environment"),
+        },
+    )
+    coord, state = _make_coordinator(agent=_AbsentNode(), manifest=manifest)
+    # Must NOT raise ImageMissingOnNode — scratch cold-miss falls through.
+    rid, _obs = await coord.start_rollout(template_name="t", init={})
+    rec = state.get_rollout(rid)
+    assert rec.status == RolloutStatus.RUNNING, (
+        f"scratch_build cold-cache miss must not fail; "
+        f"got status={rec.status!r} reason={rec.reason!r}"
+    )
+
+
+async def test_preflight_scratch_build_emits_digest_source_scratch() -> None:
+    """D19 audit event shape for scratch_build: ``digest_source`` must be
+    ``'scratch'``.  This pins the audit-trail shape so consumers that
+    distinguish build-on-demand from registry-pull see the correct label."""
+    from xrlenv.image_build import ImageBuildSpec
+    from xrlenv.node.image_cache import ImageQueryResult
+
+    class _PresentNode(FakeNodeAgent):
+        async def query_image(self, _image: str) -> Any:
+            return ImageQueryResult(
+                present=True, digest="sha256:" + "cc" * 32, last_used_at=1.0,
+            )
+
+    base = _make_manifest()
+    manifest = base.model_copy(
+        update={
+            "image_pin_mode": "scratch_build",
+            "image_build": ImageBuildSpec(context="./environment"),
+        },
+    )
+    coord, state = _make_coordinator(agent=_PresentNode(), manifest=manifest)
+    await coord.start_rollout(template_name="t", init={})
+
+    audit_rows = [
+        row for row in state.audit_since(0)
+        if row.kind == "placement.image_check"
+    ]
+    assert len(audit_rows) == 1
+    payload = audit_rows[0].payload
+    assert payload["image_pin_mode"] == "scratch_build"
+    assert payload["digest_source"] == "scratch", (
+        f"scratch_build must emit digest_source='scratch'; got {payload['digest_source']!r}"
+    )
+
+
+# ── scratch build-on-demand coordinator wiring (slice 2c-ii) ──────────────────
+
+
+class _ScratchRecordingNode(FakeNodeAgent):
+    """FakeNodeAgent that records register_scratch_source calls."""
+
+    def __init__(self, **kw: Any) -> None:
+        super().__init__(**kw)
+        self.scratch_registrations: list[tuple[str, Any]] = []
+        self.durable_registrations: list[str | None] = []
+
+    def register_scratch_source(
+        self, image_ref: str, source: Any, *, durable_to: str | None = None,
+    ) -> None:
+        self.scratch_registrations.append((image_ref, source))
+        self.durable_registrations.append(durable_to)
+
+
+def _scratch_manifest() -> TemplateManifest:
+    from xrlenv.image_build import GitContext, ImageBuildSpec
+    spec = ImageBuildSpec(git=GitContext(repo="https://x/y", ref="abc123", subdir="env"))
+    return _make_manifest().model_copy(update={
+        "image": None,
+        "image_pin_mode": "scratch_build",
+        "image_build": spec,
+    })
+
+
+async def test_scratch_build_rollout_computes_ref_and_registers_source() -> None:
+    """A scratch_build rollout computes the content-addressed ref, sets it as
+    the image, and registers the build source on the chosen node."""
+    from xrlenv.control.build_plan import GitSource
+    from xrlenv.control.scratch_build import resolve_scratch_image
+
+    manifest = _scratch_manifest()
+    node = _ScratchRecordingNode()
+    coord, state = _make_coordinator(
+        agent=node, manifest=manifest, scratch_registry_host="cp-box:5012",
+    )
+    rid, _obs = await coord.start_rollout(template_name="t", init={})
+    assert state.get_rollout(rid).status == RolloutStatus.RUNNING
+
+    assert manifest.image_build is not None
+    expected_ref, _ = resolve_scratch_image(
+        manifest.image_build, scratch_host="cp-box:5012",
+    )
+    assert len(node.scratch_registrations) == 1
+    reg_ref, reg_source = node.scratch_registrations[0]
+    assert reg_ref == expected_ref
+    assert isinstance(reg_source, GitSource)
+    assert reg_source.repo == "https://x/y"
+
+
+async def test_scratch_build_rollout_unconfigured_host_fails_clearly() -> None:
+    """No scratch registry configured → scratch_build rollout fails fast with
+    a clear XRLENV_SCRATCH_REGISTRY_HOST pointer."""
+    coord, _state = _make_coordinator(
+        agent=_ScratchRecordingNode(), manifest=_scratch_manifest(),
+        scratch_registry_host=None,
+    )
+    with pytest.raises(XRLEnvError, match="XRLENV_SCRATCH_REGISTRY_HOST"):
+        await coord.start_rollout(template_name="t", init={})
+
+
+async def test_scratch_build_rollout_transport_without_register_fails() -> None:
+    """A node transport lacking register_scratch_source (e.g. the not-yet-wired
+    distributed path) fails fast with a clear pointer rather than a confusing
+    missing-image error."""
+    coord, _state = _make_coordinator(
+        agent=FakeNodeAgent(), manifest=_scratch_manifest(),
+        scratch_registry_host="cp-box:5012",
+    )
+    with pytest.raises(XRLEnvError, match="no register_scratch_source"):
+        await coord.start_rollout(template_name="t", init={})
+
+
+async def test_scratch_build_noop_when_image_already_set() -> None:
+    """_maybe_prepare_scratch_image is a no-op when the manifest already
+    carries a concrete image (idempotent re-entry / resolver-supplied path).
+    No scratch source should be registered on the node."""
+    from xrlenv.image_build import GitContext, ImageBuildSpec
+
+    spec = ImageBuildSpec(git=GitContext(repo="https://x/y", ref="abc123"))
+    manifest = _make_manifest().model_copy(update={
+        "image": "cp-box:5012/scratch/alreadyset",  # image already populated
+        "image_pin_mode": "scratch_build",
+        "image_build": spec,
+    })
+    node = _ScratchRecordingNode()
+    coord, state = _make_coordinator(
+        agent=node, manifest=manifest, scratch_registry_host="cp-box:5012",
+    )
+    rid, _obs = await coord.start_rollout(template_name="t", init={})
+    assert state.get_rollout(rid).status == RolloutStatus.RUNNING
+    # No scratch source registration — image was already set
+    assert node.scratch_registrations == [], (
+        "_maybe_prepare_scratch_image must be a no-op when image is not None"
+    )
+
+
+async def test_scratch_build_idempotent_replay_does_not_double_register() -> None:
+    """A replayed scratch_build request_id short-circuits at the idempotency
+    check — _maybe_prepare_scratch_image and register_scratch_source must NOT
+    be called a second time for the same rollout."""
+    manifest = _scratch_manifest()
+    node = _ScratchRecordingNode()
+    coord, _state = _make_coordinator(
+        agent=node, manifest=manifest, scratch_registry_host="cp-box:5012",
+    )
+    # First call — creates the rollout and registers the source
+    rid1, _obs = await coord.start_rollout(
+        template_name="t", init={}, request_id="req-scratch-1",
+    )
+    assert len(node.scratch_registrations) == 1
+    # Second call with the same request_id — must return the existing rollout_id
+    rid2, _obs2 = await coord.start_rollout(
+        template_name="t", init={}, request_id="req-scratch-1",
+    )
+    assert rid2 == rid1, "idempotent replay must return the same rollout_id"
+    # Still exactly one registration — no second call to register_scratch_source
+    assert len(node.scratch_registrations) == 1, (
+        "idempotency replay must not call register_scratch_source a second time"
+    )
+
+
+async def test_scratch_build_context_dir_uses_tarball_source() -> None:
+    """A scratch_build manifest with a context dir (not git) wires a
+    TarballSource through to register_scratch_source."""
+    import tempfile
+    from pathlib import Path
+
+    from xrlenv.control.build_plan import TarballSource
+    from xrlenv.image_build import ImageBuildSpec
+
+    with tempfile.TemporaryDirectory() as td:
+        ctx = Path(td) / "env"
+        ctx.mkdir()
+        (ctx / "Dockerfile").write_text("FROM busybox\n")
+        spec = ImageBuildSpec(context=str(ctx))
+        manifest = _make_manifest().model_copy(update={
+            "image": None,
+            "image_pin_mode": "scratch_build",
+            "image_build": spec,
+        })
+        node = _ScratchRecordingNode()
+        coord, state = _make_coordinator(
+            agent=node, manifest=manifest, scratch_registry_host="cp-box:5012",
+        )
+        rid, _obs = await coord.start_rollout(template_name="t", init={})
+        assert state.get_rollout(rid).status == RolloutStatus.RUNNING
+        assert len(node.scratch_registrations) == 1
+        _ref, source = node.scratch_registrations[0]
+        assert isinstance(source, TarballSource), (
+            "context-dir scratch_build must register a TarballSource on the node"
+        )
+        assert source.content_b64 is not None, "TarballSource must carry inline bytes"
+
+
+async def test_scratch_build_async_register_is_awaited() -> None:
+    """When a node transport's register_scratch_source is async, the coordinator
+    must await it (via inspect.isawaitable)."""
+    from xrlenv.image_build import GitContext, ImageBuildSpec
+
+    class _AsyncRecordingNode(FakeNodeAgent):
+        """Node whose register_scratch_source is a coroutine."""
+
+        def __init__(self, **kw: Any) -> None:
+            super().__init__(**kw)
+            self.scratch_registrations: list[tuple[str, Any]] = []
+
+        async def register_scratch_source(  # type: ignore[override]
+            self, image_ref: str, source: Any, *, durable_to: str | None = None,
+        ) -> None:
+            self.scratch_registrations.append((image_ref, source))
+
+    spec = ImageBuildSpec(git=GitContext(repo="https://x/y", ref="abc123"))
+    manifest = _make_manifest().model_copy(update={
+        "image": None,
+        "image_pin_mode": "scratch_build",
+        "image_build": spec,
+    })
+    node = _AsyncRecordingNode()
+    coord, state = _make_coordinator(
+        agent=node, manifest=manifest, scratch_registry_host="cp-box:5012",
+    )
+    rid, _obs = await coord.start_rollout(template_name="t", init={})
+    assert state.get_rollout(rid).status == RolloutStatus.RUNNING
+    # If the coordinator did NOT await, the coroutine would be garbage-collected
+    # without running, so scratch_registrations would remain empty.
+    assert len(node.scratch_registrations) == 1, (
+        "coordinator must await an async register_scratch_source"
+    )
+
+
+async def test_scratch_build_durable_to_is_threaded_to_node() -> None:
+    """image_build.durable_to flows to register_scratch_source; a durable_to
+    without a tag gets the content-addressed input_digest appended."""
+    from xrlenv.image_build import GitContext, ImageBuildSpec
+    spec = ImageBuildSpec(
+        git=GitContext(repo="https://x/y", ref="abc123"),
+        durable_to="reg.internal:5000/team/env",
+    )
+    manifest = _make_manifest().model_copy(update={
+        "image": None, "image_pin_mode": "scratch_build", "image_build": spec,
+    })
+    node = _ScratchRecordingNode()
+    coord, state = _make_coordinator(
+        agent=node, manifest=manifest, scratch_registry_host="cp-box:5012",
+    )
+    rid, _obs = await coord.start_rollout(template_name="t", init={})
+    assert state.get_rollout(rid).status == RolloutStatus.RUNNING
+    assert len(node.durable_registrations) == 1
+    durable = node.durable_registrations[0]
+    assert durable is not None
+    assert durable.startswith("reg.internal:5000/team/env:")
+
+
+async def test_scratch_build_without_durable_registers_none() -> None:
+    node = _ScratchRecordingNode()
+    coord, _state = _make_coordinator(
+        agent=node, manifest=_scratch_manifest(), scratch_registry_host="cp-box:5012",
+    )
+    await coord.start_rollout(template_name="t", init={})
+    assert node.durable_registrations == [None]

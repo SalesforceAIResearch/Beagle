@@ -480,8 +480,8 @@ class XrlenvHarborEnvironmentCluster(XrlenvHarborEnvironment):
     **Image distribution (P1.7.C.1 staged):**
 
     Images are pre-built on each node via the per-benchmark build
-    script (e.g. ``examples/benchmarks-onboarding/terminal-bench-2/
-    scripts/build-task-images.sh``). The image tag the cluster
+    flow (e.g. ``xrlenv_plugins/benchmarks/terminal_bench_2_1/
+    build_cache.py`` + ``build_plan_gen.py``). The image tag the cluster
     looks up is either ``task_env_config.docker_image`` (when the
     upstream task ships a prebuilt) or ``hb__<environment_name>``
     (the harbor convention). If the chosen node doesn't have the

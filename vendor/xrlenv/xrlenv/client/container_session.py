@@ -61,6 +61,7 @@ class ClusterContainerSession:
         acquire_result: RawAcquireResult,
         *,
         on_destroy: Callable[[str], None] | None = None,
+        liveness_probe: Callable[[], bool] | None = None,
     ) -> None:
         self._transport = transport
         self._rollout_id = acquire_result.rollout_id
@@ -72,8 +73,28 @@ class ClusterContainerSession:
         # Called with the rollout_id when the session is destroyed, so the
         # Client's keepalive stops beating this (now-gone) session.
         self._on_destroy = on_destroy
+        # Reads the owning Client's keepalive health. The SESSION is what a
+        # harness holds (``async with await client.acquire_container(...)``), so
+        # putting the signal only on the Client left it somewhere no caller was
+        # already looking.
+        self._liveness_probe = liveness_probe
 
     # ── Read-only attributes ──────────────────────────────────────────────
+
+    @property
+    def liveness_at_risk(self) -> bool:
+        """True while this session's keepalive is not reaching the control plane.
+
+        Advisory, never raised on. While set, this session is at risk of being
+        reclaimed at the quarantine horizon IF it goes idle — the control plane
+        cannot distinguish a consumer it cannot hear from one that died. Work in
+        flight is unaffected: a session RPC is itself a liveness signal.
+
+        A caller can use it to checkpoint or stop dispatching new work. It is
+        deliberately not an exception: a false alarm would destroy healthy work,
+        which is the failure this whole contract exists to prevent.
+        """
+        return bool(self._liveness_probe and self._liveness_probe())
 
     @property
     def rollout_id(self) -> str:
@@ -340,6 +361,7 @@ class ClusterComposeSession(ClusterContainerSession):
         acquire_result: RawComposeAcquireResult,
         *,
         on_destroy: Callable[[str], None] | None = None,
+        liveness_probe: Callable[[], bool] | None = None,
     ) -> None:
         # The base class stores from a RawAcquireResult; the compose result has a
         # different shape (main_* + the project map), so set the fields directly
@@ -355,6 +377,10 @@ class ClusterComposeSession(ClusterContainerSession):
         self._service_container_ids = dict(acquire_result.service_container_ids)
         self._destroyed = False
         self._on_destroy = on_destroy
+        # Set here too: this class deliberately does NOT route through
+        # super().__init__ (the compose acquire result has a different shape), so
+        # every base-class field has to be mirrored or it silently goes missing.
+        self._liveness_probe = liveness_probe
 
     # ── Compose-specific read-only attributes ─────────────────────────────
 

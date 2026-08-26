@@ -42,7 +42,7 @@ resolved to the current registry digest per acquire).
 
 # 1. build + push the answer-free substrate image (build host):
 source .env
-.venv/bin/python scripts/build_and_push_images.py \
+.venv/bin/python deploy/registry/build_and_push_images.py \
     --plan xrlenv_plugins/benchmarks/webarena_infinity/build_plan.yaml \
     --registry "${XRLENV_PRIVATE_REGISTRY_HOST}:${XRLENV_PRIVATE_REGISTRY_PORT}" --force
 

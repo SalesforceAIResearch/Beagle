@@ -35,7 +35,7 @@ services:
 # A private-registry ref is what `build_cache --stage all --registry` repins a
 # REBUILD task's docker_image to; a bare `zli12321/...` ref is a prebuilt docker.io
 # image (no private-registry namespace → type: registry).
-_PRIV = "node-host:5011/lhtb"
+_PRIV = "ip-10-0-5-6:5011/lhtb"
 
 
 @pytest.mark.parametrize(("ref", "expected"), [
@@ -77,13 +77,13 @@ def test_task_image_ref_expands_registry_placeholder(
 ) -> None:
     """A repinned task's host-agnostic placeholder is expanded from .env at plan-gen time
     → a concrete ref for build/push/warm (GUIDELINE §5.3.1)."""
-    monkeypatch.setenv("XRLENV_PRIVATE_REGISTRY_HOST", "node-host")
+    monkeypatch.setenv("XRLENV_PRIVATE_REGISTRY_HOST", "ip-10-0-9-10")
     monkeypatch.setenv("XRLENV_PRIVATE_REGISTRY_PORT", "5011")
     shard = tmp_path / "lhtb"
     _mk(shard, "chess-mate",
         docker_image="${XRLENV_PRIVATE_REGISTRY_HOST}:${XRLENV_PRIVATE_REGISTRY_PORT}"
         "/lhtb/chess-mate:main")
-    assert _task_image_ref(shard, "chess-mate") == "node-host:5011/lhtb/chess-mate:main"
+    assert _task_image_ref(shard, "chess-mate") == "ip-10-0-9-10:5011/lhtb/chess-mate:main"
 
 
 def test_task_image_ref_fails_loud_on_unresolved_placeholder(

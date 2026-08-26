@@ -43,7 +43,7 @@ the README §"Adding a pin".
 ## Reproduce
 
 ```bash
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 export XRLENV_GRPC_HOST=<control-plane-host>   # + XRLENV_CONSUMER_TOKEN if the CP has auth
 export XRLENV_GRPC_PORT=50051
 

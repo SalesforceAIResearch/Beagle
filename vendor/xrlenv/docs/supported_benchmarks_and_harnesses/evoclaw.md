@@ -57,17 +57,17 @@ calls EvoClaw's own `harness.e2e.run_e2e.main()` unchanged.
 2. **Copy the onboarding modules** into the EvoClaw checkout:
 
    ```bash
-   mkdir -p ~/Github/EvoClaw-dev/xrlenv_onboard
-   cp /path/to/xrlenv/xrlenv_plugins/benchmarks/evoclaw/copy_to_call_site/*.py \
-      /path/to/xrlenv/xrlenv_plugins/benchmarks/evoclaw/run_oracle_smoke.sh \
-      ~/Github/EvoClaw-dev/xrlenv_onboard/
+   mkdir -p ~/Github/EvoClaw/xrlenv_onboard
+   cp /path/to/xrlenv-dev/xrlenv_plugins/benchmarks/evoclaw/copy_to_call_site/*.py \
+      /path/to/xrlenv-dev/xrlenv_plugins/benchmarks/evoclaw/run_oracle_smoke.sh \
+      ~/Github/EvoClaw/xrlenv_onboard/
    ```
 
 3. **Install `xrlenv` into EvoClaw's venv:**
 
    ```bash
-   cd ~/Github/EvoClaw-dev
-   uv pip install -e /path/to/xrlenv
+   cd ~/Github/EvoClaw
+   uv pip install -e /path/to/xrlenv-dev
    ```
 
 ### Environment variables
@@ -79,7 +79,7 @@ precedence (`shell > .env_private > .env`). Put all real values in
 `.env_private`:
 
 ```bash
-# ~/Github/EvoClaw-dev/.env_private   (gitignored — real values here)
+# ~/Github/EvoClaw/.env_private   (gitignored — real values here)
 
 # EvoClaw's own (configure per EvoClaw's docs):
 EVOCLAW_DATA_ROOT=/home/you/EvoClaw-data   # REQUIRED
@@ -88,7 +88,7 @@ EVOCLAW_DATA_ROOT=/home/you/EvoClaw-data   # REQUIRED
 # UNIFIED_BASE_URL=...
 
 # xrlenv cluster coordinates:
-XRLENV_GRPC_HOST=internal-ip
+XRLENV_GRPC_HOST=<control-plane-host>
 XRLENV_GRPC_PORT=50051
 XRLENV_CONSUMER_TOKEN=<token from xrlenv tokens issue consumer>
 
@@ -148,7 +148,7 @@ before the run and injects it into the agent container via the shim's
 bind-mount → `put_archive` translation.
 
 ```bash
-cd ~/Github/EvoClaw-dev
+cd ~/Github/EvoClaw
 
 # True oracle — applies the golden solution and expects `resolved`:
 .venv/bin/python xrlenv_onboard/run_e2e_xrlenv.py \
@@ -244,8 +244,8 @@ the EvoClaw checkout as `xrlenv_onboard/`:
   are not included. Harden for milestones that need them.
 - **No preemption/resume.** EvoClaw's `resume.py` expects a long-lived
   container addressable by name across process restarts; xrlenv sessions
-  are lifetime-capped and liveness-reaped. Resumable sessions require
-  spec 18 (phase 3).
+  are lifetime-capped and liveness-reaped. Resumable sandbox sessions
+  are planned for a future release.
 
 ## Troubleshooting
 

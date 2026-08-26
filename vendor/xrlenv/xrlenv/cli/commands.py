@@ -1578,6 +1578,121 @@ def cmd_build_apply(
     return asyncio.run(_run())
 
 
+def _qualify_image_ref(image_ref: str, registry: str) -> str:
+    """Prepend ``<registry>/`` to a bare image_ref so the node pushes it there.
+
+    Follows Docker's own rule: a ref is treated as already registry-qualified
+    only when it contains a ``/`` AND its first path segment looks like a host
+    (contains ``.`` or ``:``, or is ``localhost``) — ``host:5011/repo``,
+    ``reg.example.com/repo``, ``localhost/repo``. A ref with NO ``/`` is a bare
+    ``repo[:tag]`` — the ``:`` there is a tag separator, not a host port — so it
+    is always qualified (``env-a:v1`` → ``<registry>/env-a:v1``). A slashed ref
+    whose first segment is a plain name (``ns/repo``) is also qualified."""
+    if "/" in image_ref:
+        first = image_ref.split("/", 1)[0]
+        if "." in first or ":" in first or first == "localhost":
+            return image_ref
+    return f"{registry}/{image_ref}"
+
+
+def _registry_qualify_plan(plan: Any, registry: str) -> Any:
+    """Return a copy of ``plan`` with every entry's image_ref registry-qualified
+    against ``registry`` (for ``xrlenv build push``)."""
+    return plan.model_copy(update={
+        "entries": tuple(
+            e.model_copy(update={
+                "image_ref": _qualify_image_ref(e.image_ref, registry),
+            })
+            for e in plan.entries
+        ),
+    })
+
+
+def cmd_build_push(
+    *,
+    plan_path: Path,
+    registry: str,
+    out: TextIO,
+    connect_host: str | None = None,
+    connect_port: int = 8080,
+    operator_token: str | None = None,
+    dry_run: bool = False,
+    force: bool = False,
+    tarball_max_bytes: int | None = None,
+    concurrency: int | None = None,
+) -> int:
+    """``xrlenv build push`` — build a plan's git/tarball images across the
+    fleet and PUSH them to the private registry (build-once, fleet-wide).
+
+    Replaces the Slurm ``build_and_push_images.sh`` fan-out: the control plane
+    size-shards the plan across the currently-connected node agents over the
+    spec-21 stream; each node builds its shard from source and pushes to
+    ``--registry``. Re-runs are cheap and resumable — already-pushed refs are
+    skipped by a registry HEAD (build-once fleet-wide). No sbatch, no hardcoded
+    nodelist, no drift: the CP dispatches to whatever nodes are connected now.
+    """
+    from xrlenv.api.constants import DEFAULT_BUILD_TARBALL_MAX_BYTES
+    from xrlenv.control.build_plan import (
+        GitSource,
+        TarballSource,
+        load_build_plan,
+        resolve_tarball_sources,
+    )
+    from xrlenv.errors import ManifestInvalid
+
+    if connect_host is None:
+        out.write(
+            "error: xrlenv build push requires --connect-host <admin-host>. It "
+            "orchestrates the build+push across the live fleet's node agents via "
+            "the control plane; there is no local-only path.\n",
+        )
+        return 2
+
+    try:
+        plan = load_build_plan(plan_path)
+        plan = resolve_tarball_sources(
+            plan,
+            max_bytes=(
+                tarball_max_bytes
+                if tarball_max_bytes is not None
+                else DEFAULT_BUILD_TARBALL_MAX_BYTES
+            ),
+            base_dir=plan_path.parent,
+        )
+    except ManifestInvalid as exc:
+        out.write(f"error: {exc}\n")
+        return 2
+
+    # build push only builds+pushes SOURCE entries. Registry / local-source
+    # entries have nothing to build-and-push here.
+    non_source = [
+        e.image_ref for e in plan.entries
+        if not isinstance(e.context_source, (GitSource, TarballSource))
+    ]
+    if non_source:
+        out.write(
+            "error: xrlenv build push only accepts git/tarball source entries "
+            "(it builds them from source and pushes to --registry). These are "
+            "registry / local sources with nothing to build-and-push: "
+            f"{', '.join(non_source[:10])}"
+            + (" ..." if len(non_source) > 10 else "") + "\n",
+        )
+        return 2
+
+    plan = _registry_qualify_plan(plan, registry)
+    out.write(
+        f"building + pushing {len(plan.entries)} image(s) to {registry} "
+        f"across the {connect_host} fleet...\n",
+    )
+    return _build_apply_via_admin(
+        host=connect_host, port=connect_port,
+        operator_token=operator_token, plan=plan,
+        dry_run=dry_run, force=force, eager=False,
+        fill_missing=False, skip_if_present=False,
+        concurrency=concurrency, push=True, out=out,
+    )
+
+
 def _resolve_operator_token(explicit: str | None) -> str | None:
     """Pick the operator token from (in priority order): explicit
     --operator-token CLI flag, ``$XRLENV_OPERATOR_TOKEN`` env var, or
@@ -1612,6 +1727,7 @@ def _build_apply_via_admin(
     fill_missing: bool = False,
     skip_if_present: bool = False,
     concurrency: int | None = None,
+    push: bool = False,
 ) -> int:
     """P1.6.f cluster-RPC — POST the plan to the admin server's
     apply endpoint, poll until terminal, print results.
@@ -1636,6 +1752,7 @@ def _build_apply_via_admin(
         "eager": eager,
         "fill_missing": fill_missing,
         "skip_if_present": skip_if_present,
+        "push": push,
         "applied_by": "operator-cli",
     }
     if concurrency is not None:

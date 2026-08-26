@@ -90,7 +90,7 @@ def test_detect_os_refuses_unknown_distro() -> None:
 
 def _ok_env(**overrides: str) -> dict[str, str]:
     base = {
-        "XRLENV_CONTROL_PLANE": "internal-ip:50051",
+        "XRLENV_CONTROL_PLANE": "10.0.0.1:50051",
         "XRLENV_NODE_ID": "test-node-1",
     }
     base.update(overrides)
@@ -111,7 +111,7 @@ def test_build_config_pulls_from_env_when_flags_omitted() -> None:
         skip_operator_docker_group=False,
         env=_ok_env(),
     )
-    assert config.control_plane == "internal-ip:50051"
+    assert config.control_plane == "10.0.0.1:50051"
     assert config.node_id == "test-node-1"
     assert config.xrlenv_version == "main"  # falls back to "main".
 

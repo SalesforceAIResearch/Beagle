@@ -3,7 +3,7 @@
 Shared by two consumers so the ``build:`` → ``image:`` mapping and the
 ``<task_id>-<service>`` naming live in **one** place (no build-vs-run drift):
 
-- ``xrlenv_plugins.images_build.<benchmark>.build_plan_gen`` — enumerates the
+- ``xrlenv_plugins.benchmarks.<benchmark>.build_plan_gen`` — enumerates the
   services that ship a ``build:`` context and names the image each becomes, so
   the build+push step produces exactly the refs the eval will resolve.
 - ``xrlenv_plugins.harbor.environment.XrlenvHarborEnvironmentCluster`` — at
@@ -227,8 +227,8 @@ def default_image_refs(
 
 def registry_namespace_and_tag(main_ref: str | None) -> tuple[str | None, str]:
     """Split a **private-registry** main-image ref into ``(namespace, tag)`` for deriving
-    the sub-dir sidecar refs — e.g. ``node-host:5011/lhtb/chess-mate:main`` →
-    ``("node-host:5011/lhtb", "main")``.
+    the sub-dir sidecar refs — e.g. ``<registry-host>:5011/lhtb/chess-mate:main`` →
+    ``("<registry-host>:5011/lhtb", "main")``.
 
     This lets a **repinned** main image supply the sidecar namespace, so a multi-service
     compose task's sidecars resolve from the already-resolved main ref without requiring

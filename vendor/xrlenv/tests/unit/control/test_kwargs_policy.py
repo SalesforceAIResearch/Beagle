@@ -403,12 +403,12 @@ def test_unlisted_runtime_still_rejected_under_opt_in() -> None:
 def test_allowed_host_paths_allows_subtree() -> None:
     """An allowed_host_paths entry allows binds nested under it (dynamic
     per-run paths, e.g. the sysbox golden_cache mount)."""
-    p = KwargsPolicy(allowed_host_paths=("/path/to/data",))
+    p = KwargsPolicy(allowed_host_paths=("/fsx/data/evoclaw-golden",))
     assert validate_kwargs(
-        binds=["/path/to/data:/golden:ro"],
+        binds=["/fsx/data/evoclaw-golden/golden_cache/.mount/abc:/golden:ro"],
         policy=p,
     ) == []
-    assert validate_kwargs(binds=["/path/to/data:/x"], policy=p) == []
+    assert validate_kwargs(binds=["/fsx/data/evoclaw-golden:/x"], policy=p) == []
 
 
 def test_allowed_host_paths_prefix_does_not_match_sibling() -> None:
@@ -420,5 +420,5 @@ def test_allowed_host_paths_prefix_does_not_match_sibling() -> None:
 
 def test_allowed_host_paths_empty_rejects_all_binds() -> None:
     """Default (empty allowed_host_paths) still rejects every bind."""
-    rej = validate_kwargs(binds=["/path/to/data:/y"], policy=DEFAULT_POLICY)
+    rej = validate_kwargs(binds=["/fsx/x:/y"], policy=DEFAULT_POLICY)
     assert len(rej) == 1 and rej[0].kwarg == "binds"

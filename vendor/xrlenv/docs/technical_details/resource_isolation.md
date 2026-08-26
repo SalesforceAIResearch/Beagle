@@ -219,7 +219,7 @@ self-test passes at startup. The self-test gates on **two conditions**:
 **To enable a node** (root, maintenance window, on the worker itself):
 
 ```bash
-sudo bash scripts/enable_cpu_isolation.sh
+sudo bash deploy/node/enable_cpu_isolation.sh
 ```
 
 The script:
@@ -249,7 +249,7 @@ where `N` is free pinnable CPUs and `M` is total pinnable CPUs.
 (useful to pre-stage before a planned maintenance window):
 
 ```bash
-SKIP_RESTART=1 sudo bash scripts/enable_cpu_isolation.sh
+SKIP_RESTART=1 sudo bash deploy/node/enable_cpu_isolation.sh
 ```
 
 **Revert** — remove the `exec-opts` entry from `daemon.json`,
@@ -259,15 +259,15 @@ node returns to non-capable / today's behavior.
 
 ### Deploy-time: the `CPU_ISOLATION_POOL` knob
 
-The deploy scripts (`slurm_scripts/deploy_dev.sh` /
-`slurm_scripts/deploy_prod.sh`) have a `CPU_ISOLATION_POOL` array
+The deploy scripts (`slurm_scripts/generated/deploy_dev.sh` /
+`slurm_scripts/generated/deploy_prod.sh`) have a `CPU_ISOLATION_POOL` array
 that runs `enable_cpu_isolation.sh` over SSH on the listed nodes
 during each deploy:
 
 ```bash
 # In deploy_dev.sh / deploy_prod.sh — see each committed file for its
 # current pool. An empty array leaves every node non-capable.
-CPU_ISOLATION_POOL=(node-host)
+CPU_ISOLATION_POOL=(<cpu-isolation-node>)
 # CPU_ISOLATION_POOL=()   # empty = no CPU-isolation pool on this cluster
 ```
 
@@ -326,8 +326,8 @@ eviction.
 
 ```
 NODE               ...   CPU_ISOLATION
-node-host         yes 184/188
-node-host         no
+<node-a>                yes 184/188
+<node-b>                no
 ```
 
 - `yes N/M` — isolation-capable; `N` pinnable CPUs currently free out

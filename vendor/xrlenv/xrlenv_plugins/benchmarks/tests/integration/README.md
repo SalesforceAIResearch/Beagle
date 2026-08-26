@@ -63,7 +63,7 @@ Run from the repo root, with the harbor cache pointed at the shared tree and a
 control plane already up (see **Prerequisites**):
 
 ```bash
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 
 # the manual full gate — whole green set per benchmark:
 .venv/bin/python xrlenv_plugins/benchmarks/tests/integration/run_benchmarks.py --profile full-prod
@@ -191,7 +191,7 @@ then run the gate:
   token / registry from the repo-root `.env` (the runner auto-loads it,
   never overwriting an already-set var).
 - **The harbor cache is populated** at `XRLENV_BENCHMARK_CACHE` (the sweep scripts default
-  to `/path/to/benchmark-cache`). An absent/incomplete cache makes the gate
+  to `/path/to/xrlenv_benchmark_cache`). An absent/incomplete cache makes the gate
   **fail loud** (the wrapper's `--list-green` exits non-zero with a `build_cache.py` recipe)
   rather than silently building it.
 - The interpreter is `.venv/bin/python` (`uv sync --all-extras`).
@@ -204,7 +204,7 @@ not run it concurrently from multiple nodes for the same benchmark):
 
 1. **Build + push (or pre-warm) the required images.** Benchmarks that ship a `Dockerfile`
    (seta, terminalworld) or need rebuilt images (lhtb REBUILD tasks) are built + pushed to
-   the private registry by the `xrlenv_plugins/images_build/…` scripts. Prebuilt-image
+   the private registry by the `xrlenv_plugins/benchmarks/<name>/` build scripts. Prebuilt-image
    benchmarks (deep_swe, tb2.1, swebench_verified) need nothing here.
 2. **Build the task-data caches** — for each benchmark:
    `bash xrlenv_plugins/benchmarks/<name>/run_full_sweep.sh --list-green`  *(without*

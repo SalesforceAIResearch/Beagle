@@ -61,7 +61,7 @@ stages:
 the dataset lands under `<dest>/frontier-swe/` beside the other shards.
 
 ```bash
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 
 # populate (if missing) + patch. Idempotent; safe to re-run.
 .venv/bin/python xrlenv_plugins/benchmarks/frontier_swe/build_cache.py --stage all
@@ -131,7 +131,7 @@ gateable tasks −** `EXCLUDE` (asserts 12 present / 6 green), and (4) invokes
 
 ```bash
 set -a; source ./.env; set +a                      # XRLENV_GRPC_HOST + token
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 
 bash xrlenv_plugins/benchmarks/frontier_swe/run_full_sweep.sh   # 5 green tasks
 # override concurrency: ... run_full_sweep.sh --max-workers 16
@@ -186,7 +186,7 @@ the first-acquire pull across a big run.
 ```bash
 # regenerate the committed green plan whenever tags change:
 GREEN=$(bash xrlenv_plugins/benchmarks/frontier_swe/run_full_sweep.sh --list-green | paste -sd,)
-XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache \
+# XRLENV_BENCHMARK_CACHE is read from .env
 .venv/bin/python -m xrlenv_plugins.benchmarks.frontier_swe.build_plan_gen \
     --tasks "$GREEN" \
     --output ./xrlenv_plugins/benchmarks/frontier_swe/frontier_swe_build_plan.yaml

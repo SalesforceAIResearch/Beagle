@@ -44,7 +44,7 @@ read the prompt from the cache. `build_cache.py` materializes each Verified row
 under the shard:
 
 ```bash
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 .venv/bin/python xrlenv_plugins/benchmarks/swebench_verified/build_cache.py --stage all --all
 # or just the 8 smoke instances:
 .venv/bin/python .../build_cache.py --stage all --smoke

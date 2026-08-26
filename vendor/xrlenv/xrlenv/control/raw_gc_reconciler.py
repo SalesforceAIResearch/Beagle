@@ -29,25 +29,36 @@ Two orphan classes:
   record of the orphan's rollout_id. The privileged path is
   internal infrastructure: not exposed on
   ``rollout_control.proto``, so consumers can't reach it.
-  Emits ``raw_gc.reconcile.orphan_container``.
 
 - **Coordinator-only orphan**: coordinator has a session whose
   ``container_id`` isn't in the node's reply. Likely the harness
-  ``docker rm``-ed the container directly, or the docker daemon
-  lost it. Drops the in-memory session — there's no rollout-row
-  to seal because P1.7.A.1's design keeps raw rollouts in
-  coordinator memory only. Emits
-  ``raw_gc.reconcile.lost_container``.
+  ``docker rm``-ed the container directly, the docker daemon lost
+  it, or the node autonomously reaped it (disk guard / OOM).
+  Sealed via ``RawContainerCoordinator.seal_orphan`` — the durable
+  ``raw_rollouts`` row goes ``reaped`` when the node reported a
+  real reap cause, else ``released`` — and the in-memory session is
+  dropped so its capacity charge is freed. If ``seal_orphan``
+  raises, ``drop_orphan_session`` seals the row the same way before
+  dropping (it must: ``SessionReaped`` is only reachable for a row
+  that says ``reaped``).
+
+Neither class emits a structured ``state.append_event`` record the
+way :class:`GCReconciler` does for case-1 sandboxes; both are
+surfaced through this module's WARNING/INFO logs and the
+``reconcile_once`` report.
 
 Lifecycle mirrors :class:`GCReconciler`: ``await
 reconciler.start()`` from runtime startup, ``await
-reconciler.shutdown()`` from runtime shutdown. Same
-``interval_s`` default (60s) + per-node timeout (30s).
+reconciler.shutdown()`` from runtime shutdown. Same ``interval_s``
+default (60s); the per-node timeout defaults to 60s here, twice the
+case-1 reconciler's 30s, because a raw node's inventory listing can
+queue behind cold image pulls.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import logging
 import time
@@ -60,6 +71,12 @@ if TYPE_CHECKING:
     from xrlenv.control.node_registry import NodeRegistry
     from xrlenv.control.raw_container_service import RawContainerCoordinator
     from xrlenv.control.state import RawRolloutRecord, StateStore
+    from xrlenv.observability.metrics import MetricsRegistry
+
+from xrlenv.control.raw_container_service import (
+    RAW_LOST_CP_MARKERS,
+    RAW_LOST_CP_PREFIX,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -93,8 +110,10 @@ class RawGCReconciler:
         running_stale_s: float = 60.0,
         readopt_grace_s: float = 300.0,
         fleet_reservation_ttl_s: float | None = None,
+        metrics: MetricsRegistry | None = None,
     ) -> None:
         self._registry = registry
+        self._metrics = metrics
         self._coordinator = coordinator
         self._interval_s = interval_s
         self._per_node_timeout_s = per_node_timeout_s
@@ -128,8 +147,8 @@ class RawGCReconciler:
         # non-terminal rows whose ``rollout_id`` isn't in the
         # coordinator's in-memory ``_sessions`` map and seals them as
         # ``failed (lost-…)``. Without this, a control-plane restart
-        # (or any path that bypasses the destroy ``finally``) leaves
-        # ``acquiring`` / ``running`` rows in raw_rollouts forever,
+        # (or any path that drops a session without sealing its row)
+        # leaves ``acquiring`` / ``running`` rows in raw_rollouts forever,
         # surfacing as phantom rollouts on the admin panel. ``state=
         # None`` preserves the legacy behaviour for tests that don't
         # exercise this path.
@@ -172,7 +191,7 @@ class RawGCReconciler:
             # failure logs but doesn't block lifecycle start.
             if self._state is not None:
                 try:
-                    self._reconcile_sqlite(reason="lost-on-restart")
+                    self._reconcile_sqlite(reason=RAW_LOST_CP_MARKERS[0])
                 except Exception:
                     LOGGER.exception(
                         "raw-gc-reconciler: startup SQLite sweep raised; "
@@ -455,12 +474,13 @@ class RawGCReconciler:
         # Issue #18 fix #3: SQLite ghost sweep — independent of the
         # docker diff above. Catches rows whose status is non-
         # terminal but whose session is gone from in-memory state
-        # (control-plane crash mid-acquire, exec-timeout cascade that
-        # bypassed the destroy ``finally``, etc.). Reported per sweep
-        # under the ``sqlite_ghosts`` key so dashboards can graph it.
+        # (control-plane crash mid-acquire, an exec-timeout cascade that
+        # dropped the session without sealing its row, etc.). Reported per
+        # sweep as ``report["__sqlite__"]["ghosts"]`` so dashboards can
+        # graph it.
         if self._state is not None:
             try:
-                ghost_count = self._reconcile_sqlite(reason="lost-mid-run")
+                ghost_count = self._reconcile_sqlite(reason=RAW_LOST_CP_MARKERS[1])
                 report["__sqlite__"] = {"ghosts": ghost_count}
             except Exception:
                 LOGGER.exception(
@@ -484,14 +504,27 @@ class RawGCReconciler:
                 "will retry next interval",
             )
 
+        # Always present, so a caller reading the report can't KeyError on the
+        # path where the sweep below raises.
+        report["__liveness__"] = {"reaped": 0, "suspect": 0}
         try:
+            # Phase 1 (mark) before phase 2 (destroy): a session that crossed the
+            # quarantine this sweep without ever being marked still gets its
+            # WARNING, so no reap is silent in the log.
+            suspected = self._mark_liveness_suspects()
             live_reaped = await self._reconcile_liveness()
-            report["__liveness__"] = {"reaped": live_reaped}
+            report["__liveness__"] = {"reaped": live_reaped, "suspect": suspected}
         except Exception:
             LOGGER.exception(
                 "raw-gc-reconciler: liveness sweep raised; "
                 "will retry next interval",
             )
+        finally:
+            # In `finally`, NOT inside the `try`: a sweep that raises still
+            # changed the suspect set (marking runs before the destroy that
+            # failed), and if the failure repeats every interval the gauge would
+            # stay wrong indefinitely rather than for one interval.
+            self._sync_suspect_gauge()
 
         return report
 
@@ -689,10 +722,14 @@ class RawGCReconciler:
         # (``session_kind=compose``) are still alive is invisible to it — the node would look
         # clean and get admitted while those sidecars hold uncharged cpu/mem/disk. Query the
         # BROADER managed inventory (every ``xrlenv.rollout_id``-labelled container, incl
-        # sidecars) and fail closed for any managed container whose rollout has NO live session
-        # on this node after re-adoption (its whole project couldn't be re-adopted). An older
-        # node without the broader listing returns the raw set (all accounted) → no false
-        # quarantine. RPC failure → fail closed (can't prove the node is free of survivors).
+        # sidecars). Any managed container whose rollout has NO live session on this node after
+        # re-adoption (its whole project couldn't be re-adopted) is REAPED — whole-project
+        # teardown for a compose member, force-destroy for a plain raw container — and then the
+        # node is ADMITTED, rather than quarantined forever. Fail closed only when the survivor
+        # can't be dealt with: the reap isn't confirmed, or an in-flight acquire owns the rollout
+        # (retry once it settles). An older node that can't serve the broader listing raises
+        # ``ManagedInventoryUnsupported`` → fail closed (its raw-only view can't rule out
+        # sidecar-only survivors). RPC failure → fail closed for the same reason.
         list_managed = getattr(transport, "list_managed_container_info", None)
         if list_managed is not None:
             try:
@@ -969,10 +1006,11 @@ class RawGCReconciler:
         # sessions but absent from the node's container list), so a
         # wire-level destroy would only race. Once the node has dropped
         # its own record that destroy RPC fails with a benign "not
-        # registered on this node" error, and ``destroy``'s
-        # raised-teardown branch would then seal the row ``failed`` with a
-        # generic ``destroy_container raised: ...`` message — burying the
-        # node's real reap cause. ``seal_orphan`` skips the wire call and
+        # registered on this node" error, and post-H8 ``destroy``'s
+        # raised-teardown branch RETAINS the session + its capacity charge
+        # and seals nothing — so the row would sit ``running`` and this
+        # orphan would come back every sweep, forever, with the node's real
+        # reap cause never recorded. ``seal_orphan`` skips the wire call and
         # seals ``reaped`` (``reason`` set → the node's real cause, e.g.
         # the disk-guard diagnostic) or ``released`` (``reason`` None).
         try:
@@ -987,7 +1025,9 @@ class RawGCReconciler:
             # releases fleet / liveness state + kicks admission (audit Low) instead of a bare
             # _sessions pop; a newer generation reusing this rollout_id is left untouched.
             with suppress(Exception):
-                await self._coordinator.drop_orphan_session(rollout_id, container_id)
+                await self._coordinator.drop_orphan_session(
+                    rollout_id, container_id, reason=reason,
+                )
         except Exception:
             # Defensive: a state-store hiccup inside ``seal_orphan``
             # (there's no wire call to fail anymore) — log + swallow so
@@ -1002,8 +1042,13 @@ class RawGCReconciler:
             )
             # Generation-safe drop WITH proper fleet/liveness/admission cleanup (audit Low) so the
             # next sweep doesn't re-see the orphan and no fleet membership / admission kick leaks.
+            # ``reason=reason`` (audit round 3): without it this fallback dropped the session
+            # WITHOUT sealing the row ``reaped``, silently making ``SessionReaped`` unreachable
+            # for this rollout forever — see ``drop_orphan_session``'s docstring.
             with suppress(Exception):
-                await self._coordinator.drop_orphan_session(rollout_id, container_id)
+                await self._coordinator.drop_orphan_session(
+                    rollout_id, container_id, reason=reason,
+                )
 
 
     # ── Deadline sweep (Issue #18) ──────────────────────────────────────────
@@ -1061,21 +1106,108 @@ class RawGCReconciler:
             reaped += 1
         return reaped
 
+    def _mark_liveness_suspects(self) -> int:
+        """Phase 1 — flag sessions that have gone quiet past the TTL.
+
+        Marking is **not** a teardown decision. Crossing the TTL only means we
+        have stopped hearing from a consumer, and silence has two very different
+        causes: a process that exited, and one whose host stalled and will come
+        back. Only the quarantine horizon (phase 2) distinguishes them, by
+        waiting. This pass exists so the wait is visible — an operator watching
+        `xrlenv_raw_sessions_suspect` climb and then drain is watching stalls
+        that the old destroy-on-TTL behaviour would have turned into lost work.
+
+        Cheap and uncapped (no I/O — it only touches a dict), unlike the paced
+        destroy pass.
+        """
+        candidates_fn = getattr(
+            self._coordinator, "liveness_suspect_candidates", None,
+        )
+        mark = getattr(self._coordinator, "mark_suspect", None)
+        if candidates_fn is None or mark is None:
+            return 0        # coordinator without two-phase liveness support
+        marked = 0
+        for session in candidates_fn():
+            LOGGER.warning(
+                "raw-gc-reconciler: consumer liveness SUSPECT rollout=%s node=%s "
+                "— no heartbeat within TTL; NOT destroying yet (quarantine). A "
+                "stalled consumer that resumes keeps its session.",
+                session.rollout_id, session.node_id,
+            )
+            try:
+                mark(session.rollout_id)
+            except Exception:
+                # Match the destroy loops: log and skip this session rather than
+                # abandoning the rest of the sweep's candidates.
+                LOGGER.exception(
+                    "raw-gc-reconciler: marking rollout=%s suspect raised; "
+                    "skipping it this sweep", session.rollout_id,
+                )
+                continue
+            marked += 1
+        if marked and self._metrics is not None:
+            with contextlib.suppress(Exception):
+                self._metrics.raw_liveness_suspect_total.inc(marked)
+        return marked
+
+    def _sync_suspect_gauge(self) -> None:
+        """Re-read the suspect count into the gauge.
+
+        Called AFTER the destroy pass, not during marking: a reap pops
+        ``_suspect_since``, so a gauge set before that runs reads high until the
+        next sweep re-marks. Called from a ``finally`` so a raising sweep still
+        resyncs — otherwise a failure that repeats every interval leaves this
+        wrong indefinitely, and it is the metric the feature is judged by.
+        """
+        if self._metrics is None:
+            return
+        count_fn = getattr(self._coordinator, "suspect_count", None)
+        if count_fn is None:
+            return
+        with contextlib.suppress(Exception):
+            self._metrics.raw_sessions_suspect.set(count_fn())
+
     async def _reconcile_liveness(self) -> int:
-        """Force-destroy raw sessions whose consumer has gone away.
+        """Phase 2 — force-destroy sessions whose consumer stayed silent past
+        the QUARANTINE horizon.
 
         Distinct from the deadline sweep: a session qualifies only when its
         consumer has heartbeated at least once, has **no session-scoped RPC in
-        flight**, and its liveness clock is staler than the TTL (see
+        flight**, is not already being torn down, and its liveness clock is
+        staler than the quarantine horizon (see
         ``RawContainerCoordinator.liveness_reap_candidates``). This reaps a
-        hard-killed consumer's containers in ~TTL instead of waiting out the
-        deliberately-long wall-clock deadline, without touching healthy
-        long-running jobs (they heartbeat, or hold an in-flight exec).
+        hard-killed consumer's containers well before the deliberately-long
+        wall-clock deadline, without touching healthy long-running jobs (they
+        heartbeat, or hold an in-flight exec) — or, now, briefly stalled ones.
 
         Destroys are **paced** — at most ``_LIVENESS_REAP_BATCH`` per sweep —
         so a mass die-off doesn't fire thousands of destroys at once; the
         remainder reap on subsequent sweeps. Per-session failures are logged
         and swallowed so one stuck teardown can't abort the others.
+
+        Round-3 audit fix — the candidate list is a SNAPSHOT taken once at the
+        top of this sweep, but the destroy loop below is sequential and each
+        iteration ``await``s a real wire teardown. A consumer whose session
+        was captured in that snapshot can heartbeat (or issue any session RPC)
+        WHILE an earlier sibling's destroy is still in flight — before its own
+        turn in the loop ever arrives. Without re-checking, that session gets
+        destroyed anyway, silently breaking the feature's central promise
+        ("any liveness signal clears suspicion"). So immediately before firing
+        each destroy we re-derive candidacy fresh (cheap — sync, no I/O) and
+        skip anyone who has recovered since the snapshot was taken.
+
+        **Known residual, deliberately not fixed** (round-4 audit). That re-check
+        closes the cross-session window above; it does NOT close the window inside
+        a session's OWN destroy. A consumer that signals after its re-check passes
+        but while its wire call is in flight is still torn down. This is
+        irreducible rather than unfixed — once ``destroy_container`` reaches the
+        node the container is gone and there is nothing to roll back — so the
+        promise is precisely "any liveness signal received BEFORE the destroy is
+        issued clears suspicion", not "any signal at all". Exposure is unchanged
+        from the single-phase reaper, and such a session had already been silent
+        for the entire quarantine horizon, so a signal arriving mid-teardown does
+        not retroactively make the decision wrong. What it must not do is get
+        COUNTED as a rescue — see ``RawContainerCoordinator._clear_suspect``.
         """
         candidates_fn = getattr(
             self._coordinator, "liveness_reap_candidates", None,
@@ -1088,10 +1220,23 @@ class RawGCReconciler:
             is_destroying = getattr(self._coordinator, "is_destroying", None)
             if is_destroying is not None and is_destroying(session.rollout_id):
                 continue
+            # Re-verify staleness right before firing — see the docstring note
+            # above. A sibling's destroy earlier in THIS batch can take long
+            # enough for this session's own liveness signal to land in the
+            # meantime, and the snapshot above wouldn't reflect it.
+            still_stale = {s.rollout_id for s in candidates_fn()}
+            if session.rollout_id not in still_stale:
+                LOGGER.info(
+                    "raw-gc-reconciler: rollout=%s liveness signal landed "
+                    "mid-sweep (queued for reap, then recovered before its "
+                    "turn) — skipping the destroy",
+                    session.rollout_id,
+                )
+                continue
             LOGGER.warning(
                 "raw-gc-reconciler: consumer liveness lost rollout=%s "
-                "node=%s — force-destroying (no heartbeat within TTL, no RPC "
-                "in flight)",
+                "node=%s — force-destroying (silent for the full QUARANTINE "
+                "HORIZON, not merely the TTL; no RPC in flight)",
                 session.rollout_id, session.node_id,
             )
             try:
@@ -1100,9 +1245,11 @@ class RawGCReconciler:
                     container_id=session.container_id,
                     force=True,
                     reason=(
-                        "consumer liveness lost (no heartbeat within TTL) — "
-                        "force-reaped by raw-gc-reconciler; the consumer "
-                        "process likely died without calling destroy"
+                        "consumer liveness lost — no heartbeat or session RPC "
+                        "for the full quarantine horizon; force-reaped by "
+                        "raw-gc-reconciler. The consumer process likely died "
+                        "without calling destroy (a merely stalled one would "
+                        "have signalled before the horizon and been retained)"
                     ),
                 )
             except Exception:
@@ -1113,6 +1260,9 @@ class RawGCReconciler:
                 )
                 continue
             reaped += 1
+            if self._metrics is not None:
+                with contextlib.suppress(Exception):
+                    self._metrics.raw_liveness_reaped_total.inc()
         return reaped
 
     # ── SQLite ghost sweep (Issue #18 fix #3) ───────────────────────────────
@@ -1212,7 +1362,7 @@ class RawGCReconciler:
                         row.rollout_id,
                         status="failed",
                         error=(
-                            f"raw-gc-reconciler: {reason} "
+                            f"{RAW_LOST_CP_PREFIX} {reason} "
                             f"(no in-memory session; row age "
                             f"{age_s:.0f}s, prior status {status!r})"
                         ),

@@ -211,6 +211,17 @@ ENV_PATCHES: tuple[TaskEnvPatch, ...] = tuple(
             "sqlite-with-gcov",
             "make -j$(nproc) build; OOM-risk at nproc=host under 2 GiB.",
         ),
+        (
+            "torch-pipeline-parallelism",
+            "torch sizes its thread pool from sched_getaffinity, so at "
+            "nproc=host (192) it fans out to ~192 threads against the declared "
+            "cpus=1 CFS quota: it burns the whole quota in the first slice of "
+            "every period and spends the rest throttled. Not an OOM like the "
+            "others — a throughput collapse. Measured with NO contention in "
+            "either run: verifier 676.0s unpinned vs 59.6s pinned (11.3x, same "
+            "quota); unpinned it then hit its 900 s verifier budget exactly in "
+            "the 120-way cn sweep while passing alone.",
+        ),
     )
 )
 

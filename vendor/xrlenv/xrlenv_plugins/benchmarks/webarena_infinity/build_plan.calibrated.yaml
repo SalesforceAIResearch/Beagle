@@ -8,7 +8,8 @@ entries:
 - image_ref: xrlenv-webarena-infinity/substrate:dev
   context_source:
     type: local
-    path: /path/to/xrlenv/xrlenv_plugins/benchmarks/webarena_infinity
+    # Set <xrlenv-repo-root> to your checkout's absolute path (type: local needs absolute).
+    path: <xrlenv-repo-root>/xrlenv_plugins/benchmarks/webarena_infinity
     dockerfile: Dockerfile
     shared_fs: hyperpod
   placement:

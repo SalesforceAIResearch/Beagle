@@ -27,8 +27,8 @@ try:
     from xrlenv import Client  # type: ignore[import-not-found]
     from xrlenv.client.dotenv import parse_dotenv  # type: ignore[import-not-found]
 except ImportError:
-    _repo = os.environ.get("XRLENV_REPO", "/path/to/xrlenv")
-    if os.path.isdir(_repo):
+    _repo = os.environ.get("XRLENV_REPO", "")
+    if _repo and os.path.isdir(_repo):
         sys.path.insert(0, _repo)
     try:
         from xrlenv import Client  # type: ignore[import-not-found]
@@ -63,10 +63,11 @@ LLM_ENV_KEYS = (
 # The substrate image ships Node 20.x + Chromium but NOT Monet; the orchestrator
 # clones it into MONET_CONTAINER_REPO per container. The repo is private, so the
 # in-container `git clone` authenticates with $GH_TOKEN, expanded INSIDE the
-# container (never on the host argv). URL/ref are overridable from .env.
+# container (never on the host argv). MONET_GIT_URL is REQUIRED (no default —
+# set it in .env, e.g. github.com/<org>/monet_code.git); MONET_GIT_REF is optional.
 MONET_CONTAINER_REPO = "/opt/agent"
-MONET_GIT_URL = os.environ.get("MONET_GIT_URL", "github.com/<your-org>/monet_code.git")
-MONET_GIT_REF = os.environ.get("MONET_GIT_REF", "<your-org>/<your-branch>")
+MONET_GIT_URL = os.environ.get("MONET_GIT_URL", "")
+MONET_GIT_REF = os.environ.get("MONET_GIT_REF", "main")
 
 # Forwarded into the container only for --model monet: gateway creds + Monet knobs.
 # GH_TOKEN rides along solely for the clone step. Empty values are dropped.
@@ -114,6 +115,11 @@ def monet_preflight() -> list[str]:
     """Hard prerequisites for --model monet. Returns a list of human-readable
     missing-requirement messages (empty list = good to go)."""
     missing = []
+    if not MONET_GIT_URL:
+        missing.append(
+            "MONET_GIT_URL is unset (the Monet agent repo to clone, "
+            "e.g. github.com/<org>/monet_code.git; set it in .env)."
+        )
     if not os.environ.get("LLM_GATEWAY_EXPRESS_API_KEY"):
         missing.append("LLM_GATEWAY_EXPRESS_API_KEY is unset (Express gateway auth).")
     if not os.environ.get("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL"):

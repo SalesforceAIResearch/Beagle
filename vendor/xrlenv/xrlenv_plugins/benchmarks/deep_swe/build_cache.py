@@ -58,7 +58,23 @@ from pathlib import Path
 
 # ── Dataset identity ──────────────────────────────────────────────────────────
 REPO_URL = os.environ.get("DEEPSWE_REPO_URL", "https://github.com/datacurve-ai/deep-swe")
-REPO_REF = os.environ.get("DEEPSWE_REPO_REF", "main")
+# PINNED to a commit, not ``main``. The corpus is an input to the gate, so a
+# floating ref means a re-populate can silently change what 113/113 even means.
+#
+# e016041a is the parent of upstream d7a1031 ("Use [[verifier.collect]] instead
+# of pre_artifacts.sh", 2026-08-06), which replaced each task's
+# ``pre_artifacts.sh`` with a ``[[verifier.collect]]`` block. That block is a
+# HARBOR feature: our pinned harness is ``datacurve-pier==0.3.0``, a harbor fork
+# whose VerifierConfig has no ``collect`` field, so pydantic DISCARDS it without
+# error. The hook then never runs, ``/logs/artifacts/model.patch`` is never
+# written, and the separate verifier grades a pristine repo — every task scores
+# f2p=0.0 / p2p=1.0 / reward 0. That is exactly what a freshly-populated cache
+# produced on cn (0/113, 2026-08-08); dev/prod stayed green only because their
+# caches predate the upstream switch.
+#
+# Un-pin ONLY together with a pier that supports ``[[verifier.collect]]`` — and
+# re-run the 113/113 gate, since a corpus bump can change the expected count.
+REPO_REF = os.environ.get("DEEPSWE_REPO_REF", "e016041a6ccf8da29906afc9a3f5a8df940a1f78")
 HF_REPO = os.environ.get("DEEPSWE_HF_REPO", "datacurve/deep-swe")
 # Shard subdir name == image namespace (one name, double duty — same convention as
 # the terminalworld shard). The name every consumer's shard-scan sees.
@@ -166,16 +182,34 @@ def _copy_tasks(tasks_root: Path, shard_dir: Path) -> tuple[int, int]:
 
 
 def populate_git(shard_dir: Path) -> tuple[int, int]:
-    """Shallow-clone the deep-swe repo and copy its ``tasks/`` into the shard."""
+    """Clone the deep-swe repo at ``REPO_REF`` and copy its ``tasks/`` into the shard.
+
+    ``--branch`` cannot take a raw commit SHA, and ``REPO_REF`` is pinned to one
+    (see the constant), so a SHA is fetched explicitly instead. ``--filter=blob:none``
+    keeps that nearly as cheap as the old ``--depth 1`` by deferring blob download.
+    A branch or tag still works and takes the shallow path.
+    """
+    is_sha = bool(re.fullmatch(r"[0-9a-f]{7,40}", REPO_REF))
     with tempfile.TemporaryDirectory(prefix="deepswe-clone-") as tmp:
-        print(
-            f">> git clone --depth 1 --branch {REPO_REF} {REPO_URL}",
-            file=sys.stderr,
-        )
-        subprocess.run(
-            ["git", "clone", "--depth", "1", "--branch", REPO_REF, REPO_URL, tmp],
-            check=True,
-        )
+        if is_sha:
+            print(f">> git clone --filter=blob:none {REPO_URL} && checkout {REPO_REF}",
+                  file=sys.stderr)
+            subprocess.run(
+                ["git", "clone", "--quiet", "--filter=blob:none", REPO_URL, tmp],
+                check=True,
+            )
+            subprocess.run(["git", "-C", tmp, "checkout", "--quiet", REPO_REF], check=True)
+        else:
+            print(f">> git clone --depth 1 --branch {REPO_REF} {REPO_URL}", file=sys.stderr)
+            subprocess.run(
+                ["git", "clone", "--depth", "1", "--branch", REPO_REF, REPO_URL, tmp],
+                check=True,
+            )
+        head = subprocess.run(
+            ["git", "-C", tmp, "rev-parse", "HEAD"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        print(f">> deep-swe corpus at {head}", file=sys.stderr)
         return _copy_tasks(Path(tmp) / "tasks", shard_dir)
 
 

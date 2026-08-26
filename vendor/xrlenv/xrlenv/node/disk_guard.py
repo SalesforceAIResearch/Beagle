@@ -6,7 +6,7 @@ cap, and the prod XFS data-root is mounted ``noquota`` so
 ``--storage-opt size=`` isn't available. When the disk hits 100% the
 node wedges — ``container_get_archive`` replies fail to serialize, the
 heartbeat stream breaks, and the control plane marks the node lost (the
-failure that took ``aws-node-host`` offline for 3.6h).
+failure that took a worker node offline for 3.6h).
 
 The image-cache eviction sweep cannot help here: it frees *image*
 layers, but a runaway *writable layer* is not an image, and once every

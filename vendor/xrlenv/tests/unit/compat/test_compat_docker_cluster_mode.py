@@ -318,7 +318,7 @@ def test_infra_kind_not_spoofed_by_embedded_prose() -> None:
     # but the exact CP shapes (message STARTS with the prefix) DO still match — incl. a
     # single-token node id that is a hostname / IP:
     assert _infra_kind(XRLEnvError("node n-1: remote command NodeLost: real")) == "NodeLost"
-    assert _infra_kind(XRLEnvError("node internal-ip: remote get_archive NodeLost: real")) == "NodeLost"
+    assert _infra_kind(XRLEnvError("node 10.0.1.5: remote get_archive NodeLost: real")) == "NodeLost"
     assert _infra_kind(XRLEnvError("remote stream NodeLost: real")) == "NodeLost"
 
 

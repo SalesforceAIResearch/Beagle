@@ -113,7 +113,7 @@ each task directory into a shared cache shard at
 tasks already present.
 
 ```bash
-export XRLENV_BENCHMARK_CACHE=/path/to/shared/cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 
 # populate (git clone) and apply any curated patches — the default:
 .venv/bin/python xrlenv_plugins/benchmarks/frontier_swe/build_cache.py --stage all
@@ -199,7 +199,7 @@ Diff the calibrated plan against the committed one before promoting it.
 
 ```bash
 set -a; source ./.env; set +a
-export XRLENV_BENCHMARK_CACHE=/path/to/shared/cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 
 bash xrlenv_plugins/benchmarks/frontier_swe/run_full_sweep.sh
 ```
@@ -229,7 +229,7 @@ Config flags (all optional):
 | `--jobs-dir DIR` | `./tmp` | Per-trial artifact root |
 | `--skip-build-cache` | — | Skip `build_cache.py` (use cache as-is) |
 | `--list-green` | — | Print the 7-task green set and exit (12 present → 7 green) |
-| `XRLENV_BENCHMARK_CACHE` *(env)* | `/path/to/benchmark-cache` | Cache root |
+| `XRLENV_BENCHMARK_CACHE` *(env)* | `/path/to/xrlenv_benchmark_cache` | Cache root |
 
 Extra CLI args pass through to `run_oracle_sweep.py`:
 

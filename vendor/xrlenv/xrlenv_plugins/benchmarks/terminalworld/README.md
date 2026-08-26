@@ -17,11 +17,11 @@ and pushed to the private (`:5011`) registry, then resolved by namespace.
 |---|---|
 | `build_cache.py` | populate (HF download + `task.toml` normalize) + patch + opt-in sysbox markers into the shared cache |
 | `build_plan_gen.py` | emit the `type: local` image build plan (one entry per task **plus** one per compose sub-service build context) |
-| `scripts/build_and_push_images.py` *(shared)* | build each `type: local` Dockerfile once + push to the `:5011` PRIVATE registry |
+| `deploy/registry/build_and_push_images.py` *(shared)* | build each `type: local` Dockerfile once + push to the `:5011` PRIVATE registry |
 | `patches/` | curated per-task full-file overlays for broken upstream packaging (see `patches/README.md`) |
 | `run_full_sweep.sh` | the entrypoint / CI gate: (re)build cache → compute green set → invoke the oracle sweep |
 | `run_oracle_sweep.py` | oracle sweep on the xrlenv cluster (PASS/FAIL correctness gate; owns both retry layers) |
-| `tw_build_plan.yaml` | the generated build plan (regeneratable — `type: local` entries embed absolute cache paths, so it's rebuilt on demand) |
+| `tw_build_plan.yaml` | the generated build plan (gitignored + regeneratable — `type: local` entries embed absolute cache paths, so it's rebuilt on demand) |
 | `STATUS.md` | point-in-time per-task disposition (passed / flaky / failed / blocking) + reproduce command |
 | `tests/` | OFFLINE unit tests for the pure normalize / sysbox-marker / build-plan logic |
 
@@ -42,7 +42,7 @@ add one **sidecar** entry per sub-directory build context
 ## 1. Build the cache
 
 ```bash
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache   # shared root
+# XRLENV_BENCHMARK_CACHE (the shared root) is read from .env — see .env.example
 
 # the full setup: populate (HF download + normalize) + patch + sysbox markers
 .venv/bin/python xrlenv_plugins/benchmarks/terminalworld/build_cache.py --stage all
@@ -139,8 +139,8 @@ the eval acquires.
 
 # build once + push to the :5011 PRIVATE registry (idempotent — HEADs each
 # manifest and skips a present ref). Run on a build host (or ssh to a worker):
-export XRLENV_PRIVATE_REGISTRY_HOST=node-host
-.venv/bin/python scripts/build_and_push_images.py \
+export XRLENV_PRIVATE_REGISTRY_HOST=<private-registry-host>
+.venv/bin/python deploy/registry/build_and_push_images.py \
     --plan ./xrlenv_plugins/benchmarks/terminalworld/tw_build_plan.yaml \
     --registry "$XRLENV_PRIVATE_REGISTRY_HOST:5011"
 ```
@@ -174,7 +174,7 @@ task is a plumbing/content bug (its reward ceiling is 0 → poison for RL), not 
 model signal. The pass gate is **all rewards `> 0`** (harbor's `_trial_passes`).
 
 ```bash
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 
 # control plane (required) + private registry (for image resolution)
 export XRLENV_GRPC_HOST=<control-plane-host>       # the CP host (see slurm_scripts/clusters.yaml)

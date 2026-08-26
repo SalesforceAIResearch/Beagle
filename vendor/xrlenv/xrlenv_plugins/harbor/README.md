@@ -15,7 +15,7 @@ maintenance into xrlenv core.
     (`xrlenv_task_key`, `xrlenv_group_id`, `xrlenv_resources`,
     `xrlenv_image_pin_mode`, …) for observability.
   - `XrlenvHarborEnvironmentCluster(XrlenvHarborEnvironment)`:
-    cluster-routed shape (P1.7.C.1). Overrides
+    cluster-routed shape. Overrides
     `start`/`stop`/`exec`/`upload_*`/`download_*` to call the xrlenv
     cluster primitives instead of local `docker compose` + `docker
     cp`.
@@ -60,30 +60,28 @@ harness):**
 The cluster Environment lazy-constructs an `xrlenv.Client` from
 those env vars on first `start()`. No new harbor-side kwargs.
 
-**Image distribution (P1.7.C.1, staged):**
+**Image distribution (staged):**
 
 Images must be pre-built on each cluster node before consumers
 acquire. The lookup tag is either `task_env_config.docker_image`
 (when the upstream task ships a prebuilt) or `hb__<environment_name>`
 (harbor's local-build convention).
 
-For terminal-bench-2: pre-build via
-`examples/benchmarks-onboarding/terminal-bench-2/scripts/build-task-images.sh`
-on each node. Missing-image acquires fail fast with a clear
-`ImageNotFound` rather than hanging.
+For terminal-bench-2: pre-build via the plug-in's build flow
+(`xrlenv_plugins/benchmarks/terminal_bench_2_1/build_cache.py` +
+`build_plan_gen.py`), then `xrlenv build push` to each node. Missing-image
+acquires fail fast with a clear `ImageNotFound` rather than hanging.
 
 Real build-on-acquire (`HarborImageBuilder` registered against the
 control-plane build flow + acquire→build→re-acquire fallback) is
-**P1.7.C.2** — out of scope for this slice. The user-facing UX gap
-is one log line; the production "build if missing" comes one slice
-later.
+**not yet implemented**. The user-facing UX gap is one log line; the
+production "build if missing" is a follow-up.
 
-**Single-service only (P1.7.C.1, staged):**
+**Single-service only (staged):**
 
 Multi-service compose tasks (a few harbor tasks attach a `db` /
-`redis` helper) are out of scope for this slice. The cluster
-overrides assume a single `main` service. Multi-service support
-defers to a follow-on slice.
+`redis` helper) are not yet supported. The cluster overrides assume a
+single `main` service. Multi-service support is a follow-up.
 
 **`is_mounted=False`:**
 
@@ -95,10 +93,10 @@ end up under harbor's normal `trial_paths` after the trial ends.
 
 **Validation:**
 
-`examples/benchmarks-onboarding/terminal-bench-2/smoke.py` drives
-harbor's runner against this adapter through 8 phase-0 tasks
-(`fix-git`, `build-pov-ray`, `overfull-hbox`, …). See that
-directory's README for end-to-end usage.
+`xrlenv_plugins/benchmarks/terminal_bench_2_1/run_oracle_sweep.py` drives
+harbor's runner against this adapter as an oracle-per-task correctness gate
+(`fix-git`, `build-pov-ray`, `overfull-hbox`, …). See that plug-in's
+README for end-to-end usage.
 
 ## The pattern: writing your own framework adapter
 

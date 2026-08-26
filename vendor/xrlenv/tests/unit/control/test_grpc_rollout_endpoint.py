@@ -29,13 +29,16 @@ from xrlenv.client.transport import GrpcClientTransport
 from xrlenv.control.auth_interceptor import BearerScopeInterceptor
 from xrlenv.control.rollout_endpoint import RolloutControlServicer
 from xrlenv.control.security import TokenStore
-from xrlenv.control.service import StartRolloutRequest, StartRolloutResponse
+from xrlenv.control.service import RawExecChunk, StartRolloutRequest, StartRolloutResponse
 from xrlenv.errors import (
     AuthDenied,
     CapacityExhausted,
+    ControlPlaneLost,
+    NodeLost,
     RolloutCancelled,
     RolloutFailed,
     RolloutTruncated,
+    SessionReaped,
     TemplateUnknown,
     XRLEnvError,
 )
@@ -148,6 +151,28 @@ class _FakeRolloutService:
     async def apply_egress(self, **kw: Any) -> None:
         self.calls.setdefault("apply_egress", []).append((kw,))
         self._maybe_raise("apply_egress")
+
+    async def container_exec_stream(
+        self,
+        *,
+        rollout_id: str,
+        container_id: str,
+        cmd: list[str],
+        timeout_s: float = 1800.0,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        user: str | None = None,
+    ) -> AsyncIterator[Any]:
+        # Server-streaming: yield any pre-programmed chunks, then raise the
+        # pre-programmed exception mid-stream (matching a real reap, which is
+        # discovered whenever the consumer next touches the session — not
+        # necessarily on the very first RPC).
+        self.calls.setdefault("container_exec_stream", []).append(
+            (rollout_id, container_id, tuple(cmd)),
+        )
+        for chunk in self.responses.get("container_exec_stream", []):
+            yield chunk
+        self._maybe_raise("container_exec_stream")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -301,7 +326,7 @@ async def test_apply_egress_round_trips() -> None:
                     EgressRule(cidr="3.149.157.52/32", ports=(443,)),
                     EgressRule(cidr="18.225.81.238/32"),
                 )),
-                dns_resolver="internal-ip/32",
+                dns_resolver="10.0.0.2/32",
             )
         finally:
             await transport.close()
@@ -311,7 +336,7 @@ async def test_apply_egress_round_trips() -> None:
     assert [(r.cidr, r.ports) for r in kw["allowlist"].rules] == [
         ("3.149.157.52/32", (443,)), ("18.225.81.238/32", None),
     ]
-    assert kw["dns_resolver"] == "internal-ip/32"
+    assert kw["dns_resolver"] == "10.0.0.2/32"
 
 
 async def test_apply_egress_empty_round_trips() -> None:
@@ -487,6 +512,147 @@ async def test_capacity_exhausted_round_trips() -> None:
         try:
             with pytest.raises(CapacityExhausted, match="queue full"):
                 await transport.start_rollout(StartRolloutRequest(template="t"))
+        finally:
+            await transport.close()
+
+
+async def test_node_lost_and_control_plane_lost_round_trip_distinctly() -> None:
+    """``NodeLost`` and ``ControlPlaneLost`` share ONE gRPC status code
+    (``UNAVAILABLE`` — see ``rollout_endpoint._EXC_TO_CODE``), so the only thing
+    that keeps them from colliding client-side is the ``xrlenv-error-kind``
+    trailing-metadata key surviving the real wire round trip (a fake
+    ``AioRpcError`` can't prove this — ``_classify_unmarked_rpc_error`` also
+    maps bare ``UNAVAILABLE`` to ``ControlPlaneLost`` as its no-metadata
+    fallback, so a metadata-loss bug would silently misreport every genuine
+    ``NodeLost`` as ``ControlPlaneLost`` instead of raising or failing loudly).
+
+    Both are raised by ``_raise_for_missing_session`` (the discriminator this
+    module's other CP/node-lost tests exercise in-process); this is the
+    over-the-wire half — a real ``grpc.aio.Server`` + real channel, matching
+    every raw-container RPC (``ContainerExec``, ``DestroyContainer``, …) that
+    shares this same servicer error path.
+    """
+    node_lost_fake = _FakeRolloutService()
+    node_lost_fake.exceptions["start_rollout"] = NodeLost(
+        "raw-container session: rollout 'rid-9' is gone because its node was "
+        "lost (node_lost: node aws-1 went away; raw session sealed). The "
+        "platform tore this down, not you — acquire a fresh session to retry.",
+    )
+    async with _serve(node_lost_fake) as port:
+        transport = GrpcClientTransport(host="127.0.0.1", port=port, token=None)
+        try:
+            with pytest.raises(NodeLost, match="node was lost") as excinfo:
+                await transport.start_rollout(StartRolloutRequest(template="t"))
+            assert not isinstance(excinfo.value, ControlPlaneLost)
+        finally:
+            await transport.close()
+
+    cp_lost_fake = _FakeRolloutService()
+    cp_lost_fake.exceptions["start_rollout"] = ControlPlaneLost(
+        "raw-container session: rollout 'rid-9' is gone because the control "
+        "plane lost track of it (raw-gc-reconciler: lost-mid-run (no "
+        "in-memory session; row age 700s)). The platform tore this down, "
+        "not you — acquire a fresh session to retry.",
+    )
+    async with _serve(cp_lost_fake) as port:
+        transport = GrpcClientTransport(host="127.0.0.1", port=port, token=None)
+        try:
+            with pytest.raises(ControlPlaneLost, match="lost track") as excinfo:
+                await transport.start_rollout(StartRolloutRequest(template="t"))
+            assert not isinstance(excinfo.value, NodeLost)
+        finally:
+            await transport.close()
+
+
+async def test_session_reaped_round_trips_with_reason() -> None:
+    """A liveness-reaper teardown must reach the client as a typed
+    ``SessionReaped``, not crash the rehydration path.
+
+    ``SessionReaped.__init__`` requires ``reason`` with no default — unlike
+    every other entry in ``_KIND_TO_EXC``, which the generic ``cls(msg)``
+    fallback in ``_rehydrate_xrlenv_error`` can construct with just the
+    message. Before the fix, this raised ``TypeError: SessionReaped.__init__()
+    missing 1 required positional argument: 'reason'`` from *inside*
+    ``_rehydrate_xrlenv_error`` — so every consumer of a raw-container RPC
+    (``ContainerExec``/``DestroyContainer``/etc, which share this same
+    error-mapping path) that hit a reaped session over real gRPC got a bare
+    ``TypeError`` instead of ``SessionReaped``, defeating both the
+    ``except XRLEnvError`` pattern used throughout the codebase (e.g. the
+    docker-compat drop-in's ``_run_op``) and the whole point of this feature.
+    """
+    fake = _FakeRolloutService()
+    fake.exceptions["start_rollout"] = SessionReaped(
+        "raw-container session: rollout 'rid-9' was reaped by the control "
+        "plane and no longer exists (quarantine horizon exceeded).",
+        reason="quarantine horizon exceeded",
+        reaped_at=1_700_000_000.0,
+    )
+    async with _serve(fake) as port:
+        transport = GrpcClientTransport(host="127.0.0.1", port=port, token=None)
+        try:
+            with pytest.raises(SessionReaped, match="quarantine horizon exceeded") as excinfo:
+                await transport.start_rollout(StartRolloutRequest(template="t"))
+            exc = excinfo.value
+            assert exc.reason == "quarantine horizon exceeded"
+            assert exc.retryable is True
+            # Known wire gap: only ``reason`` rides the xrlenv-error-reason
+            # metadata key. ``reaped_at`` has no metadata key of its own, so it
+            # is always lost across the wire even though the server-side
+            # exception carried it — the client-side SessionReaped always has
+            # reaped_at=None. If a consumer starts depending on reaped_at,
+            # this assertion is the one to update alongside adding a wire
+            # field for it.
+            assert exc.reaped_at is None
+        finally:
+            await transport.close()
+
+
+async def test_session_reaped_round_trips_over_container_exec_stream() -> None:
+    """Same defect, the OTHER surface: ``ContainerExecStream`` is a
+    server-streaming RPC and reaches ``_rehydrate_xrlenv_error`` through a
+    different client-side call site (``GrpcClientTransport.
+    container_exec_stream``'s ``except grpc.aio.AioRpcError`` handler,
+    ``xrlenv/client/transport.py``) than the unary path exercised by
+    ``test_session_reaped_round_trips_with_reason``.
+
+    The fixup commit's own message claims ``ContainerExecStream`` was one of
+    the broken RPCs ("Every RPC sharing the servicer's error path
+    (ContainerExec, ContainerExecStream, Get/PutArchive, DestroyContainer,
+    ApplyEgress) delivered a bare TypeError") but nothing in the test suite
+    actually drove a reap through a streaming call over real gRPC — this
+    closes that gap. A reap can surface mid-stream (the consumer is already
+    reading output when the reaper tears the session down), so the fake
+    yields one real chunk before raising, mirroring
+    ``compat/docker_client.py``'s ``_on_error`` streaming-error path.
+    """
+    fake = _FakeRolloutService()
+    fake.responses["container_exec_stream"] = [
+        RawExecChunk(stdout=b"working...\n", stderr=b"", done=False, exit_code=0, timed_out=False),
+    ]
+    fake.exceptions["container_exec_stream"] = SessionReaped(
+        "raw-container session: rollout 'rid-9' was reaped by the control "
+        "plane and no longer exists (quarantine horizon exceeded).",
+        reason="quarantine horizon exceeded",
+        reaped_at=1_700_000_000.0,
+    )
+    async with _serve(fake) as port:
+        transport = GrpcClientTransport(host="127.0.0.1", port=port, token=None)
+        try:
+            chunks = []
+            with pytest.raises(SessionReaped, match="quarantine horizon exceeded") as excinfo:
+                async for chunk in transport.container_exec_stream(
+                    rollout_id="rid-9", container_id="cid-1", cmd=["echo", "hi"],
+                ):
+                    chunks.append(chunk)
+            # The chunk emitted before the reap must have been delivered —
+            # a reap mid-stream doesn't retroactively erase output already
+            # read.
+            assert len(chunks) == 1
+            assert chunks[0].stdout == b"working...\n"
+            exc = excinfo.value
+            assert exc.reason == "quarantine horizon exceeded"
+            assert exc.retryable is True
+            assert exc.reaped_at is None  # same wire gap as the unary path
         finally:
             await transport.close()
 

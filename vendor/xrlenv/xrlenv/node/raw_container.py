@@ -232,7 +232,7 @@ def _delegated_shared_parent_writable(
 
     The node agent runs as a non-root user (spec 19) and cannot ``mkdir`` /
     write under ``/sys/fs/cgroup`` (a DAC check ``CAP_SYS_ADMIN`` does not
-    override). So the root enable step (``scripts/enable_cpu_isolation.sh``)
+    override). So the root enable step (``deploy/node/enable_cpu_isolation.sh``)
     creates ``xrlenv-shared`` and ``chown``\\s it to the agent user
     (delegation). This is how the non-root agent detects P6 capability +
     manages the complement WITHOUT any privileged cgroup op of its own:
@@ -283,7 +283,7 @@ def _run_cgroup_isolation_selftest(
     Requires root (writes under ``/sys/fs/cgroup``) + docker; only ever run on a
     real node. Because the node agent is NON-ROOT (spec 19), this probe no
     longer runs in the agent — it runs at ENABLE time
-    (``scripts/enable_cpu_isolation.sh``, as root) as the gate BEFORE that
+    (``deploy/node/enable_cpu_isolation.sh``, as root) as the gate BEFORE that
     script delegates ``xrlenv-shared`` to the agent user; the agent then
     verifies the delegation instead (§8.13,
     :meth:`RawContainerManager._default_isolation_selftest`). Unit tests drive
@@ -419,7 +419,7 @@ class _RealCgroupWriter:
 
     On a capable node the shared parent ``xrlenv-shared`` is pre-created and
     ``chown``\\ed to the (non-root) agent user by the root enable step
-    (``scripts/enable_cpu_isolation.sh``, §8.13). So every write below operates
+    (``deploy/node/enable_cpu_isolation.sh``, §8.13). So every write below operates
     on files this agent now OWNS — ``ensure_group``'s ``mkdir`` hits
     ``FileExistsError`` (the dir already exists) and the ``cpuset.cpus`` /
     ``cgroup.subtree_control`` writes succeed via delegation, without the agent
@@ -702,6 +702,81 @@ def _docker_status_code(exc: BaseException) -> int | None:
     return status if isinstance(status, int) else None
 
 
+# docker-py ships no stubs, so DockerException is Any and mypy rejects
+# subclassing it (hence the inline ignore). Subclassing is still the right shape:
+# it makes the fault flow through the create path's existing
+# ``except (DockerException, RequestException)`` handlers unchanged.
+class ContainerNotStartedError(docker.errors.DockerException):  # type: ignore[misc]
+    """``containers.run`` returned 2xx but the container is not actually running.
+
+    Docker's create+start can report success and still hand back an unusable
+    container when the daemon's storage layer is under strain. Observed on a
+    cold-cache node pulling 25 images at once into the containerd snapshotter
+    (``driver=overlayfs``): the container was created, ``run`` returned normally,
+    and 187 ms later every operation on it failed with
+    ``500 … RWLayer of container <id> is unexpectedly nil`` — dockerd never wired
+    up the read-write layer. Because ``run`` did not raise, nothing downstream
+    retried; the acquire returned a corpse and the consumer died on its first
+    ``exec`` with a ``409 … is not running``.
+
+    Raising this from the create path (instead of returning the container) folds
+    the case into the existing transient-create retry: the broken container is
+    reaped by ``_reap_rollout_orphans`` on the next attempt, and a recovered
+    retry returns a healthy container. Treated as BOTH retryable and a node
+    health signal, since it is a symptom of daemon saturation.
+    """
+
+
+_NEVER_STARTED_STATUSES = frozenset({"created", "dead"})
+
+
+def _container_start_fault(container: Any) -> str | None:
+    """Describe why ``container`` is unusable right after start, else ``None``.
+
+    Called once per create, so it must not mistake a legitimately short-lived
+    container for a fault: a container that ran and exited cleanly returns
+    ``None`` (``acquire`` has never required a long-lived process, and callers
+    that run a one-shot command rely on that). Three shapes are faults — inspect
+    itself raising right after a successful create, dockerd saying the container
+    never left ``created``/``dead``, or a recorded start ``Error``. All three
+    mean start did not actually take.
+
+    FAIL-OPEN by design: every path that cannot *positively* establish a fault
+    returns ``None``. A false positive here would retry — and after
+    ``_HEALTH_RETRY_MAX`` attempts fail — a perfectly good acquire, which is
+    strictly worse than missing a rare daemon fault that the consumer would
+    surface anyway. So an un-inspectable container (a client object without
+    ``reload``, an inspect payload with no ``State``) is treated as healthy.
+    """
+    reload = getattr(container, "reload", None)
+    if not callable(reload):
+        # Nothing to inspect with — cannot establish a fault, so don't invent one.
+        return None
+    try:
+        reload()
+    except (
+        docker.errors.DockerException,
+        requests.exceptions.RequestException,
+    ) as exc:
+        # Inspect failing immediately after a successful create is itself the
+        # symptom (the RWLayer-nil case 500s on inspect-adjacent calls too).
+        return f"inspect failed right after create: {exc}"
+    state = (getattr(container, "attrs", None) or {}).get("State") or {}
+    if state.get("Running"):
+        return None
+    status = str(state.get("Status") or "unknown")
+    error = str(state.get("Error") or "")
+    if status in _NEVER_STARTED_STATUSES or error:
+        return (
+            f"container not running after create "
+            f"(status={status!r} exit_code={state.get('ExitCode')!r} "
+            f"docker_error={error!r})"
+        )
+    # Ran and exited on its own — not a fault. Preserves the one-shot-command
+    # contract; only a container that never started is retried.
+    return None
+
+
 def _is_node_health_error(exc: BaseException) -> bool:
     """True if ``exc`` is a docker-daemon SATURATION/health signal that
     should drive the AIMD admission limiter down — a timeout, a transport
@@ -716,6 +791,10 @@ def _is_node_health_error(exc: BaseException) -> bool:
     timeout/connection error) we default to treating it as health:
     over-throttling on an unknown transport fault is safer than ignoring
     a real daemon problem."""
+    if isinstance(exc, ContainerNotStartedError):
+        # A create that "succeeded" into an unusable container is a saturation
+        # symptom, not a request fault — throttle future admits.
+        return True
     if _is_timeout_exc(exc):
         return True
     if isinstance(exc, requests.exceptions.ConnectionError):
@@ -739,6 +818,11 @@ def _is_retryable_create_error(exc: BaseException) -> bool:
     feeds the AIMD limiter (via ``_is_node_health_error``) so future admits
     throttle — it just isn't hammered in place. 4xx request faults (409 handled
     by name-reclaim, 404 missing image) are terminal and never retried."""
+    if isinstance(exc, ContainerNotStartedError):
+        # Retryable for the same reason a 5xx is: the daemon's storage layer was
+        # momentarily wedged, and the next attempt (after the orphan reap)
+        # usually lands a healthy container.
+        return True
     if _is_timeout_exc(exc):
         return True
     status = _docker_status_code(exc)
@@ -1442,7 +1526,7 @@ class RawContainerManager:
         ``mkdir`` / write under ``/sys/fs/cgroup`` — so it can't run the real
         container probe (:func:`_run_cgroup_isolation_selftest`, which needs
         root). That probe instead runs at ENABLE time
-        (``scripts/enable_cpu_isolation.sh``, as root) as the gate before the
+        (``deploy/node/enable_cpu_isolation.sh``, as root) as the gate before the
         enable step DELEGATES the shared parent ``xrlenv-shared`` to this agent
         user. Here we verify that delegation is intact — the cheap, root-free
         signal that the node was enabled and this agent can manage the shared
@@ -2241,6 +2325,18 @@ class RawContainerManager:
                     # Stage 1: time the create call itself (inside the gate,
                     # excluding gate-wait) — the smooth node-saturation signal.
                     self._health.record_create(time.monotonic() - _create_t0)
+                    # A 2xx from ``containers.run`` is NOT proof the container
+                    # runs: under snapshotter strain dockerd hands back a
+                    # container whose RW layer is nil. Verify before returning,
+                    # so the fault is retried here instead of surfacing as the
+                    # consumer's first ``exec`` failing 409 "is not running".
+                    fault = await asyncio.to_thread(
+                        _container_start_fault, container,
+                    )
+                    if fault is not None:
+                        raise ContainerNotStartedError(
+                            f"{fault}; image={run_kwargs.get('image')!r}",
+                        )
                 return container
             except (
                 docker.errors.DockerException,
@@ -3067,8 +3163,8 @@ class RawContainerManager:
                 # Pre-fix, destroy-path stalls fed nothing, so a node
                 # whose destroys hung kept (even grew) its admission limit
                 # while the create path looked momentarily fine — the
-                # health signal pointed the wrong way (the 205-47
-                # inversion in the 2026-06-09 analysis).
+                # health signal pointed the wrong way (the destroy-stall
+                # inversion seen in the 2026-06-09 analysis).
                 self._health.record_docker_error(is_timeout=True)
                 raise
             except Exception as exc:  # pragma: no cover — defensive

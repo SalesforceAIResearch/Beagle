@@ -57,9 +57,9 @@ Source of truth:
 #    registries — see the seta-env section).
 xrlenv up
 
-# 2. Populate the Harbor task-metadata cache for your benchmark (each onboarding
-#    example ships its own populate script).
-bash examples/benchmarks-onboarding/<benchmark>/scripts/populate-harbor-cache.sh
+# 2. Populate the Harbor task-metadata cache for your benchmark (each onboarded
+#    plug-in ships its own cache builder).
+.venv/bin/python xrlenv_plugins/benchmarks/<benchmark>/build_cache.py
 ```
 
 The consumer reads its cluster + registry config from `.env` (xrlenv auto-loads it
@@ -179,17 +179,20 @@ precedence #2 — no registry or template needed. The cluster pulls each image o
 first acquire.
 
 ```bash
-# populate the cache, then run the oracle smoke against the cluster:
-bash examples/benchmarks-onboarding/terminal-bench-2/scripts/populate-harbor-cache.sh
-.venv/bin/python examples/benchmarks-onboarding/terminal-bench-2/smoke.py         # 8-task smoke
-.venv/bin/python examples/benchmarks-onboarding/terminal-bench-2/smoke.py --all   # full set
-.venv/bin/python examples/benchmarks-onboarding/terminal-bench-2/smoke.py --local # baseline (local Docker)
+# populate + patch the cache, then run the oracle sweep against the cluster:
+.venv/bin/python xrlenv_plugins/benchmarks/terminal_bench_2_1/build_cache.py       # populate + patch
+.venv/bin/python xrlenv_plugins/benchmarks/terminal_bench_2_1/run_oracle_sweep.py  # oracle correctness gate
+bash xrlenv_plugins/benchmarks/terminal_bench_2_1/run_full_sweep.sh                # full set
 ```
 
+See the plug-in's README for the exact task-selection flags (`--tasks`,
+`--max-workers`, retry layers).
+
 Worked example:
-[`examples/benchmarks-onboarding/terminal-bench-2/`](https://github.com/Yutong-Dai/XRLEnv/tree/main/examples/benchmarks-onboarding/terminal-bench-2)
-— it also ships `agent_outside_container.py` / `agent_inside_container.py` for
-wiring your own agent (those patterns apply to any Harbor benchmark).
+[`xrlenv_plugins/benchmarks/terminal_bench_2_1/`](https://github.com/Yutong-Dai/XRLEnv/tree/main/xrlenv_plugins/benchmarks/terminal_bench_2_1)
+— the onboarded plug-in in the GUIDELINE layout (`build_cache.py` +
+`build_plan_gen.py` + `run_oracle_sweep.py` + `run_full_sweep.sh` +
+`README.md`/`STATUS.md`/`tests/`).
 
 ## seta-env
 

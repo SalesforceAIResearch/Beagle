@@ -7,12 +7,19 @@ wire to the chosen node). Tracks ``rollout_id → (node, container_id,
 container_name, image)`` so subsequent ContainerExec / Destroy can
 route to the right node.
 
-State is **in-memory only** for the per-rollout session map.
-Case 2/3 evaluations are short-lived (seconds-to-minutes per
-instance), harnesses handle their own retry, and durable
-session state via StateStore integration is deferred: a
-control-plane restart mid-evaluation surfaces as a connection
-error to the harness, which re-acquires.
+The per-rollout session map is in-memory, but it is **backed by durable
+state**: every acquire persists the routing + lifecycle fields
+(``container_id``, ``node_id``, ``deadline_at``,
+``effective_resources_json``, ``container_runtime``, ``fleet_id``) on the
+rollout's ``raw_rollouts`` row. A control-plane restart therefore does
+**not** kill live work — on node reconnect the raw-GC reconciler drives
+:meth:`RawContainerCoordinator.readopt` /
+:meth:`~RawContainerCoordinator.readopt_compose_project`, which rebuild
+the in-memory session from the row plus the reconnected transport, so
+the consumer resumes exec/destroy against the same container. A
+deployment that disables the reconciler cannot do this, and
+``_require_raw_reconnect_capable`` rejects raw acquires there rather
+than silently accruing un-reconcilable state.
 
 P1.7.B.2 (2026-05-07): the previous first-available ``_pick_node``
 stub is replaced by the standard placement flow — same
@@ -39,7 +46,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass, field
 from dataclasses import replace as dataclass_replace
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, NoReturn, Protocol
 
 import yaml
 
@@ -51,6 +58,7 @@ if TYPE_CHECKING:
     from xrlenv.control.admission import AdmissionQueue
     from xrlenv.control.kwargs_policy import KwargsPolicy
     from xrlenv.control.state import RawRolloutRecord, RawRolloutStatus
+    from xrlenv.observability.metrics import MetricsRegistry
 from xrlenv.compat.metadata import (
     LABEL_ARTIFACT_PATH,
     LABEL_DISPLAYED_NAME,
@@ -84,6 +92,7 @@ from xrlenv.errors import (
     AuthDenied,
     BackendCapabilityMissing,
     CapacityExhausted,
+    ControlPlaneLost,
     FleetOverBudget,
     ImageMissingOnNode,
     ImagePullFailed,
@@ -91,6 +100,7 @@ from xrlenv.errors import (
     NodeCommandTimeout,
     NodeLost,
     PinCapacityExhausted,
+    SessionReaped,
     XRLEnvError,
 )
 from xrlenv.types import TerminateRawGroupReport
@@ -441,18 +451,62 @@ FLEET_RESERVATION_TTL_DEFAULT_S: float = float(
 # raise it per-acquire via ``session_deadline_s``.
 RAW_SESSION_DEADLINE_DEFAULT_S: float = 4 * 60 * 60.0
 
-# Consumer-liveness reaper. How long a raw session may go with NO liveness
-# signal — neither a session-scoped RPC (implicit) nor an explicit heartbeat —
-# before the raw-GC reconciler reaps it. Distinct from the 4 h deadline above:
-# the deadline caps even a healthy long-running job; this reaps a session whose
-# *consumer went away*. Only applies to sessions that (a) heartbeated at least
-# once and (b) have no RPC in flight (see ``liveness_reap_candidates``), so a
-# non-heartbeating consumer or one blocked in a long exec is never touched.
+# Consumer-liveness reaper, PHASE 1. How long a raw session may go with NO
+# liveness signal — neither a session-scoped RPC (implicit) nor an explicit
+# heartbeat — before it is marked ``suspect``. This threshold DESTROYS NOTHING:
+# it only warns + moves the gauge. The destroy decision belongs to
+# ``RAW_LIVENESS_QUARANTINE_DEFAULT_S`` below (phase 2). Distinct from the 4 h
+# deadline above: the deadline caps even a healthy long-running job; the
+# liveness path targets a session whose *consumer went away*. Only applies to
+# sessions that (a) heartbeated at least once, (b) have no RPC in flight and
+# (c) are not already being torn down (all three guards live in
+# ``_liveness_stale``, shared by both phases), so a non-heartbeating consumer,
+# one blocked in a long exec, or one already mid-destroy is never touched.
 # TTL is ~3-4x the SDK heartbeat interval so a couple of dropped beats don't
-# false-reap. Env-tunable.
+# flag a healthy session suspect. Env-tunable.
 RAW_LIVENESS_TTL_DEFAULT_S: float = float(
     os.environ.get("XRLENV_RAW_LIVENESS_TTL_S", "120"),
 )
+
+
+# How long a raw session may go with NO liveness signal before it is actually
+# DESTROYED. The TTL above no longer destroys anything — it only marks a session
+# ``suspect`` (warn + metric); this is the horizon at which the reaper gives up.
+#
+# The two-phase split exists because silence is not death. A consumer whose whole
+# host stalls (memory reclaim, a frozen VM) is alive and will come back, but is
+# indistinguishable at the TTL from one that exited. Destroying it throws away
+# real work — 243 sessions in the 2026-08-19 cn run, median 18 min of agent time
+# each — while the cost of waiting is only that a genuinely dead consumer holds
+# its slot longer, bounded anyway by ``RAW_SESSION_DEADLINE_DEFAULT_S``. The
+# liveness reaper is a reclamation *latency optimization*, not the leak backstop,
+# so it is tuned to favour false negatives.
+#
+# 900 s is measured, not guessed: reconstructing fleet-wide consumer stalls from
+# that run gave 17 distinct events, median 199 s, max 946 s — 900 s survives 16 of
+# 17. See notes/design-consumer-liveness-contract.md. Env-tunable; must exceed the
+# TTL (at or below it is replaced with max(this default, 2x TTL) — see below).
+RAW_LIVENESS_QUARANTINE_DEFAULT_S: float = float(
+    os.environ.get("XRLENV_RAW_LIVENESS_QUARANTINE_S", "900"),
+)
+
+
+# Markers stamped into ``raw_rollouts.error`` by platform teardowns that seal
+# ``failed`` rather than ``reaped``. ``_raise_for_missing_session`` reads them back
+# to tell a PLATFORM teardown (node died, control plane lost track) apart from a
+# genuine acquire/workload failure, which shares the same status column. Writer and
+# reader use the SAME constant precisely so the two cannot drift — matching on an
+# inline string literal here would rot the first time someone reworded a log.
+RAW_LOST_NODE_MARKER = "node_lost:"
+# The control-plane-authored prefix the ghost sweep stamps ahead of its reason.
+# The reader anchors on ``PREFIX + " " + marker`` at position 0 rather than
+# searching the text: the recorded error for a genuine acquire failure embeds the
+# caller's own image ref verbatim (dockerd echoes it back), and hyphens are legal
+# in image refs — so an unanchored search would let a tag like
+# ``myrepo/lost-mid-run-fix:latest`` failing to pull masquerade as a control-plane
+# teardown and tell the caller to retry something that will never succeed.
+RAW_LOST_CP_PREFIX = "raw-gc-reconciler:"
+RAW_LOST_CP_MARKERS = ("lost-on-restart", "lost-mid-run")
 
 
 # Synthetic env-adapter / reward decls. The scheduler reads
@@ -865,9 +919,12 @@ class RawContainerCoordinator:
       (defends against stale handles), dispatches
       ``ContainerExecCommand`` to the session's node.
     - :meth:`destroy` — looks up, dispatches
-      ``DestroyContainerCommand``, drops the in-memory session
-      regardless of the wire-level outcome (the node-side
-      manager is also idempotent on missing-container).
+      ``DestroyContainerCommand``, and drops the in-memory session
+      **only on a node-confirmed teardown** (audit H8, invariant 2). A
+      failed or timed-out destroy RETAINS the session and its capacity
+      charge and defers teardown to the raw-GC reconciler; the node-side
+      manager is idempotent on missing-container, so the re-attempt is
+      safe.
     """
 
     def __init__(
@@ -879,6 +936,8 @@ class RawContainerCoordinator:
         admission: AdmissionQueue | None = None,
         session_deadline_default_s: float = RAW_SESSION_DEADLINE_DEFAULT_S,
         liveness_ttl_s: float = RAW_LIVENESS_TTL_DEFAULT_S,
+        liveness_quarantine_s: float = RAW_LIVENESS_QUARANTINE_DEFAULT_S,
+        metrics: MetricsRegistry | None = None,
         digest_resolver: RegistryDigestResolver | None = None,
         raw_reconnect_capable: bool = True,
     ) -> None:
@@ -1011,6 +1070,51 @@ class RawContainerCoordinator:
         self._inflight_rpcs: dict[str, int] = {}
         self._heartbeated: set[str] = set()
         self._liveness_ttl_s = liveness_ttl_s
+        # ``_suspect_since`` records WHEN a session first crossed the TTL, purely
+        # for reporting ("suspect for 340s") and the gauge — the destroy decision
+        # reads ``_last_seen_at`` like everything else, so there is ONE clock and
+        # no drift between two timers. Popped wherever ``_last_seen_at`` is.
+        self._suspect_since: dict[str, float] = {}
+        # A quarantine at or below the TTL would destroy on the very sweep that
+        # marks a session suspect — i.e. exactly the pre-quarantine behaviour this
+        # replaces. Both phases read the same clock via ``_liveness_stale``, so
+        # EQUAL is just as broken as lower: at ``quarantine == ttl`` a session
+        # crossing the TTL is a suspect candidate and a reap candidate in the same
+        # sweep. The clamp therefore has to restore a real grace window, not merely
+        # a non-negative one — recover to the measured default, and if the operator
+        # also raised the TTL past that, keep the window proportional.
+        if liveness_quarantine_s <= liveness_ttl_s:
+            recovered = max(RAW_LIVENESS_QUARANTINE_DEFAULT_S, liveness_ttl_s * 2.0)
+            LOGGER.warning(
+                "raw-container.coordinator: liveness_quarantine_s=%.0fs is <= "
+                "liveness_ttl_s=%.0fs, which would destroy sessions the moment "
+                "they are marked suspect (restoring destroy-on-TTL); using %.0fs "
+                "instead. Set XRLENV_RAW_LIVENESS_QUARANTINE_S above "
+                "XRLENV_RAW_LIVENESS_TTL_S.",
+                liveness_quarantine_s, liveness_ttl_s, recovered,
+            )
+            liveness_quarantine_s = recovered
+        self._liveness_quarantine_s = liveness_quarantine_s
+        # The liveness reaper only earns its keep by reclaiming capacity SOONER
+        # than the wall-clock deadline. A quarantine at or beyond the deadline is
+        # therefore unreachable — the deadline sweep destroys the session first,
+        # every time — which silently disables the whole feature. Checked against
+        # the FINAL value so it catches an operator-supplied horizon as well as a
+        # synthesized one (a raised TTL makes `ttl * 2` collide with the default
+        # 4 h deadline above ttl=7200 s). Warn rather than clamp: the deadline is
+        # per-acquire overridable, so a long horizon may well be deliberate.
+        if liveness_quarantine_s >= session_deadline_default_s:
+            LOGGER.warning(
+                "raw-container.coordinator: liveness quarantine %.0fs is >= the "
+                "default session deadline %.0fs, so the deadline sweep will "
+                "always destroy first and the liveness reaper is effectively "
+                "disabled for sessions using the default deadline. Lower "
+                "XRLENV_RAW_LIVENESS_QUARANTINE_S (or XRLENV_RAW_LIVENESS_TTL_S, "
+                "which it is derived from when invalid), or raise "
+                "session_deadline_s per acquire.",
+                liveness_quarantine_s, session_deadline_default_s,
+            )
+        self._metrics = metrics
         self._lock = asyncio.Lock()
 
     def _require_raw_reconnect_capable(self, what: str) -> None:
@@ -2824,6 +2928,7 @@ class RawContainerCoordinator:
                 self._release_fleet_member_locked(rollout_id)
                 self._last_seen_at.pop(rollout_id, None)
                 self._inflight_rpcs.pop(rollout_id, None)
+                self._suspect_since.pop(rollout_id, None)
                 self._heartbeated.discard(rollout_id)
                 # Resolve joiners with success LAST, once state is consistent.
                 self._resolve_destroying_locked(rollout_id, None)
@@ -2898,9 +3003,8 @@ class RawContainerCoordinator:
     ) -> None:
         """Strict, whole-project teardown of a compose session (§3).
 
-        Unlike single-container :meth:`destroy` (whose ``finally`` unconditionally
-        drops the session — the orphan reconciler reaps any leftover), a compose
-        down is **node-confirmed**: on a failed / timed-out down the node keeps the
+        Like single-container :meth:`destroy` (audit H8), a compose down is
+        **node-confirmed**: on a failed / timed-out down the node keeps the
         project running, so we **retain** the session + ``_compose_projects`` row
         (capacity held — invariant 2) and re-raise, letting a retry / the raw-GC
         reaper re-attempt. Only a confirmed down seals the row + frees capacity."""
@@ -3004,6 +3108,7 @@ class RawContainerCoordinator:
                 self._pending_subnet_claims.pop(rollout_id, None)
                 self._last_seen_at.pop(rollout_id, None)
                 self._inflight_rpcs.pop(rollout_id, None)
+                self._suspect_since.pop(rollout_id, None)
                 self._heartbeated.discard(rollout_id)
                 self._resolve_destroying_locked(rollout_id, None)
                 finalized = True
@@ -3035,13 +3140,14 @@ class RawContainerCoordinator:
         coordinator's sessions but NOT in the node's container list), so
         a destroy RPC would only race. Worse, once the node has dropped
         its own record the RPC fails with a benign ``container '...' not
-        registered on this node`` error, and :meth:`destroy`'s
-        raised-teardown branch would then seal the row ``failed`` with a
-        generic ``destroy_container raised: ...`` message — burying the
-        node's real reap cause (audit P3; a live disk-guard smoke hit
-        exactly this: a disk-reaped rollout sealed ``failed`` with a
-        confusing "was it already destroyed?" error instead of ``reaped``
-        with the disk-pressure cause).
+        registered on this node`` error, and post-H8 :meth:`destroy`'s
+        raised-teardown branch RETAINS the session + its capacity charge
+        and seals nothing — so the row would sit ``running``, the orphan
+        would come back every sweep, and the node's real reap cause would
+        never be recorded (audit P3; a live disk-guard smoke hit the
+        pre-H8 shape of this: a disk-reaped rollout sealed ``failed``
+        with a confusing "was it already destroyed?" error instead of
+        ``reaped`` with the disk-pressure cause).
 
         Seals ``reaped`` with ``error=reason`` when the node reported a
         real reap cause, else ``released`` (container vanished for some
@@ -3108,6 +3214,7 @@ class RawContainerCoordinator:
             self._release_fleet_member_locked(rollout_id)
             self._last_seen_at.pop(rollout_id, None)
             self._inflight_rpcs.pop(rollout_id, None)
+            self._suspect_since.pop(rollout_id, None)
             self._heartbeated.discard(rollout_id)
         if self._admission is not None:
             self._admission.kick()
@@ -3119,22 +3226,43 @@ class RawContainerCoordinator:
             f" reason={reason!r}" if reason is not None else "",
         )
 
-    async def drop_orphan_session(self, rollout_id: str, container_id: str) -> None:
+    async def drop_orphan_session(
+        self, rollout_id: str, container_id: str, *, reason: str | None = None,
+    ) -> None:
         """Fallback drop for the raw-GC reconciler when :meth:`seal_orphan` raised (a defensive
         container-id mismatch, or a state-store hiccup): GENERATION-SAFELY drop the in-memory
         session — only if it STILL carries ``container_id`` (don't drop a newer generation) —
         WITH proper fleet / liveness release + admission kick, instead of a bare ``_sessions``
-        pop that leaks fleet membership and skips admission (audit Low)."""
+        pop that leaks fleet membership and skips admission (audit Low).
+
+        Audit round 3: this used to drop the in-memory session WITHOUT sealing the durable
+        ``raw_rollouts`` row at all — leaving it however it looked before the reap (typically
+        ``running``). ``_raise_for_missing_session`` only raises ``SessionReaped`` when the row
+        says ``status == "reaped"``, so a rollout that fell through this fallback could never be
+        reported as reaped: any later touch got the generic "not found. Acquire first." message
+        this whole feature exists to stop misreporting a platform teardown as. Seal the row the
+        same way :meth:`seal_orphan` would have, mirroring its ``reason`` semantics (``reaped``
+        with the node's cause when set, else ``released``), so this fallback path can't silently
+        make ``SessionReaped`` unreachable for the rollout it just tore down."""
         dropped = False
         async with self._lock:
             s = self._sessions.get(rollout_id)
             if s is not None and s.container_id == container_id:
+                if reason is not None:
+                    self._update_record(
+                        rollout_id, status="reaped", error=reason, finished_at=time.time(),
+                    )
+                else:
+                    self._update_record(
+                        rollout_id, status="released", finished_at=time.time(),
+                    )
                 self._sessions.pop(rollout_id, None)
                 self._compose_projects.pop(rollout_id, None)
                 self._pending_subnet_claims.pop(rollout_id, None)
                 self._release_fleet_member_locked(rollout_id)
                 self._last_seen_at.pop(rollout_id, None)
                 self._inflight_rpcs.pop(rollout_id, None)
+                self._suspect_since.pop(rollout_id, None)
                 self._heartbeated.discard(rollout_id)
                 self._resolve_destroying_locked(rollout_id, None)
                 dropped = True
@@ -3423,6 +3551,7 @@ class RawContainerCoordinator:
                 self._release_fleet_member_locked(rid)
                 self._last_seen_at.pop(rid, None)
                 self._inflight_rpcs.pop(rid, None)
+                self._suspect_since.pop(rid, None)
                 # audit Low — discard heartbeat membership too (the finalize/seal paths do), so a
                 # lost node leaves NO trace in ``_heartbeated``; else the id lingers and could
                 # falsely mark a (hypothetically UUID-reused) rollout as already heartbeated.
@@ -3444,9 +3573,9 @@ class RawContainerCoordinator:
                 rid,
                 status="failed",
                 error=(
-                    f"node_lost: node {node_id} went away; raw session "
-                    "sealed (cannot destroy a container through a lost "
-                    "node)"
+                    f"{RAW_LOST_NODE_MARKER} node {node_id} went away; raw "
+                    "session sealed (cannot destroy a container through a "
+                    "lost node)"
                 ),
                 finished_at=now,
             )
@@ -3488,6 +3617,9 @@ class RawContainerCoordinator:
         """
         self._last_seen_at[rollout_id] = time.time()
         self._inflight_rpcs[rollout_id] = self._inflight_rpcs.get(rollout_id, 0) + 1
+        # An RPC is as good a liveness signal as a heartbeat, so it retires
+        # suspicion too — a consumer that stalled and resumed keeps its session.
+        self._clear_suspect(rollout_id)
         try:
             yield
         finally:
@@ -3512,31 +3644,131 @@ class RawContainerCoordinator:
             if rollout_id in self._sessions:
                 self._last_seen_at[rollout_id] = now
                 self._heartbeated.add(rollout_id)
+                # A beat from a suspect session means its consumer was stalled,
+                # not gone — retire the suspicion instead of counting down to a
+                # destroy that would have thrown away live work.
+                self._clear_suspect(rollout_id)
                 recognised += 1
         return recognised
 
-    def liveness_reap_candidates(
-        self, now: float | None = None,
-    ) -> list[RawContainerSession]:
-        """Raw sessions whose consumer appears to have gone away.
+    def _liveness_stale(
+        self, threshold_s: float, clock: float,
+    ) -> Iterator[tuple[str, RawContainerSession]]:
+        """Sessions with no liveness signal for ``threshold_s``.
 
-        A session qualifies only when ALL hold: it heartbeated at least once
-        (so we know its consumer runs the keepalive — others are left to the
-        deadline cap), it has no session-scoped RPC in flight, and its liveness
-        clock is staler than ``liveness_ttl_s``. Pure query — the reconciler
-        does the (paced) destroying.
+        Shared by both liveness phases so they can never disagree about who
+        qualifies. A session is considered only when it heartbeated at least
+        once (otherwise its consumer doesn't run the keepalive and the deadline
+        cap owns it), has no session-scoped RPC in flight (the consumer is
+        connected and waiting — the long-blocking-exec case), and is not already
+        being torn down.
+
+        The in-flight-destroy exclusion matters most for the SUSPECT phase, which
+        issues no destroy of its own and so had no reason to check: a session
+        already being destroyed for an unrelated reason (a slow consumer
+        ``destroy``, or the deadline sweep) that happens to be past the TTL would
+        otherwise be logged "NOT destroying yet (quarantine)" — false, it is being
+        destroyed — and would inflate ``raw_liveness_suspect_total`` and the gauge
+        operators read to judge this feature. Filtering here rather than in each
+        caller keeps every phase destroy-aware in one place, matching
+        ``_clear_suspect``; the reap loop's own ``is_destroying`` check stays as
+        belt-and-braces against a destroy that starts mid-sweep.
         """
-        clock = time.time() if now is None else now
-        ttl = self._liveness_ttl_s
-        out: list[RawContainerSession] = []
         for rollout_id, session in self._sessions.items():
             if rollout_id not in self._heartbeated:
                 continue
             if self._inflight_rpcs.get(rollout_id, 0) > 0:
                 continue
-            if clock - self._last_seen_at.get(rollout_id, clock) > ttl:
-                out.append(session)
-        return out
+            if self.is_destroying(rollout_id):
+                continue
+            if clock - self._last_seen_at.get(rollout_id, clock) > threshold_s:
+                yield rollout_id, session
+
+    def liveness_suspect_candidates(
+        self, now: float | None = None,
+    ) -> list[RawContainerSession]:
+        """Sessions that just went quiet past ``liveness_ttl_s`` and are not
+        already marked suspect.
+
+        Phase 1 of two. Crossing the TTL no longer destroys anything — it only
+        means "we have stopped hearing from this consumer", which is a warning,
+        not a verdict. Pure query; the reconciler marks and logs.
+        """
+        clock = time.time() if now is None else now
+        return [
+            session
+            for rollout_id, session in self._liveness_stale(self._liveness_ttl_s, clock)
+            if rollout_id not in self._suspect_since
+        ]
+
+    def liveness_reap_candidates(
+        self, now: float | None = None,
+    ) -> list[RawContainerSession]:
+        """Sessions whose consumer has been silent past ``liveness_quarantine_s``
+        — the point at which we stop waiting and destroy.
+
+        Phase 2 of two. Measured from the same ``_last_seen_at`` clock as the
+        suspect phase rather than from when suspicion started, so a single
+        signal retires both conditions at once and the two can't drift apart.
+        Pure query — the reconciler does the (paced) destroying.
+        """
+        clock = time.time() if now is None else now
+        return [
+            session
+            for _, session in self._liveness_stale(self._liveness_quarantine_s, clock)
+        ]
+
+    def mark_suspect(self, rollout_id: str, now: float | None = None) -> None:
+        """Record that ``rollout_id`` crossed the TTL. Idempotent."""
+        self._suspect_since.setdefault(
+            rollout_id, time.time() if now is None else now,
+        )
+
+    def suspect_count(self) -> int:
+        """Sessions currently marked suspect (for the gauge / admin view)."""
+        return len(self._suspect_since)
+
+    def suspect_since(self, rollout_id: str) -> float | None:
+        """When ``rollout_id`` was marked suspect, or ``None`` if it is healthy."""
+        return self._suspect_since.get(rollout_id)
+
+    def _clear_suspect(self, rollout_id: str) -> None:
+        """Retire suspicion after a liveness signal — the consumer came back.
+
+        This is the whole point of the two-phase split, so it is logged at INFO
+        with the stall duration: a run showing many suspect->recovered
+        transitions is one where the old destroy-on-TTL behaviour would have
+        thrown away live work.
+
+        A signal that lands while this session's destroy is ALREADY IN FLIGHT is
+        not a recovery. The reaper re-checks candidacy immediately before firing,
+        but once the wire call is issued the container is going away and there is
+        nothing to undo — so the session dies despite having just proven itself
+        alive. That residual window is irreducible (see the reaper's note), but it
+        must not be *reported* as a save: counting it would inflate the very
+        metric that measures work this feature rescued, and the "not reaped" log
+        line would be a plain lie about a session that is being reaped. Retire the
+        bookkeeping so the gauge stays accurate, and say what actually happened.
+        """
+        started = self._suspect_since.pop(rollout_id, None)
+        if started is None:
+            return
+        if self.is_destroying(rollout_id):
+            LOGGER.info(
+                "raw-container.coordinator: rollout=%s signalled liveness after "
+                "%.0fs suspect but its destroy is already in flight — too late "
+                "to save; it will still be reaped",
+                rollout_id, time.time() - started,
+            )
+            return
+        LOGGER.info(
+            "raw-container.coordinator: rollout=%s liveness RECOVERED after "
+            "%.0fs suspect (consumer stalled, not gone; not reaped)",
+            rollout_id, time.time() - started,
+        )
+        if self._metrics is not None:
+            with contextlib.suppress(Exception):
+                self._metrics.raw_liveness_recovered_total.inc()
 
     def iter_load_entries(self) -> list[RawSessionLoad]:
         """Return one :class:`RawSessionLoad` per currently-active
@@ -4051,11 +4283,76 @@ class RawContainerCoordinator:
     def _require_session(self, rollout_id: str) -> RawContainerSession:
         session = self._sessions.get(rollout_id)
         if session is None:
-            raise XRLEnvError(
-                f"raw-container session: rollout {rollout_id!r} not "
-                f"found. Acquire first.",
-            )
+            self._raise_for_missing_session(rollout_id)
         return session
+
+    def _raise_for_missing_session(self, rollout_id: str) -> NoReturn:
+        """Explain a session miss as precisely as the durable record allows.
+
+        Two very different KINDS of thing reach this path. A *stale handle* — an
+        id we never knew, or one the consumer already destroyed — is the
+        consumer's own bookkeeping problem. A platform teardown is not: the
+        control plane took the session away, and the consumer usually only finds
+        out minutes later at its next RPC, having meanwhile burned agent
+        wall-clock and tokens against a container that no longer existed. Three
+        teardowns land here, in two different status columns — a reap (sealed
+        ``reaped``), a lost node and a control plane that lost track of the row
+        (both sealed ``failed``) — and each gets the typed error that names it.
+
+        The old message ("Acquire first.") described the stale handle and was
+        raised for all of them, which is why the 2026-08-19 cn incident read as
+        a client bug for so long. Every one of these teardowns already records
+        its reason on the ``raw_rollouts`` row, so read it back and say what
+        actually happened — no extra in-memory cache, and it survives a
+        control-plane restart.
+        """
+        record = None
+        if self._state is not None:
+            getter = getattr(self._state, "get_raw_rollout", None)
+            if getter is not None:
+                # Never let a bookkeeping read mask the real error: any failure
+                # here just falls through to the generic message below.
+                with contextlib.suppress(Exception):
+                    record = getter(rollout_id)
+        if record is not None and getattr(record, "status", None) == "reaped":
+            reason = str(getattr(record, "error", "") or "consumer liveness lost")
+            finished_at = getattr(record, "finished_at", None)
+            raise SessionReaped(
+                f"raw-container session: rollout {rollout_id!r} was reaped by "
+                f"the control plane and no longer exists ({reason}). This is a "
+                f"platform teardown, not a stale handle — acquire a fresh "
+                f"session to retry.",
+                reason=reason,
+                reaped_at=float(finished_at) if finished_at else None,
+            )
+        if record is not None and getattr(record, "status", None) == "failed":
+            # ``failed`` is shared: it covers genuine acquire/workload failures AND
+            # two platform teardowns that cannot use ``reaped`` because nothing was
+            # destroyed — the node died, or the control plane lost track of the
+            # session. Only the latter two are the platform's doing, so only they
+            # get a typed error; matching on the status alone would misreport a real
+            # acquire failure as a retryable platform event.
+            recorded = str(getattr(record, "error", "") or "")
+            if recorded.startswith(RAW_LOST_NODE_MARKER):
+                raise NodeLost(
+                    f"raw-container session: rollout {rollout_id!r} is gone "
+                    f"because its node was lost ({recorded}). The platform tore "
+                    f"this down, not you — acquire a fresh session to retry.",
+                )
+            if any(
+                recorded.startswith(f"{RAW_LOST_CP_PREFIX} {marker}")
+                for marker in RAW_LOST_CP_MARKERS
+            ):
+                raise ControlPlaneLost(
+                    f"raw-container session: rollout {rollout_id!r} is gone "
+                    f"because the control plane lost track of it ({recorded}). "
+                    f"The platform tore this down, not you — acquire a fresh "
+                    f"session to retry.",
+                )
+        raise XRLEnvError(
+            f"raw-container session: rollout {rollout_id!r} not "
+            f"found. Acquire first.",
+        )
 
     # _pick_node was the P1.7.A.1 first-available stub; replaced
     # in P1.7.B.2 by the standard placement flow above (which calls

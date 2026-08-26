@@ -313,13 +313,13 @@ there was nothing to evict or that live rollouts are protected.
 # The channel tag :dev was rebuilt and re-pushed.
 # Evict the old digest from all nodes so the next acquire pulls fresh.
 xrlenv images evict xrlenv-webarena-infinity/substrate:dev \
-    --connect-host internal-ip
+    --connect-host <control-plane-host>
 
 # Example output:
 # evict xrlenv-webarena-infinity/substrate:dev:
 #   2 evicted / 2 node(s) queried, 1.02 GiB reclaimed
-#   - node-aws-a: evicted (0.51 GiB, node-host:5011/xrlenv-webarena-infinity/substrate:dev)
-#   - node-aws-b: evicted (0.51 GiB, node-host:5011/xrlenv-webarena-infinity/substrate:dev)
+#   - node-aws-a: evicted (0.51 GiB, <registry-host>:5011/xrlenv-webarena-infinity/substrate:dev)
+#   - node-aws-b: evicted (0.51 GiB, <registry-host>:5011/xrlenv-webarena-infinity/substrate:dev)
 ```
 
 **Relationship to the freshness model.** The control plane's registry

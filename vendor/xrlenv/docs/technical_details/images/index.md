@@ -25,6 +25,9 @@ encounters the system:
   optimization: when you know your image set ahead of time, you
   can prefetch and steer placement instead of paying first-acquire
   latency.
+- **Bring-your-own-Dockerfile** is the self-service alternative to
+  operator pre-builds: supply a Dockerfile in your template and the
+  platform builds it on demand, once for the fleet, drift-free.
 
 
 ```{toctree}
@@ -34,4 +37,5 @@ on_demand
 cache_eviction
 registry_freshness
 build_plan
+bring_your_own_dockerfile
 ```

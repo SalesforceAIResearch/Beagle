@@ -104,7 +104,7 @@ kept in the green set.
 ## Reproduce
 
 ```bash
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 set -a; source ./.env; set +a                 # XRLENV_GRPC_HOST + XRLENV_CONSUMER_TOKEN
 
 # smoke first (8 instances, ~5-15 min), then the full green set:

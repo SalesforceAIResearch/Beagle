@@ -19,7 +19,7 @@ scheduler-chosen node. So it needs a running control plane, addressed via env:
 
 **Image resolution.** Unlike terminal-bench-2-1 (whose tasks ship a prebuilt
 ``docker_image``), TerminalWorld tasks ship only a ``Dockerfile``; the sibling
-``xrlenv_plugins/images_build/`` scripts build+push each to
+``xrlenv_plugins/benchmarks/<name>/`` build scripts build+push each to
 ``<registry>/terminalworld-verified/<id>:main``. This sweep constructs the
 template ``<registry>/terminalworld-verified/{task_id}:main`` from ``--registry``
 or ``$XRLENV_PRIVATE_REGISTRY_HOST(:_PORT)`` and passes it to the cluster plugin
@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import Any
 
 # Dataset shard subdir name — must match build_cache.py's SHARD and the image
-# namespace the images_build scripts push under.
+# namespace the benchmark build scripts push under.
 SHARD = "terminalworld-verified"
 
 ENV_IMPORT_PATH = "xrlenv_plugins.harbor:XrlenvHarborEnvironmentCluster"
@@ -68,6 +68,11 @@ _INFRA_RETRY_EXCEPTIONS = frozenset({
     "ControlPlaneLost",    # CP restarted under the run
     "NodeLost",            # node dropped its stream mid-acquire
     "NodeCommandTimeout",  # a node RPC deadline (teardown / exec) tripped
+    # The control plane destroyed the session out from under us — a stalled
+    # consumer past the quarantine horizon, a lost node, a deadline. The
+    # rollout's work never failed; the platform reclaimed it, so a fresh
+    # acquire is the correct response, not a content result.
+    "SessionReaped",
 })
 
 
@@ -147,7 +152,7 @@ def _ensure_image_template(registry: str | None) -> str:
             "cannot resolve TW images — set --registry <host:port> (or "
             "$XRLENV_PRIVATE_REGISTRY_HOST[:_PORT]). TerminalWorld tasks ship a "
             "Dockerfile (no prebuilt docker_image), so the sweep needs the "
-            "private-registry namespace the images_build scripts pushed to.",
+            "private-registry namespace the benchmark build scripts pushed to.",
         )
     return f"{registry}/{SHARD}/{{task_id}}:main"
 

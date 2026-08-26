@@ -106,12 +106,18 @@ class Trainer:
         """
         if self._xcfg is not None and self._xcfg.benchmark is not None:
             return self._xcfg.run_config()
-        spec = getattr(dataset, "benchmark_spec", None) if dataset is not None else None
-        if spec is None or self.evolvee.spec.model is None:
+        if dataset is None or self.evolvee.spec.model is None:
             return None
-        return self._derive_run_config(spec)
+        spec = getattr(dataset, "benchmark_spec", None)
+        specs = list(getattr(dataset, "benchmark_specs", None) or [])
+        if spec is None and not specs:
+            return None
+        # A mixture has no single ``benchmark_spec`` (it has several), so derive from the
+        # plural and let the RunConfig carry the whole list. Without this the mixture path
+        # resolves to no benchmark and the algorithm refuses to score anything.
+        return self._derive_run_config(spec or specs[0], specs=specs)
 
-    def _derive_run_config(self, benchmark_spec: Any) -> RunConfig:
+    def _derive_run_config(self, benchmark_spec: Any, *, specs: list[Any] | None = None) -> RunConfig:
         """Build a :class:`RunConfig` from live objects (no YAML): the evolvee's model/source, the
         dataset's benchmark, and the trainer's runtime. The specs mirror the config models
         field-for-field, so this is the inverse of ``*.to_spec()`` (dropping ``AgentSource.root``,
@@ -126,10 +132,18 @@ class Trainer:
         if ev.source is not None:
             keep = ("repo", "ref", "entrypoint", "metadata")
             source = AgentSourceConfig(**{k: v for k, v in dc.asdict(ev.source).items() if k in keep})
+        primary = BenchmarkConfig(**dc.asdict(benchmark_spec))
+        mixture = None
+        if specs and len(specs) > 1:
+            # Primary first: RunConfig requires it, so a mixture-unaware reader of
+            # ``.benchmark`` still sees a benchmark that is actually being run.
+            rest = [s for s in specs if s is not benchmark_spec]
+            mixture = [primary] + [BenchmarkConfig(**dc.asdict(s)) for s in rest]
         return RunConfig(
             model=ModelConfig(**dc.asdict(ev.model)),
             agent=AgentConfig(name=ev.name, config=dict(ev.config or {}), source=source),
-            benchmark=BenchmarkConfig(**dc.asdict(benchmark_spec)),
+            benchmark=primary,
+            benchmarks=mixture,
             runtime=RuntimeConfig(**dict(self.config.get("runtime") or {"kind": "local"})),
             parallelism=int(self.config.get("parallelism", 1)),
         )

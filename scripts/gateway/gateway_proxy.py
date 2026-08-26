@@ -25,8 +25,8 @@ Usage
 On your **laptop** (which can reach the gateway):
 
     export LLM_GATEWAY_EXPRESS_API_KEY_LIST="key-1,key-2,key-3"   # or _API_KEY
-    python3 scripts/gateway/gateway_proxy.py serve --remote hyperpod-compute
-    # or the wrapper:  scripts/gateway/laptop.sh hyperpod-compute
+    python3 scripts/gateway/gateway_proxy.py serve --remote my-remote
+    # or the wrapper:  scripts/gateway/laptop.sh my-remote
 
 `--remote` is any `ssh` target / config alias. It starts the relay, opens the tunnel
 (auto-reconnecting, same URL preserved), and prints the env to set on the cluster.

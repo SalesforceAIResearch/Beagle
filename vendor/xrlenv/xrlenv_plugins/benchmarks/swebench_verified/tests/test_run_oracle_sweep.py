@@ -250,6 +250,28 @@ def test_run_with_retries_does_not_retry_content_failure(monkeypatch: pytest.Mon
     mock.assert_called_once()  # no retry
 
 
+def test_session_reaped_is_infra_retried() -> None:
+    """A platform teardown is infra, not a content result.
+
+    ``SessionReaped`` means the control plane destroyed the session out from
+    under a running trial — a stalled consumer past the quarantine horizon, a
+    lost node, a deadline. The rollout's work never failed, so recording
+    ``resolved=False`` would be a false negative in the eval, not a bad model.
+
+    This was a real gap: the error is declared ``retryable = True``, but nothing
+    reads that attribute — the gate a harness actually consults is this literal
+    string set, matched on ``type(exc).__name__`` (see ``_infra_kind`` /
+    ``_record_op_failure`` in ``xrlenv/compat/docker_client.py``). The flag was
+    decorative until the name was added here, so this test guards the thing that
+    actually decides.
+    """
+    from xrlenv_plugins.benchmarks.swebench_verified.run_oracle_sweep import (
+        _INFRA_RETRY_EXCEPTIONS,
+    )
+
+    assert "SessionReaped" in _INFRA_RETRY_EXCEPTIONS
+
+
 def test_run_with_retries_retries_capacity_exhausted(monkeypatch: pytest.MonkeyPatch) -> None:
     """CapacityExhausted is in _INFRA_RETRY_EXCEPTIONS → retry is attempted."""
     assert "CapacityExhausted" in _INFRA_RETRY_EXCEPTIONS

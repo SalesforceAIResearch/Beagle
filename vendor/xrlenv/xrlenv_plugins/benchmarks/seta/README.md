@@ -21,7 +21,7 @@ image-prep step is a build (`context_source: type: git`), not a warm-only pull.
 |---|---|
 | `build_cache.py` | Populate the cache (clone `camel-ai/seta-env`) **and** write the DinD sysbox routing markers — `--stage all` (default), idempotent |
 | `build_plan_gen.py` | Emit the `type: git` image build plan (one entry per `Harbor-Dataset/<id>/environment`) |
-| `build_plan.yaml`, `build_plan_1376_full.yaml` | Committed build plans (16-task starter; full 1376-task set) |
+| `build_plan.yaml`, `build_plan_1376_full.yaml` | Committed build plans (16-task starter; full 1376-task set). The full set's `type: local` entries use `<XRLENV_BENCHMARK_CACHE>` path placeholders — pass `--cache-root` to `build_plan_gen.py` (below) to materialize real absolute paths |
 | `black_list.txt` | Excluded task ids — **build-unbuildable** (5) **+ runtime-excluded** (86, reasons inline); the single exclusion source honored by the generator, the sweep, and `run_full_sweep.sh`. Root-cause + fix-status: `STATUS.md` |
 | `patches/` | Curated migration-repair overlays applied by `--stage all` (§1.1); `patches/README.md` |
 | `run_oracle_sweep.py` | Oracle sweep on local Docker (`--local`) or the xrlenv cluster (default); `reward > 0` PASS/FAIL gate |
@@ -49,7 +49,7 @@ re-apply), so it's safe to re-run — seta lives in its own `seta-env/` shard of
 same `XRLENV_BENCHMARK_CACHE`, so it never collides with terminal-bench-2.
 
 ```bash
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 .venv/bin/python xrlenv_plugins/benchmarks/seta/build_cache.py      # --stage all (default)
 ```
 
@@ -179,14 +179,15 @@ The generator skips them all (`--no-blacklist` keeps them):
 ```bash
 # Generate the plan. --starter = committed 16-task set; --range '0-1375' / --remote
 # (all Harbor-Dataset tasks via the GitHub Trees API) for more. The full 1376-task
-# plan is committed as build_plan_1376_full.yaml. --cache-root is REQUIRED for the
+# plan is committed as build_plan_1376_full.yaml with <XRLENV_BENCHMARK_CACHE> path
+# placeholders; regenerate to materialize real paths. --cache-root is REQUIRED for the
 # base-restore tasks (§1.3) — without it they emit type: git (unrestored, still fail).
 .venv/bin/python -m xrlenv_plugins.benchmarks.seta.build_plan_gen \
     --range 0-1375 --cache-root "$XRLENV_BENCHMARK_CACHE" \
     --output xrlenv_plugins/benchmarks/seta/build_plan_1376_full.yaml
 ```
 
-**Build + push.** The shared `scripts/build_and_push_images.py` consumes the plan:
+**Build + push.** The shared `deploy/registry/build_and_push_images.py` consumes the plan:
 `type: git` entries clone `{repo, ref}` once (shared FSx `build-context-cache`) and
 build `subdir/Dockerfile`; `type: local` entries (the base-restore set) build the
 cache Dockerfile in place; both push to `<registry>/seta-env/<id>:main`. It HEADs
@@ -200,7 +201,7 @@ source .env
 # pre-requisite:  private registry to insecure-registries has been setup; should be taken care of if the cluster has been set up correctly
 # on a worker node
 #  build + push (--force to overwrite the old base-broken images):
-.venv/bin/python scripts/build_and_push_images.py \
+.venv/bin/python deploy/registry/build_and_push_images.py \
     --plan xrlenv_plugins/benchmarks/seta/build_plan_1376_full.yaml \
     --registry "${XRLENV_PRIVATE_REGISTRY_HOST}:${XRLENV_PRIVATE_REGISTRY_PORT}" \
     --registry-scheme http --force
@@ -233,7 +234,7 @@ If you want to build a selected number of tasks, you can use the following comma
 # on a build host
 source .env
 # pre-requisite:  private registry to insecure-registries has been setup; should be taken care of if the cluster has been set up correctly
-.venv/bin/python scripts/build_and_push_images.py \
+.venv/bin/python deploy/registry/build_and_push_images.py \
     --plan ./tmp/seta_baseimg_plan.yaml \
     --registry "${XRLENV_PRIVATE_REGISTRY_HOST}:${XRLENV_PRIVATE_REGISTRY_PORT}" \
     --registry-scheme http --force

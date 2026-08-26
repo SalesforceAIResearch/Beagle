@@ -334,7 +334,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default="{address}",
         help=(
             "Address template. Fields: {hostname}, {address}; {address} "
-            "converts AWS node-host hostnames to internal-ip. "
+            "converts AWS ip-10-0-0-1 hostnames to 10.0.0.1. "
             "Default: {address}."
         ),
     )
@@ -363,8 +363,8 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="HOSTNAME_OR_ID",
         help=(
             "Mark a node as a Sysbox-pool member (repeat for multiple); "
-            "matches the raw hostname (node-host) or the generated id "
-            "(aws-node-host). Emits 'sysbox: true' on that entry. Pool "
+            "matches the raw hostname (ip-10-0-0-1) or the generated id "
+            "(aws-ip-10-0-0-1). Emits 'sysbox: true' on that entry. Pool "
             "markers already in the destination file are preserved across "
             "regeneration even without this flag."
         ),
@@ -747,6 +747,56 @@ def _build_parser() -> argparse.ArgumentParser:
              "to saturate idle nodes (e.g. 3 nodes x 64 ~= 192).",
     )
 
+    build_push = build_sub.add_parser(
+        "push",
+        help=(
+            "Build a plan's git/tarball images across the fleet and PUSH them "
+            "to the private registry (build-once, fleet-wide). The native "
+            "replacement for the Slurm build_and_push_images.sh fan-out: the "
+            "control plane size-shards the plan across the connected nodes and "
+            "re-runs skip already-pushed refs. Requires --connect-host."
+        ),
+    )
+    build_push.add_argument(
+        "--plan", required=True,
+        help="Path to a build-plan.yaml (git/tarball source entries).",
+    )
+    build_push.add_argument(
+        "--registry", required=True,
+        help="Target registry host:port (usually the private registry :5011). "
+             "Bare plan image_refs are qualified as <registry>/<ref>.",
+    )
+    build_push.add_argument(
+        "--connect-host", required=True, dest="connect_host",
+        help="Admin host of the running control plane that owns the fleet.",
+    )
+    build_push.add_argument(
+        "--connect-port", type=int, default=8080, dest="connect_port",
+        help="Admin server port (default 8080; matches xrlenv up).",
+    )
+    build_push.add_argument(
+        "--operator-token", default=None, dest="operator_token",
+        help="Operator-role bearer token for the admin API (defaults to "
+             "$XRLENV_OPERATOR_TOKEN or $XRLENV_HOME/secrets/operator.token).",
+    )
+    build_push.add_argument(
+        "--concurrency", type=int, default=None, dest="concurrency",
+        help="Max in-flight build+push dispatches across the fleet.",
+    )
+    build_push.add_argument(
+        "--build-tarball-max-bytes", type=int, default=None,
+        dest="build_tarball_max_bytes",
+        help="Cap on tarball-source build-context size (default 100 MB).",
+    )
+    build_push.add_argument(
+        "--dry-run", action="store_true",
+        help="Print the shard (which node builds what) without dispatching.",
+    )
+    build_push.add_argument(
+        "--force", action="store_true",
+        help="Rebuild + re-push even refs already present in the registry.",
+    )
+
     build_status = build_sub.add_parser(
         "status",
         help=(
@@ -1121,6 +1171,11 @@ def main(argv: list[str] | None = None) -> int:
         log_max_bytes=getattr(args, "log_max_bytes", 50 * 1024 * 1024),
         log_backup_count=getattr(args, "log_backup_count", 10),
         stdout_level=getattr(args, "stdout_log_level", None),
+        # Only the long-running control-plane daemon drains its file firehose on
+        # a background listener thread, so a stalled log filesystem can never
+        # block the asyncio event loop (2026-08-21). One-shot subcommands keep
+        # the simple synchronous handler (no listener thread, no flush race).
+        queue_file_writes=(getattr(args, "cmd", None) == "up"),
     )
 
     # The `fairshare` subcommands redefine `--state-db` (so it can be given
@@ -1304,6 +1359,21 @@ def main(argv: list[str] | None = None) -> int:
             connect_host=args.connect_host,
             connect_port=args.connect_port,
             operator_token=args.operator_token,
+            out=sys.stdout,
+        )
+    if args.cmd == "build" and args.build_cmd == "push":
+        from xrlenv.cli.commands import cmd_build_push
+
+        return cmd_build_push(
+            plan_path=Path(args.plan).expanduser(),
+            registry=args.registry,
+            connect_host=args.connect_host,
+            connect_port=args.connect_port,
+            operator_token=args.operator_token,
+            dry_run=args.dry_run,
+            force=args.force,
+            tarball_max_bytes=args.build_tarball_max_bytes,
+            concurrency=args.concurrency,
             out=sys.stdout,
         )
     if args.cmd == "tokens" and args.tokens_cmd == "issue":

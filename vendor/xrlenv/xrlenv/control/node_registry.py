@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import math
 import time
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
@@ -177,6 +178,10 @@ class NodeRegistry:
         disconnect_grace_s: float = 60.0,
         check_interval_s: float = 5.0,
         state: StateStore | None = None,
+        blackout_threshold_s: float | None = None,
+        mass_loss_fraction: float = 0.5,
+        mass_loss_min_fleet: int = 3,
+        on_mass_loss: Callable[[int, int], None] | None = None,
     ) -> None:
         self._on_node_lost = on_node_lost
         # Does the loss handler accept a 2nd (transport) arg? (H11) — inspected once so the
@@ -192,6 +197,31 @@ class NodeRegistry:
         # (`xrlenv nodes`, future admin RPC clients) can see who's
         # currently attached without going through gRPC.
         self._state = state
+        # ── Stall-aware eviction (2026-08-21) ────────────────────────────
+        # ``last_heartbeat_at`` is refreshed by the gRPC reader loop on the
+        # SAME event loop as this watchdog. If that loop is blocked (a
+        # synchronous-I/O stall on the loop thread), no heartbeats are
+        # processed and every node's timestamp goes stale purely because of
+        # OUR blackout — not node death. Evicting on the first sweep after
+        # the loop thaws false-marks the whole fleet lost (the outage this
+        # guards). ``_last_tick`` lets a sweep notice it ran far later than
+        # its cadence (⇒ a blackout) and open a fresh grace window
+        # (``_resume_deadline``) before evicting anyone. A single sweep that
+        # would evict a large fraction of the fleet trips the same deferral
+        # (synchronized loss ⇒ CP-side). ``_post_stall_window_used`` bounds
+        # the deferral to ONE grace cycle per episode so a genuine
+        # fleet-wide outage is still eventually sealed.
+        self._blackout_threshold_s = (
+            blackout_threshold_s
+            if blackout_threshold_s is not None
+            else max(3.0 * check_interval_s, 0.5 * disconnect_grace_s)
+        )
+        self._mass_loss_fraction = mass_loss_fraction
+        self._mass_loss_min_fleet = mass_loss_min_fleet
+        self._on_mass_loss = on_mass_loss
+        self._last_tick: float | None = None
+        self._resume_deadline: float = 0.0
+        self._post_stall_window_used: bool = False
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -347,12 +377,84 @@ class NodeRegistry:
 
     async def _sweep(self) -> None:
         now = time.monotonic()
+        # ── Self-freeze (blackout) detection ─────────────────────────────
+        # If this watchdog ran far later than its cadence, the event loop was
+        # blocked (a synchronous-I/O stall on the loop thread) and could not
+        # process heartbeats while frozen — so every node now looks stale
+        # because of OUR blackout, not node death. Grant a fresh grace window
+        # before evicting anyone; live nodes heartbeat every few seconds and
+        # refresh well within it, so only genuinely-dead nodes remain stale
+        # once it closes.
+        last_tick = self._last_tick
+        self._last_tick = now
+        if last_tick is not None and (now - last_tick) > self._blackout_threshold_s:
+            self._resume_deadline = now + self._grace
+            self._post_stall_window_used = True
+            LOGGER.critical(
+                "node-registry: watchdog resumed after a %.1fs gap (cadence "
+                "%.1fs) — a control-plane stall, not node death. Deferring "
+                "heartbeat eviction for %.0fs so live nodes re-prove liveness.",
+                now - last_tick, self._interval, self._grace,
+            )
+
         # Snapshot (node_id, transport) so a node that reconnects under the same id BETWEEN the
         # snapshot and processing isn't torn down by the stale generation (audit H11).
-        lost: list[tuple[str, _Heartbeating]] = []
-        for node_id, transport in list(self._transports.items()):
-            if now - transport.last_heartbeat_at > self._grace:
-                lost.append((node_id, transport))
+        lost: list[tuple[str, _Heartbeating]] = [
+            (node_id, transport)
+            for node_id, transport in list(self._transports.items())
+            if now - transport.last_heartbeat_at > self._grace
+        ]
+
+        # Fleet healthy ⇒ arm the one-shot deferral for the next episode.
+        if not lost:
+            self._post_stall_window_used = False
+            return
+
+        # ── Post-stall grace window ──────────────────────────────────────
+        # While a fresh window (opened by a blackout or a mass-loss deferral)
+        # is open, withhold eviction entirely — this IS the nodes' chance to
+        # re-prove liveness.
+        if now < self._resume_deadline:
+            LOGGER.warning(
+                "node-registry: %d node(s) still stale inside the post-stall "
+                "grace window; withholding eviction (self-heal).", len(lost),
+            )
+            return
+
+        # ── Mass-loss circuit breaker ────────────────────────────────────
+        # A single sweep that would evict a large fraction of the fleet at
+        # once is almost always a control-plane-side blackout we did not
+        # otherwise catch (synchronized loss ⇒ CP-side, never per-node).
+        # Defer ONE grace cycle rather than wipe the fleet — but only once
+        # per episode (``_post_stall_window_used``), so a genuine fleet-wide
+        # outage that persists past the window is still sealed.
+        registered = len(self._transports)
+        is_mass = (
+            registered >= self._mass_loss_min_fleet
+            and len(lost) >= max(2, math.ceil(self._mass_loss_fraction * registered))
+        )
+        if is_mass and not self._post_stall_window_used:
+            self._post_stall_window_used = True
+            self._resume_deadline = now + self._grace
+            LOGGER.critical(
+                "node-registry: %d/%d nodes crossed heartbeat grace in ONE sweep "
+                "— suspected control-plane-side stall (not fleet death). Deferring "
+                "eviction one grace cycle (mass-loss circuit breaker).",
+                len(lost), registered,
+            )
+            if self._on_mass_loss is not None:
+                try:
+                    self._on_mass_loss(len(lost), registered)
+                except Exception:
+                    LOGGER.exception("node-registry: on_mass_loss hook raised")
+            return
+        if is_mass:
+            LOGGER.critical(
+                "node-registry: %d/%d nodes STILL stale after the post-stall grace "
+                "window — accepting the mass loss as real and evicting.",
+                len(lost), registered,
+            )
+
         for node_id, transport in lost:
             # Only act if THIS transport is still the registered one — a replacement that
             # reconnected in the meantime must be left alone.

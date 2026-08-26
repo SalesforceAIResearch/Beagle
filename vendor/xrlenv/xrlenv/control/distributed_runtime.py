@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, SkipValidation
 import xrlenv
 from xrlenv import paths
 from xrlenv.api._pb2 import node_control_pb2_grpc as pb_grpc
-from xrlenv.api.constants import GRPC_CHANNEL_OPTIONS
+from xrlenv.api.constants import GRPC_SERVER_OPTIONS
 from xrlenv.control.admission import AdmissionQueue
 from xrlenv.control.auth_interceptor import BearerScopeInterceptor
 from xrlenv.control.build_coordinator import BuildCoordinator
@@ -121,6 +121,8 @@ class DistributedRuntime(BaseModel):
     raw_gc_reconciler: SkipValidation[Any] = None  # RawGCReconciler | None — P1.7.A.2
     aimd_loop: SkipValidation[Any] = None  # AimdControlLoop | None — Stage-3 P1
     wal_checkpointer: SkipValidation[Any] = None  # WalCheckpointer | None
+    loop_monitor: SkipValidation[Any] = None  # LoopLagMonitor | None — 2026-08-21
+    control_keepalive: SkipValidation[Any] = None  # ControlKeepaliveLoop | None
     # Type is ``Any`` so Pydantic v2 doesn't need to resolve
     # ``AdminServer`` at model-class-creation time (see TYPE_CHECKING note
     # above). Validation is already skipped via ``SkipValidation``;
@@ -157,6 +159,10 @@ class DistributedRuntime(BaseModel):
             await self.aimd_loop.start()
         if self.wal_checkpointer is not None:
             await self.wal_checkpointer.start()
+        if self.loop_monitor is not None:
+            await self.loop_monitor.start()
+        if self.control_keepalive is not None:
+            await self.control_keepalive.start()
         if self.admin_server is not None:
             self.admin_server.start()
 
@@ -204,6 +210,10 @@ class DistributedRuntime(BaseModel):
             await self.aimd_loop.shutdown()
         if self.wal_checkpointer is not None:
             await self.wal_checkpointer.shutdown()
+        if self.loop_monitor is not None:
+            await self.loop_monitor.shutdown()
+        if self.control_keepalive is not None:
+            await self.control_keepalive.shutdown()
         await self.registry.shutdown()
         # Node↔control streams are long-lived bidi RPCs that never close
         # on their own, so when this grace window expires grpc-aio
@@ -621,6 +631,7 @@ async def build_distributed_runtime(
 
     metrics_registry = metrics or MetricsRegistry()
     admission = AdmissionQueue(scheduler=scheduler, state=state, metrics=metrics_registry)
+    from xrlenv.control.scratch_build import scratch_registry_host_from_env
     coordinator = RolloutCoordinator(
         catalog=catalog,
         scheduler=scheduler,
@@ -628,6 +639,7 @@ async def build_distributed_runtime(
         trajectory_sink=sink,
         admission=admission,
         metrics=metrics_registry,
+        scratch_registry_host=scratch_registry_host_from_env(),
     )
     # Crash-recovery sweep: see runtime.py for the rationale. Runs
     # before the gRPC server accepts the first node connection so
@@ -684,6 +696,7 @@ async def build_distributed_runtime(
             )
     raw_container_coordinator = RawContainerCoordinator(
         scheduler=scheduler, state=state, kwargs_policy=_kwargs_policy,
+        metrics=metrics_registry,
         # Issue #18 fix #1: route raw acquires through the admission
         # queue so ``CapacityExhausted`` blocks (up to the queue
         # timeout) instead of cascading ``RESOURCE_EXHAUSTED`` errors
@@ -765,11 +778,37 @@ async def build_distributed_runtime(
         # calling us (identity-conditional deregister), and passes it here so the raw seal is
         # scoped to that exact generation — a reconnected replacement's sessions are untouched.
         scheduler.remove_node(node_id)
+        # Self-heal (2026-08-21): actively CLOSE the lost node's control
+        # stream so it reconnects and re-registers. Deregistering from the
+        # in-memory registry (done by the watchdog before it calls us) does
+        # NOT break the live bidi stream — the node keeps a half-open
+        # connection whose HTTP/2 keepalive is still answered, so it never
+        # sees an error and never redials, staying ``lost`` indefinitely.
+        # ``request_terminate`` makes the servicer end the stream; the
+        # node's reconnect loop then dials a fresh one. Guarded on
+        # ``transport`` (the watchdog always passes the exact stale stream;
+        # a legacy 1-arg loss handler would pass None).
+        if transport is not None:
+            transport.request_terminate("heartbeat-grace exceeded")
         await _handle_node_lost_all(node_id, transport)
+
+    def _on_mass_loss(lost: int, registered: int) -> None:
+        # The watchdog deferred a would-be fleet-wide eviction (suspected
+        # control-plane-side stall). Bump a metric + emit an operator-facing
+        # ALERT line so this surfaces in seconds rather than a 13-h outage.
+        metrics_registry.nodes_mass_loss_deferred_total.inc()
+        LOGGER.critical(
+            "ALERT: node watchdog deferred a mass eviction (%d/%d nodes stale "
+            "in one sweep) — suspected control-plane stall. Check "
+            "xrlenv_control_loop_lag_seconds and the overview 'nodes lost' "
+            "count; do NOT restart the fleet before confirming a CP-side cause.",
+            lost, registered,
+        )
 
     registry = NodeRegistry(
         on_node_lost=_on_node_lost,
         state=state,
+        on_mass_loss=_on_mass_loss,
     )
     # Strong refs to background "seal on disconnect" tasks so the GC does not
     # reap them mid-flight (RUF006). Cleared as each task completes.
@@ -914,7 +953,7 @@ async def build_distributed_runtime(
     # channel/server so PutArchiveCommand's verifier-asset tarballs
     # don't hit gRPC's 4 MB default ceiling at remote rollout time.
     grpc_server = grpc.aio.server(
-        interceptors=interceptors, options=GRPC_CHANNEL_OPTIONS,
+        interceptors=interceptors, options=GRPC_SERVER_OPTIONS,
     )
     pb_grpc.add_NodeControlServicer_to_server(
         NodeControlServicer(
@@ -1037,6 +1076,41 @@ async def build_distributed_runtime(
             return ("failed", error or status)
         return ("ok", None)
 
+    async def _distributed_build_push(
+        node_id: str, image_ref: str, source: Any,
+        timeout_s: float, labels: dict[str, str],
+    ) -> tuple[str, str | None, str | None]:
+        # Source-build-AND-push dispatch hook (``xrlenv build push``): ship a
+        # ``BuildImageCommand`` with push=true so the node builds image_ref and
+        # pushes it to the registry the ref encodes, returning the pushed digest
+        # for the coordinator's pin plan. Registry-HEAD skip is implied node-side
+        # (build-once fleet-wide, resumable).
+        transport = registry.get(node_id)
+        if transport is None:
+            return ("failed", f"node {node_id!r} has no live transport", None)
+        build_and_push = getattr(transport, "build_and_push_image", None)
+        if build_and_push is None:
+            return (
+                "failed",
+                f"node {node_id!r} transport missing build_and_push_image; "
+                "this control plane is older than its remote nodes",
+                None,
+            )
+        try:
+            result = await build_and_push(
+                image_ref=image_ref, source=source,
+                timeout_s=timeout_s, labels=labels,
+            )
+        except Exception as exc:
+            kind = "timeout" if _is_wire_timeout(exc) else "failed"
+            return (kind, f"{type(exc).__name__}: {exc}", None)
+        if isinstance(result, tuple) and len(result) == 3:
+            status, error, repo_digest = result
+            if status == "ok":
+                return ("ok", None, repo_digest)
+            return ("failed", error or status, None)
+        return ("failed", "build_and_push_image returned unexpected shape", None)
+
     async def _distributed_free_disk(node_id: str) -> tuple[int, int] | None:
         # Disk-aware build pacing: return the node's heartbeat-cached
         # ``(free, total)`` so the coordinator throttles dispatch before a
@@ -1063,6 +1137,7 @@ async def build_distributed_runtime(
         inventory_provider=_budget_provider,
         ensure_present_fn=_distributed_ensure_present,
         build_image_fn=_distributed_build_image,
+        build_push_fn=_distributed_build_push,
         free_disk_fn=_distributed_free_disk,
     )
 
@@ -1162,6 +1237,7 @@ async def build_distributed_runtime(
             registry=registry,
             coordinator=raw_container_coordinator,
             interval_s=gc_reconcile_interval_s,
+            metrics=metrics_registry,
             # Issue #18 fix #3: pass the StateStore so the reconciler
             # can sweep ghost ``raw_rollouts`` rows (rows in
             # ``acquiring`` / ``running`` whose in-memory session
@@ -1193,6 +1269,29 @@ async def build_distributed_runtime(
             state=state, interval_s=_ckpt_interval_s,
         )
 
+    # Event-loop stall detector (2026-08-21). Surfaces a loop freeze — the
+    # thing that lets a synchronous-I/O hiccup false-mark the fleet lost —
+    # within seconds via a loud log + metric, so an operator learns of it long
+    # before a 13-h outage. Detection only; the watchdog itself refuses to
+    # mass-evict after a stall.
+    from xrlenv.control.loop_monitor import LoopLagMonitor
+
+    _max_loop_lag = [0.0]
+
+    def _on_loop_stall(lag_s: float) -> None:
+        metrics_registry.control_loop_stalls_total.inc()
+        _max_loop_lag[0] = max(_max_loop_lag[0], lag_s)
+        metrics_registry.control_loop_lag_seconds.set(_max_loop_lag[0])
+
+    loop_monitor = LoopLagMonitor(on_stall=_on_loop_stall)
+
+    # CP→node keepalive so an idle-but-healthy control plane is distinguishable
+    # from one that has silently dropped a node — the node redials on keepalive
+    # silence (defense-in-depth behind ``request_terminate``).
+    from xrlenv.control.keepalive import ControlKeepaliveLoop
+
+    control_keepalive = ControlKeepaliveLoop(registry=registry)
+
     runtime = DistributedRuntime(
         state=state,
         catalog=catalog,
@@ -1213,6 +1312,8 @@ async def build_distributed_runtime(
         raw_gc_reconciler=raw_gc_reconciler,
         aimd_loop=aimd_loop,
         wal_checkpointer=wal_checkpointer,
+        loop_monitor=loop_monitor,
+        control_keepalive=control_keepalive,
         admin_server=admin,
     )
     runtime._node_connected = node_connected

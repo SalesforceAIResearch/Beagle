@@ -666,3 +666,306 @@ def test_resolved_instance_image_pin_mode_overrides_manifest() -> None:
     )
     overlaid_default = apply_to_manifest(manifest, resolved_default)
     assert overlaid_default.image_pin_mode == "per_node_local"
+
+
+# ── scratch-registry build-on-demand (image_build / scratch_build) ────────────
+# notes/scratch-registry-build-on-demand.md — slice 2a (control-plane manifest
+# support for bring-your-own-Dockerfile).
+
+
+def _write_manifest(tmp_path: Path, body: str) -> Path:
+    p = tmp_path / "manifest.yaml"
+    p.write_text(body)
+    return p
+
+
+def test_image_build_block_implies_scratch_build(tmp_path: Path) -> None:
+    """An ``image_build`` block sets ``image_pin_mode='scratch_build'``
+    without the author hand-editing the pin mode, and leaves ``image``
+    unset (the scratch ref is derived at first build)."""
+    path = _write_manifest(
+        tmp_path,
+        "name: byod\n"
+        'version: "0.1"\n'
+        "image_build:\n"
+        "  context: ./environment\n"
+        "  build_args: { FOO: bar }\n"
+        "env_adapter:\n"
+        "  module: m\n"
+        "  class: C\n"
+        "reward:\n"
+        "  mode: env_step\n",
+    )
+    manifest = load_manifest(path)
+    assert manifest.image_pin_mode == "scratch_build"
+    assert manifest.image is None
+    assert manifest.image_build is not None
+    # context is anchored to the manifest dir (absolute) at load time.
+    assert manifest.image_build.context == str((tmp_path / "environment").resolve())
+    assert manifest.image_build.build_args == {"FOO": "bar"}
+
+
+def test_image_build_git_variant(tmp_path: Path) -> None:
+    path = _write_manifest(
+        tmp_path,
+        "name: byod\n"
+        'version: "0.1"\n'
+        "image_build:\n"
+        "  git:\n"
+        "    repo: https://x/y\n"
+        "    ref: abc123\n"
+        "    subdir: env\n"
+        "env_adapter:\n"
+        "  module: m\n"
+        "  class: C\n"
+        "reward:\n"
+        "  mode: env_step\n",
+    )
+    manifest = load_manifest(path)
+    assert manifest.image_pin_mode == "scratch_build"
+    assert manifest.image_build is not None
+    assert manifest.image_build.git is not None
+    assert manifest.image_build.git.ref == "abc123"
+
+
+def test_image_build_conflicting_pin_mode_rejected(tmp_path: Path) -> None:
+    """An ``image_build`` block with an explicit non-scratch pin mode is a
+    contradiction the loader must reject."""
+    path = _write_manifest(
+        tmp_path,
+        "name: byod\n"
+        'version: "0.1"\n'
+        "image_pin_mode: per_node_local\n"
+        "image_build:\n"
+        "  context: ./environment\n"
+        "env_adapter:\n"
+        "  module: m\n"
+        "  class: C\n"
+        "reward:\n"
+        "  mode: env_step\n",
+    )
+    with pytest.raises(ManifestInvalid, match="scratch_build"):
+        load_manifest(path)
+
+
+def test_scratch_build_without_image_build_rejected(tmp_path: Path) -> None:
+    path = _write_manifest(
+        tmp_path,
+        "name: byod\n"
+        'version: "0.1"\n'
+        "image: some/ref:0.1\n"
+        "image_pin_mode: scratch_build\n"
+        "env_adapter:\n"
+        "  module: m\n"
+        "  class: C\n"
+        "reward:\n"
+        "  mode: env_step\n",
+    )
+    with pytest.raises(ManifestInvalid, match="image_build"):
+        load_manifest(path)
+
+
+def test_image_build_malformed_rejected(tmp_path: Path) -> None:
+    """context + git together is invalid (ImageBuildSpec requires exactly one)."""
+    path = _write_manifest(
+        tmp_path,
+        "name: byod\n"
+        'version: "0.1"\n'
+        "image_build:\n"
+        "  context: ./environment\n"
+        "  git:\n"
+        "    repo: https://x/y\n"
+        "env_adapter:\n"
+        "  module: m\n"
+        "  class: C\n"
+        "reward:\n"
+        "  mode: env_step\n",
+    )
+    with pytest.raises(ManifestInvalid, match="image_build"):
+        load_manifest(path)
+
+
+def test_register_skips_central_pinning_when_scratch_build() -> None:
+    """A ``scratch_build`` manifest is not centrally pinned at register time
+    (the manifest digest isn't known until the first build); the audit event
+    records ``digest_source='scratch'``."""
+    from xrlenv.backends.base import ResourceSpec
+    from xrlenv.control.template_catalog import (
+        EnvAdapterDecl,
+        RewardContract,
+        TemplateCatalog,
+        TemplateManifest,
+    )
+    from xrlenv.image_build import ImageBuildSpec
+
+    manifest = TemplateManifest(
+        name="byod",
+        version="0.1",
+        digest="sha256:" + "33" * 32,
+        image="scratchhost:5012/scratch/deadbeef",
+        image_build=ImageBuildSpec(context="./environment"),
+        image_pin_mode="scratch_build",
+        resources=ResourceSpec(
+            cpu_request=1.0, cpu_limit=1.0,
+            mem_request_bytes=1, mem_limit_bytes=1,
+            disk_request_bytes=1,
+        ),
+        env_adapter=EnvAdapterDecl(module="m", class_name="C"),
+        reward=RewardContract(mode="env_step"),
+    )
+
+    resolver_calls: list[str] = []
+    audit_calls: list[tuple[str, dict[str, object]]] = []
+    cat = TemplateCatalog(
+        digest_resolver=lambda image: (resolver_calls.append(image) or "sha256:" + "ff" * 32),
+        audit_callback=lambda k, p: audit_calls.append((k, p)),
+    )
+    registered = cat.register(manifest)
+
+    assert registered.image == "scratchhost:5012/scratch/deadbeef"  # no @sha256 rewrite
+    assert resolver_calls == []  # resolver never consulted
+    unpinned = [p for k, p in audit_calls if k == "template.image_unpinned"]
+    assert len(unpinned) == 1
+    assert unpinned[0]["image_pin_mode"] == "scratch_build"
+    assert unpinned[0]["digest_source"] == "scratch"
+
+
+# ── additional scratch_build / image_build tests ──────────────────────────────
+
+
+def test_image_build_explicit_scratch_build_pin_mode_accepted(tmp_path: Path) -> None:
+    """An ``image_build`` block paired with an *explicit*
+    ``image_pin_mode: scratch_build`` is redundant but valid: the loader
+    would default to scratch_build anyway, so an explicit matching
+    declaration must not be rejected as a conflict."""
+    path = _write_manifest(
+        tmp_path,
+        "name: byod\n"
+        'version: "0.1"\n'
+        "image_pin_mode: scratch_build\n"
+        "image_build:\n"
+        "  context: ./environment\n"
+        "env_adapter:\n"
+        "  module: m\n"
+        "  class: C\n"
+        "reward:\n"
+        "  mode: env_step\n",
+    )
+    manifest = load_manifest(path)
+    assert manifest.image_pin_mode == "scratch_build"
+    assert manifest.image_build is not None
+    assert manifest.image is None
+
+
+def test_scratch_build_image_none_register_does_not_call_resolver() -> None:
+    """The canonical scratch_build manifest has no ``image`` set (the
+    content-addressed scratch ref is unknown until the first build).
+    Registering such a manifest must NOT invoke the digest resolver and
+    must NOT emit ``template.image_unpinned`` — ``_maybe_pin_image`` short-
+    circuits at the ``image is None`` guard before reaching either path.
+    The ``template.registered`` event IS emitted with ``image=None``."""
+    from xrlenv.backends.base import ResourceSpec
+    from xrlenv.control.template_catalog import (
+        EnvAdapterDecl,
+        RewardContract,
+        TemplateCatalog,
+        TemplateManifest,
+    )
+    from xrlenv.image_build import ImageBuildSpec
+
+    manifest = TemplateManifest(
+        name="byod-no-image",
+        version="0.1",
+        digest="sha256:" + "55" * 32,
+        image=None,
+        image_build=ImageBuildSpec(context="./environment"),
+        image_pin_mode="scratch_build",
+        resources=ResourceSpec(
+            cpu_request=1.0, cpu_limit=1.0,
+            mem_request_bytes=1, mem_limit_bytes=1,
+            disk_request_bytes=1,
+        ),
+        env_adapter=EnvAdapterDecl(module="m", class_name="C"),
+        reward=RewardContract(mode="env_step"),
+    )
+
+    resolver_calls: list[str] = []
+    audit_calls: list[tuple[str, dict]] = []
+    cat = TemplateCatalog(
+        digest_resolver=lambda image: (resolver_calls.append(image) or "sha256:" + "ff" * 32),  # type: ignore[func-returns-value]
+        audit_callback=lambda k, p: audit_calls.append((k, p)),
+    )
+    registered = cat.register(manifest)
+
+    assert registered.image is None
+    assert resolver_calls == [], "resolver must not be called when image=None"
+    unpinned_kinds = [k for k, _ in audit_calls if k == "template.image_unpinned"]
+    assert unpinned_kinds == [], (
+        "template.image_unpinned must not fire when image=None (nothing to pin)"
+    )
+    registered_events = [p for k, p in audit_calls if k == "template.registered"]
+    assert len(registered_events) == 1
+    assert registered_events[0]["image"] is None
+    assert registered_events[0]["pinned_by_digest"] is False
+
+
+def test_image_build_non_dict_in_yaml_is_rejected(tmp_path: Path) -> None:
+    """``image_build: not_a_mapping`` in YAML must raise ManifestInvalid
+    with a message that names ``image_build``, not crash with an internal
+    Pydantic error.  The loader has an explicit isinstance check for this."""
+    path = _write_manifest(
+        tmp_path,
+        "name: byod\n"
+        'version: "0.1"\n'
+        "image_build: not_a_mapping\n"
+        "env_adapter:\n"
+        "  module: m\n"
+        "  class: C\n"
+        "reward:\n"
+        "  mode: env_step\n",
+    )
+    with pytest.raises(ManifestInvalid, match="image_build"):
+        load_manifest(path)
+
+
+def test_image_build_relative_context_anchored_to_manifest_dir(tmp_path: Path) -> None:
+    """A relative image_build.context is resolved to an absolute path against
+    the manifest's directory at load time, so the scratch build finds it
+    regardless of the process CWD."""
+    sub = tmp_path / "bench"
+    (sub / "environment").mkdir(parents=True)
+    (sub / "environment" / "Dockerfile").write_text("FROM busybox\n")
+    path = sub / "manifest.yaml"
+    path.write_text(
+        "name: byod\n"
+        'version: "0.1"\n'
+        "image_build:\n"
+        "  context: ./environment\n"
+        "env_adapter:\n"
+        "  module: m\n"
+        "  class: C\n"
+        "reward:\n"
+        "  mode: env_step\n",
+    )
+    manifest = load_manifest(path)
+    assert manifest.image_build is not None
+    assert manifest.image_build.context == str((sub / "environment").resolve())
+
+
+def test_image_build_absolute_context_left_unchanged(tmp_path: Path) -> None:
+    abs_ctx = str((tmp_path / "already" / "abs").resolve())
+    path = tmp_path / "manifest.yaml"
+    path.write_text(
+        "name: byod\n"
+        'version: "0.1"\n'
+        "image_build:\n"
+        f"  context: {abs_ctx}\n"
+        "env_adapter:\n"
+        "  module: m\n"
+        "  class: C\n"
+        "reward:\n"
+        "  mode: env_step\n",
+    )
+    manifest = load_manifest(path)
+    assert manifest.image_build is not None
+    assert manifest.image_build.context == abs_ctx

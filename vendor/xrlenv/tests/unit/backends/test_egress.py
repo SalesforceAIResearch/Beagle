@@ -26,12 +26,12 @@ _REJECT6 = ["-A", "OUTPUT", "-j", "REJECT", "--reject-with", "icmp6-adm-prohibit
 
 
 def test_rule_cidr_only_and_with_ports() -> None:
-    assert EgressRule(cidr="internal-ip/8").ports is None
-    assert EgressRule(cidr="internal-ip/8", ports=(443, 8443)).ports == (443, 8443)
+    assert EgressRule(cidr="10.0.0.0/8").ports is None
+    assert EgressRule(cidr="10.0.0.0/8", ports=(443, 8443)).ports == (443, 8443)
 
 
 def test_rule_tolerates_host_bits() -> None:
-    assert EgressRule(cidr="internal-ip/8").cidr == "internal-ip/8"
+    assert EgressRule(cidr="10.0.0.5/8").cidr == "10.0.0.5/8"
 
 
 def test_rule_rejects_invalid_cidr() -> None:
@@ -46,9 +46,9 @@ def test_rule_rejects_ipv6() -> None:
 
 def test_rule_rejects_bad_ports() -> None:
     with pytest.raises(ValidationError, match="out of range"):
-        EgressRule(cidr="internal-ip/8", ports=(0,))
+        EgressRule(cidr="10.0.0.0/8", ports=(0,))
     with pytest.raises(ValidationError, match="multiport"):
-        EgressRule(cidr="internal-ip/8", ports=tuple(range(1, 17)))
+        EgressRule(cidr="10.0.0.0/8", ports=tuple(range(1, 17)))
 
 
 def test_empty_allowlist_is_valid() -> None:
@@ -73,7 +73,7 @@ def test_empty_allowlist_blocks_all() -> None:
 
 def test_no_broad_established_accept() -> None:
     # Strict: a flow opened before the restriction is NOT blanket-allowed.
-    prog = compile_egress_rules(EgressAllowlist(rules=(EgressRule(cidr="internal-ip/8"),)))
+    prog = compile_egress_rules(EgressAllowlist(rules=(EgressRule(cidr="10.0.0.0/8"),)))
     assert not any("conntrack" in r or "ESTABLISHED,RELATED" in r for r in prog.v4)
 
 
@@ -86,11 +86,11 @@ def test_metadata_dropped_before_accepts() -> None:
 
 def test_ports_emit_tcp_udp_multiport() -> None:
     prog = compile_egress_rules(
-        EgressAllowlist(rules=(EgressRule(cidr="internal-ip/8", ports=(443,)),)),
+        EgressAllowlist(rules=(EgressRule(cidr="10.0.0.0/8", ports=(443,)),)),
     )
     for proto in ("tcp", "udp"):
         assert [
-            "-A", "OUTPUT", "-p", proto, "-d", "internal-ip/8",
+            "-A", "OUTPUT", "-p", proto, "-d", "10.0.0.0/8",
             "-m", "multiport", "--dports", "443", "-j", "ACCEPT",
         ] in prog.v4
 
@@ -98,31 +98,31 @@ def test_ports_emit_tcp_udp_multiport() -> None:
 def test_dns_resolver_validated_in_pure_path() -> None:
     # M1 (audit): a malformed / IPv6 resolver fails at compile, before any
     # container is touched — not mid-nsenter after a partial apply.
-    al = EgressAllowlist(rules=(EgressRule(cidr="internal-ip/8"),))
+    al = EgressAllowlist(rules=(EgressRule(cidr="10.0.0.0/8"),))
     with pytest.raises(ValueError, match="invalid dns_resolver"):
         compile_egress_rules(al, dns_resolver="not-an-ip")
     with pytest.raises(ValueError, match="IPv6"):
         compile_egress_rules(al, dns_resolver="2001:db8::1")
     # A valid v4 resolver compiles fine.
-    compile_egress_rules(al, dns_resolver="internal-ip/32")
+    compile_egress_rules(al, dns_resolver="10.0.0.2/32")
 
 
 def test_dns_resolver_opens_53_only_when_given() -> None:
-    without = compile_egress_rules(EgressAllowlist(rules=(EgressRule(cidr="internal-ip/8"),)))
+    without = compile_egress_rules(EgressAllowlist(rules=(EgressRule(cidr="10.0.0.0/8"),)))
     assert not any("53" in r for r in without.v4)
     withdns = compile_egress_rules(
-        EgressAllowlist(rules=(EgressRule(cidr="internal-ip/8"),)),
-        dns_resolver="internal-ip/32",
+        EgressAllowlist(rules=(EgressRule(cidr="10.0.0.0/8"),)),
+        dns_resolver="10.0.0.2/32",
     )
     for proto in ("udp", "tcp"):
         assert [
-            "-A", "OUTPUT", "-p", proto, "-d", "internal-ip/32",
+            "-A", "OUTPUT", "-p", proto, "-d", "10.0.0.2/32",
             "--dport", "53", "-j", "ACCEPT",
         ] in withdns.v4
 
 
 def test_v6_locked_down() -> None:
-    prog = compile_egress_rules(EgressAllowlist(rules=(EgressRule(cidr="internal-ip/8"),)))
+    prog = compile_egress_rules(EgressAllowlist(rules=(EgressRule(cidr="10.0.0.0/8"),)))
     assert prog.v6[0] == ["-F", "OUTPUT"]
     assert ["-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"] in prog.v6
     assert not any(r[-1] == "ACCEPT" and "-d" in r for r in prog.v6)

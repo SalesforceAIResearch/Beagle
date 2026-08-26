@@ -353,7 +353,7 @@ a slow cache rebuild. See `xrlenv_plugins/benchmarks/tests/integration/README.md
   # BUILD branch — upstream ships NO image: build_plan_gen emits type: git
   #   (built node-side from the upstream Dockerfile — seta) or type: local
   #   (built from the shard Dockerfile + pushed to the :5011 PRIVATE registry via
-  #   scripts/build_and_push_images.py — terminalworld). Give the build+push
+  #   deploy/registry/build_and_push_images.py — terminalworld). Give the build+push
   #   command sequence. Any IMAGE-level fix carried from §1 is (re)built + pushed
   #   here. A benchmark may MIX (lhtb: most registry, 6 local rebuilds).
 
@@ -411,8 +411,8 @@ invoke the `qa-test-engineer` agent once the four files stabilize.
 The canonical sequence, all from the repo root:
 
 ```bash
-# 0) point at the shared cache (one shared root across all benchmarks)
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+# 0) the shared cache root (one shared root across all benchmarks) —
+#    XRLENV_BENCHMARK_CACHE is read from .env, see .env.example
 
 # 1) build the cache: download + normalize [+ patch]
 .venv/bin/python xrlenv_plugins/benchmarks/<name>/build_cache.py --stage all
@@ -485,7 +485,7 @@ the docker layer cache keeps wall-clock low.
 |---|---|---|---|
 | `registry` | task ships a **prebuilt** image ref | node-side `docker pull` (warm only, nothing built) | deep_swe (public ECR), tb2.1 (Docker Hub) |
 | `git` | task ships only a **Dockerfile in a git repo** | build node-side from `{repo, ref, subdir, dockerfile}` | seta |
-| `local` | built from a **shard Dockerfile on shared FS**, pushed to the private registry | `scripts/build_and_push_images.py` builds once + pushes to `:5011`; needs `shared_fs` | terminalworld, lhtb's 6 rebuild tasks |
+| `local` | built from a **shard Dockerfile on shared FS**, pushed to the private registry | `deploy/registry/build_and_push_images.py` builds once + pushes to `:5011`; needs `shared_fs` | terminalworld, lhtb's 6 rebuild tasks |
 | `tarball` | small self-contained build context | context bytes travel in the plan (`content_b64`) | rare |
 
 A single benchmark can **mix** types (lhtb: most `registry`, 6 `local`).
@@ -496,12 +496,12 @@ A single benchmark can **mix** types (lhtb: most `registry`, 6 `local`).
   `registry-mirror`; applies only to `docker.io` pulls, image refs unchanged, and
   **falls back to Docker Hub if down**. This is what makes `type: registry`
   prebuilt images cheap to pull cluster-wide (dedup + Docker-Hub-rate-limit
-  relief). Warming **does** populate it. Filled by `scripts/warm_images.py` /
+  relief). Warming **does** populate it. Filled by `deploy/registry/warm_images.py` /
   `xrlenv build apply`.
 - **`:5011` — PRIVATE writable registry.** Addressed **directly** by explicit
   refs (`<host>:5011/<repo>:<tag>`); a miss has **no Docker-Hub fallback**. This
   is where **we** push images we build (`type: local`/`git`). Filled by
-  `scripts/build_and_push_images.py`.
+  `deploy/registry/build_and_push_images.py`.
 
 > **Prod colocation is off-limits.** Do not point a new benchmark's build/push at
 > the prod-colocated registry pair. If your images live on a public registry
@@ -536,7 +536,7 @@ time bomb, not a build bug — it lies dormant until the next CP swap.
   The harbor plugin's `_resolve_image_ref` (and `build_plan_gen`) `os.path.expandvars`
   it from `.env` at acquire / plan-gen — so the cache bakes **no** host. (Before this,
   `repin --registry <host>` baked an absolute host and a CP move
-  `node-host` → `node-host` stranded the rebuild tasks on the dead registry.)
+  `<old-registry-host>` → `<new-registry-host>` stranded the rebuild tasks on the dead registry.)
 
 **The rule:** never persist a registry host. Use a per-run template (`seta`) or a
 host-agnostic `${XRLENV_PRIVATE_REGISTRY_HOST}:${…PORT}/…` placeholder that the plugin

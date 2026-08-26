@@ -94,10 +94,15 @@ model and the operator-side knobs.
 | `put_archive(target_dir, tarball)` | Upload a tar archive into the container. |
 | `get_archive(source_path)` | Download a tar archive from the container. |
 | `apply_egress(allowlist, *, dns_resolver=None)` | Install an iptables egress policy in the container's netns. `allowlist` is an `EgressAllowlist`; empty = block all external egress. Fail-closed: partial apply destroys the container. Raises `XRLEnvError` for shared-netns or privileged containers. See {doc}`security` for narrative and examples. |
+| `liveness_at_risk` | `True` while this client's keepalive is failing to reach the control plane. Advisory and never raised on. While set, this session is at risk of being reclaimed at the quarantine horizon **if it goes idle** — the control plane cannot distinguish a consumer it cannot hear from one that died. Work in flight is unaffected: a session RPC is itself a liveness signal. Use it to checkpoint or stop dispatching new work; it is deliberately not an exception, because a false alarm would destroy healthy work. |
 | `destroy(force=True)` | Destroy the container. Idempotent. |
 
 Use the session as an async context manager whenever possible; it
 destroys the container on exit.
+
+`Client.liveness_at_risk` exposes the same signal at the client level (it
+covers every session that client holds). Prefer the per-session attribute in
+harness code — the session is usually what the calling scope has.
 
 ## Admin metadata hooks
 
@@ -234,6 +239,9 @@ from xrlenv.backends.egress import EgressAllowlist, EgressRule
 |---|---|---|
 | `XRLEnvError` | `xrlenv.errors` | Base for all XRLEnv runtime errors. |
 | `FleetOverBudget` | `xrlenv.errors` | A fleet companion acquire would exceed the fleet's declared cpu/mem footprint. Raised at the control plane before any node command; the fleet's other containers and its reservation are untouched. The acquire path degrades gracefully (the task is not hard-failed; see commit a93cfb6). Fix: declare a larger `xrlenv.fleet_cpu_request` / `xrlenv.fleet_mem_request` in the fleet spec. |
+| `SessionReaped` | `xrlenv.errors` | The control plane force-destroyed a raw-container session — raised on any session RPC whose `raw_rollouts` row was sealed `reaped`. Usually that is the consumer-liveness reaper (silent for the full quarantine horizon, `XRLENV_RAW_LIVENESS_QUARANTINE_S`, default 900 s), but a wall-clock `session_deadline_s` expiry or a node-side orphan sweep seals `reaped` too; the `reason` field carries the cause recorded on the row. Distinct from a stale handle (an unknown or already-`destroy`ed id, which still raises the generic `XRLEnvError` "Acquire first."): the platform tore the session down on purpose and `reason` says why. Two other platform teardowns seal the row `failed` rather than `reaped` because nothing was destroyed, and raise `NodeLost` / `ControlPlaneLost` instead — see the rows below. `retryable = True` — a fresh `acquire_container` succeeds, since nothing about the workload failed. Because a reap is silent until something touches the session, this usually surfaces minutes later at the next session RPC. Harnesses should classify it as infra-transient and re-run the trial. Note `reaped_at` is populated in-process only; it does not survive the gRPC round trip. |
+| `NodeLost` | `xrlenv.errors` | The node carrying the work went away — its control stream dropped, so the control plane sealed every rollout on it. For a raw-container session this also surfaces on any *later* session RPC: `handle_node_lost` seals the `raw_rollouts` row `failed` with a `node_lost:` reason (not `reaped` — nothing was destroyed, the container is simply unreachable), and the session lookup reads that back rather than reporting a stale handle. `retryable = True`; acquire a fresh session. |
+| `ControlPlaneLost` | `xrlenv.errors` | The control plane lost track of the session — the raw-GC reconciler's SQLite sweep found a `raw_rollouts` row with no in-memory session (`lost-on-restart` after a control-plane restart, or `lost-mid-run`) and sealed it `failed`. Like `NodeLost`, a later session RPC reports this instead of the generic "Acquire first.", because the row was reclaimed by the platform, not by the caller. `retryable = True`; acquire a fresh session. |
 
 ## Public exports
 

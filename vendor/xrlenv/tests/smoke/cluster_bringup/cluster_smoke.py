@@ -23,11 +23,11 @@ Both modes wait for ``--min-nodes`` nodes to attach, then submit
 Usage::
 
     # Embedded mode (replaces `xrlenv up` for the smoke):
-    python tests/smoke/cluster_smoke.py \\
+    python tests/smoke/cluster_bringup/cluster_smoke.py \\
         --grpc-port 50051 --min-nodes 2 --rollouts 4 --spread
 
     # Connect mode (leaves `xrlenv up` running, dials it):
-    python tests/smoke/cluster_smoke.py \\
+    python tests/smoke/cluster_bringup/cluster_smoke.py \\
         --connect-host 127.0.0.1 --connect-port 50051 \\
         --consumer-token "$XRLENV_CONSUMER_TOKEN" \\
         --min-nodes 2 --rollouts 4 --spread

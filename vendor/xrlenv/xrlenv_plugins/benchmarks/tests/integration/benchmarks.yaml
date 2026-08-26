@@ -73,3 +73,16 @@ profiles:
     only: [terminal_bench_2_1, terminalworld, lhtb, seta]
     overrides:
       max_concurrent_tasks: 64
+  
+  cn-exp:
+    mode: full
+    only: [deep_swe, terminal_bench_2_1, swebench_verified]
+    # Profile-wide `workers:` overrides the per-benchmark 32 for all three (see
+    # _effective: profile keys beat benchmarks[name]). All three green sets are
+    # >40 tasks, so each costs the full 40 against the budget — hence 3*40=120,
+    # sized so the three actually OVERLAP rather than the third waiting for a
+    # slot. On cn's 5 workers that is 24 concurrent sandboxes/node, the same
+    # per-node density the previous 96-over-4-workers gave.
+    workers: 40
+    overrides:
+      max_concurrent_tasks: 120

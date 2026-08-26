@@ -176,3 +176,57 @@ def test_cleanup_oracle_mount_keep_preserves_dir(tmp_path):
 def test_cleanup_oracle_mount_noop_when_unset():
     entry._ORACLE_MOUNT_DIR = None
     entry._cleanup_oracle_mount(keep=False)  # must not raise on a non-oracle run
+
+
+# --- golden-cache root: the shared cache lives at a cluster-specific path, so
+# there is no hardcoded default — set EVOCLAW_GOLDEN_CACHE_ROOT (or populate the
+# _SHARED_GOLDEN_CACHE_ROOTS the deployment configures). Whatever it resolves to
+# must also be covered by the cluster's policy.allowed_host_paths or the oracle's
+# bind is denied.
+def test_golden_cache_root_env_override_wins(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVOCLAW_GOLDEN_CACHE_ROOT", str(tmp_path / "mine"))
+    # Set even when a shared root is present: explicit always beats probing.
+    monkeypatch.setattr(entry, "_SHARED_GOLDEN_CACHE_ROOTS", (tmp_path / "shared",))
+    (tmp_path).mkdir(exist_ok=True)
+    assert entry._default_golden_cache_root() == tmp_path / "mine"
+
+
+def test_golden_cache_root_env_override_expands_user(monkeypatch):
+    monkeypatch.setenv("EVOCLAW_GOLDEN_CACHE_ROOT", "~/cache")
+    assert entry._default_golden_cache_root() == Path("~/cache").expanduser()
+
+
+def test_golden_cache_root_picks_first_candidate_whose_parent_exists(tmp_path, monkeypatch):
+    monkeypatch.delenv("EVOCLAW_GOLDEN_CACHE_ROOT", raising=False)
+    absent, present = tmp_path / "no-such-mount", tmp_path / "fsx"
+    present.mkdir()
+    monkeypatch.setattr(
+        entry, "_SHARED_GOLDEN_CACHE_ROOTS",
+        (absent / "evoclaw_golden_cache", present / "evoclaw_golden_cache"),
+    )
+    # The cache dir itself does NOT exist yet — matching on the PARENT is what
+    # makes a cluster that has never run EvoClaw resolve correctly.
+    assert entry._default_golden_cache_root() == present / "evoclaw_golden_cache"
+
+
+def test_golden_cache_root_prefers_earlier_candidate(tmp_path, monkeypatch):
+    """Ordering is load-bearing: a box with the historical mount keeps its old
+    default, so this change is a no-op on the 10.0.* clusters."""
+    monkeypatch.delenv("EVOCLAW_GOLDEN_CACHE_ROOT", raising=False)
+    first, second = tmp_path / "a", tmp_path / "b"
+    first.mkdir()
+    second.mkdir()
+    monkeypatch.setattr(
+        entry, "_SHARED_GOLDEN_CACHE_ROOTS",
+        (first / "evoclaw_golden_cache", second / "evoclaw_golden_cache"),
+    )
+    assert entry._default_golden_cache_root() == first / "evoclaw_golden_cache"
+
+
+def test_golden_cache_root_falls_back_to_project_local(tmp_path, monkeypatch):
+    monkeypatch.delenv("EVOCLAW_GOLDEN_CACHE_ROOT", raising=False)
+    monkeypatch.setattr(
+        entry, "_SHARED_GOLDEN_CACHE_ROOTS", (tmp_path / "gone" / "cache",)
+    )
+    # No shared mount at all (a laptop, or a brand-new cluster).
+    assert entry._default_golden_cache_root() == entry._PROJECT_ROOT / "golden_cache"

@@ -33,14 +33,14 @@ version: 1
 # ``/etc/xrlenv/node.env`` so the daemons match up.
 nodes:
   - id: gcp-us-central1-a-1
-    address: internal-ip        # node-VM internal IP; for operator-side dial-back / admin display only.
+    address: 10.128.0.10        # node-VM internal IP; for operator-side dial-back / admin display only.
     cloud: gcp
     instance_type: e2-standard-4
     backends: [docker]
     auth_token_env: XRLENV_NODE_TOKEN_GCP_1
 
   - id: aws-us-east-1-1
-    address: internal-ip
+    address: 10.0.1.10
     cloud: aws
     instance_type: m6i.xlarge
     backends: [docker]
@@ -55,8 +55,7 @@ nodes:
     #                    #   load so a create/exec storm can't wedge the FUSE
     #                    #   daemon; overflow queues in the admission queue.
     #                    #   Absent ⇒ unlimited (unchanged). Distinct from the
-    #                    #   node-side create-serialization. See
-    #                    #   notes/design-per-node-runtime-concurrency-cap.md.
+    #                    #   node-side create-serialization.
 
 # ─── Cluster docker-kwarg policy (issue #6) ──────────────────────
 # Defaults unblock the current benchmark set. Each knob is documented

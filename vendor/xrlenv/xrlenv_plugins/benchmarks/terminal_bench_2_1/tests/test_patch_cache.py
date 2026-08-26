@@ -158,6 +158,10 @@ def test_env_patches_cover_expected_nproc_scaling_tasks() -> None:
         "build-pov-ray",
         "rstan-to-pystan",
         "sqlite-with-gcov",
+        # Not an nproc-scaled *build* like the five above: torch sizes its
+        # thread pool from sched_getaffinity and throttles against the declared
+        # cpus=1 CFS quota (676.0s unpinned vs 59.6s pinned, uncontended).
+        "torch-pipeline-parallelism",
     }
     # Every marker sets the same truthy env key the plugin reads.
     for p in ENV_PATCHES:

@@ -3,7 +3,7 @@ job ("we do the routing", ``notes/darwinx-dropin-contract.md``). It translates o
 evolution run into exactly what the vendored driver expects, doing **no** paid work:
 
 * :func:`prepare_import_path` — make the vendored package and the seam-A ``runner.run`` shim
-  importable (so ``import self_evolve…`` and the eval subprocess resolve to us).
+  importable (so ``import evolve…`` and the eval subprocess resolve to us).
 * :func:`emit_campaign_config` — write the driver's campaign config (its own YAML schema) from
   the evolvee / evolver / benchmark. This is seam C; it also stashes the evolver as an
   ``AgentConfig`` block so a worker subprocess can rebuild the Editor with **no env var**.
@@ -45,7 +45,7 @@ def prepare_import_path() -> None:
 
     Two channels, because the driver shells the eval as a subprocess:
 
-    * ``sys.path`` — so *this* process's ``import self_evolve…`` and ``runner.run`` resolve;
+    * ``sys.path`` — so *this* process's ``import evolve…`` and ``runner.run`` resolve;
       ``_shims`` precedes ``vendor`` so our ``runner.run`` shadows any other.
     * ``PYTHONPATH`` — so the vendored eval's ``python -m runner.run`` **subprocess** resolves
       our shim too. A subprocess inherits the environment, not ``sys.path``; ``PYTHONPATH`` is
@@ -105,7 +105,7 @@ def ensure_canonical_clone(repo_root: str | Path, evolvee_checkout: str | Path |
 
 def prepare_worktree_env(repo_root: str | Path, worktree_parent: str | Path) -> None:
     """Pin the vendored driver's paths to our run, via ITS OWN documented overrides
-    (``MONET_EVAL_REPO_ROOT`` / ``MONET_EVAL_WORKTREE_PARENT`` / ``MONET_EVAL_RESULTS_ROOT``).
+    (``DARWINX_EVAL_REPO_ROOT`` / ``DARWINX_EVAL_WORKTREE_PARENT`` / ``DARWINX_EVAL_RESULTS_ROOT``).
 
     **Must run before the driver is imported**: the module reads these into import-time globals
     *and* into function default args (``add_eval_worktree(..., repo_root=REPO_ROOT)``;
@@ -116,13 +116,13 @@ def prepare_worktree_env(repo_root: str | Path, worktree_parent: str | Path) -> 
     import os
 
     Path(worktree_parent).mkdir(parents=True, exist_ok=True)
-    os.environ["MONET_EVAL_REPO_ROOT"] = str(Path(repo_root).resolve())
-    os.environ["MONET_EVAL_WORKTREE_PARENT"] = str(Path(worktree_parent).resolve())
+    os.environ["DARWINX_EVAL_REPO_ROOT"] = str(Path(repo_root).resolve())
+    os.environ["DARWINX_EVAL_WORKTREE_PARENT"] = str(Path(worktree_parent).resolve())
     # Land the driver's eval SCRATCH (isolated ``_iso/<uuid>`` run dirs + the emitted
     # ``_self_evolve_configs`` handshake) UNDER our run dir, not in the vendored tree (whose
     # ``DEFAULT_RESULTS_ROOT`` would otherwise pollute source). An ``_evals/`` subdir keeps it
     # out of the genealogy DB / worktrees.
-    os.environ["MONET_EVAL_RESULTS_ROOT"] = str(Path(repo_root).resolve() / "_evals")
+    os.environ["DARWINX_EVAL_RESULTS_ROOT"] = str(Path(repo_root).resolve() / "_evals")
 
 
 def align_git_origin(canonical: str | Path, repo_url: str | None, *, remote: str = "origin") -> tuple | None:
@@ -190,40 +190,40 @@ def prepare_runtime_env(run_config: RunConfig, evolvee_source: AgentSource) -> d
     never these env vars. Config wins over any stale value (config is bucket-2's source of truth).
     Returns the vars set (for logging/tests).
 
-    * ``SELF_EVOLVE_EVAL_RUNTIME`` ← ``runtime.kind`` (one driver site defaults it to
+    * ``DARWINX_EVOLVE_EVAL_RUNTIME`` ← ``runtime.kind`` (one driver site defaults it to
       ``xrlenv-cluster``, so a ``local`` run must set it explicitly).
-    * ``SELF_EVOLVE_ROOT_COMMIT`` ← the evolvee baseline ``ref`` (the root θ the driver seeds
+    * ``DARWINX_EVOLVE_ROOT_COMMIT`` ← the evolvee baseline ``ref`` (the root θ the driver seeds
       from; resolved locally from the checkout). A non-sha ref also sets ``…_FETCH_REF`` so a
       remote-only branch is fetchable.
-    * ``MONET_EVAL_HARBOR_N_CONCURRENT`` ← ``parallelism`` (eval trial concurrency).
+    * ``DARWINX_EVAL_HARBOR_N_CONCURRENT`` ← ``parallelism`` (eval trial concurrency).
     """
     import os
 
     out: dict[str, str] = {}
     kind = getattr(run_config.runtime, "kind", None)
     if kind:
-        out["SELF_EVOLVE_EVAL_RUNTIME"] = kind
+        out["DARWINX_EVOLVE_EVAL_RUNTIME"] = kind
     ref = getattr(evolvee_source, "ref", None)
     if ref:
-        out["SELF_EVOLVE_ROOT_COMMIT"] = ref
+        out["DARWINX_EVOLVE_ROOT_COMMIT"] = ref
         if not _looks_like_sha(ref):
-            out["SELF_EVOLVE_ROOT_FETCH_REF"] = ref   # a branch/tag is fetchable; a bare sha isn't
+            out["DARWINX_EVOLVE_ROOT_FETCH_REF"] = ref   # a branch/tag is fetchable; a bare sha isn't
     par = getattr(run_config, "parallelism", None)
     if par:
-        out["MONET_EVAL_HARBOR_N_CONCURRENT"] = str(par)
+        out["DARWINX_EVAL_HARBOR_N_CONCURRENT"] = str(par)
     os.environ.update(out)
     return out
 
 
 def prepare_task_subset_env(run_config: RunConfig) -> dict[str, str]:
-    """Translate the benchmark's **task-subset selection** → the driver's ``MONET_EVAL_*_TASKS``
+    """Translate the benchmark's **task-subset selection** → the driver's ``DARWINX_EVAL_*_TASKS``
     env (bucket 2). The driver's pool/pipeline read these comma-separated lists to stratify the
     eval, so config is their single source of truth (no floating env):
 
-    * ``MONET_EVAL_EXCLUDE_TASKS`` ← ``benchmark.exclude_task_ids`` (denylist)
-    * ``MONET_EVAL_PRIORITY_TASKS`` ← ``benchmark.options.priority_tasks`` (front-loaded)
-    * ``MONET_EVAL_VARIANCE_TASKS`` ← ``benchmark.options.variance_tasks`` (avg@k probe set)
-    * ``MONET_EVAL_FULLSET_TASKS``  ← ``benchmark.options.fullset_tasks`` (the scoring set)
+    * ``DARWINX_EVAL_EXCLUDE_TASKS`` ← ``benchmark.exclude_task_ids`` (denylist)
+    * ``DARWINX_EVAL_PRIORITY_TASKS`` ← ``benchmark.options.priority_tasks`` (front-loaded)
+    * ``DARWINX_EVAL_VARIANCE_TASKS`` ← ``benchmark.options.variance_tasks`` (avg@k probe set)
+    * ``DARWINX_EVAL_FULLSET_TASKS``  ← ``benchmark.options.fullset_tasks`` (the scoring set)
 
     (The *primary* task list — which tasks to evolve on — is separate: it rides ``subset_tasks``
     on the ``PipelineConfig`` from ``benchmark.task_ids``.) Each value may be a list or a bare
@@ -236,11 +236,11 @@ def prepare_task_subset_env(run_config: RunConfig) -> dict[str, str]:
     b = run_config.benchmark
     out: dict[str, str] = {}
     if b.exclude_task_ids:
-        out["MONET_EVAL_EXCLUDE_TASKS"] = _csv(b.exclude_task_ids)
+        out["DARWINX_EVAL_EXCLUDE_TASKS"] = _csv(b.exclude_task_ids)
     opts = dict(b.options or {})
-    for opt_key, env_var in (("priority_tasks", "MONET_EVAL_PRIORITY_TASKS"),
-                             ("variance_tasks", "MONET_EVAL_VARIANCE_TASKS"),
-                             ("fullset_tasks", "MONET_EVAL_FULLSET_TASKS")):
+    for opt_key, env_var in (("priority_tasks", "DARWINX_EVAL_PRIORITY_TASKS"),
+                             ("variance_tasks", "DARWINX_EVAL_VARIANCE_TASKS"),
+                             ("fullset_tasks", "DARWINX_EVAL_FULLSET_TASKS")):
         if opts.get(opt_key):
             out[env_var] = _csv(opts[opt_key])
     os.environ.update(out)
@@ -269,16 +269,39 @@ def agentconfig_dict(spec: Any) -> dict[str, Any]:
     return d
 
 
+#: evolvee ``config`` keys that ride the benchmarked-agent block at TOP level (the vendored eval
+#: reads them there — see ``codingbench_eval.from_self_evolve_config``). Everything else rides the
+#: nested ``config`` passthrough so a non-monet evolvee's adapter knobs reach it generically.
+_EVOLVEE_TOP_LEVEL_KEYS = ("max_turns", "timeout", "wire_provider", "auth")
+
+
 def _evolvee_block(evolvee: Agent) -> dict[str, Any]:
-    """The benchmarked-agent block: its model plus the turn-budget / timeout / gateway-wire knobs
-    the vendored eval reads (``build_codingbench_config`` picks ``max_turns`` + ``timeout`` off this
-    block → the eval's per-rollout budgets). Extra evolvee ``config`` keys the driver understands
-    pass straight through; the rest stay on the beagle side."""
-    block: dict[str, Any] = {"model": _model_name(evolvee, "evolvee")}
+    """The benchmarked-agent block: its beagle registry ``name`` + model plus the
+    turn-budget / timeout / gateway-wire knobs the vendored eval reads (``build_codingbench_config``
+    picks ``max_turns`` + ``timeout`` off this block → the eval's per-rollout budgets).
+
+    ``name`` is what makes the eval **evolvee-agnostic**: the vendored eval resolves the benchmarked
+    agent through beagle's registry (``beagle.agents.build(name)``) rather than assuming monet, so any
+    registered agent (monet, mini-swe, …) can be the evolvee — selected by ``evolvee.harness.name``.
+    Every OTHER evolvee ``config`` knob the target adapter reads (e.g. mini-swe's
+    ``provider`` / ``effort`` / ``config_path`` / ``forward_env``) rides the nested ``config`` so a
+    non-monet evolvee is fully configured without a monet-shaped block. The monet path is
+    behaviourally unchanged: the block now always carries ``name``, but ``monet`` is the eval's
+    default, so its budgets still ride the top-level keys and its install/args stay the adapter's
+    own defaults."""
+    block: dict[str, Any] = {"name": evolvee.spec.name, "model": _model_name(evolvee, "evolvee")}
     cfg = dict(getattr(evolvee.spec, "config", {}) or {})
-    for key in ("max_turns", "timeout", "wire_provider", "auth"):
+    for key in _EVOLVEE_TOP_LEVEL_KEYS:
         if cfg.get(key) is not None:
             block[key] = cfg[key]
+    # ``agent_source`` is dropped on purpose: the bridge derives it from the benchmark block's
+    # repo/ref so the evolved commit and the code the container clones cannot drift apart. An
+    # evolvee that genuinely needs its own source sets it in the campaign yaml, which
+    # ``_general_agent_block`` honours via ``setdefault``.
+    passthrough = {k: v for k, v in cfg.items()
+                   if k not in _EVOLVEE_TOP_LEVEL_KEYS and k != "agent_source"}
+    if passthrough:
+        block["config"] = passthrough
     return block
 
 
@@ -374,7 +397,7 @@ def build_pipeline_config(pipeline_config_cls: type, *, campaign: str, reports_r
     # default (DEFAULT_STRATEGY_NAME) unless the operator picked one — the original launcher always
     # passed `--parent-strategy`, so relying on the stale default is a migration gap.
     if "parent_strategy" in valid and "parent_strategy" not in kwargs:
-        from self_evolve import parent_selection
+        from evolve import parent_selection
         kwargs["parent_strategy"] = parent_selection.DEFAULT_STRATEGY_NAME
     return pipeline_config_cls(**kwargs)
 

@@ -21,8 +21,9 @@
 #
 # Usage:
 #   sudo bash install_sysbox_node.sh [VENDOR_DIR]
-# VENDOR_DIR default: xrlenv_plugins/sysbox/vendor/<pinned-commit>/ (must contain
-# the three binaries + SHA256SUMS from build_sysbox.sh).
+# VENDOR_DIR default: ${SYSBOX_VENDOR_ROOT}/<pinned-commit>/, where
+# SYSBOX_VENDOR_ROOT is resolved per cluster by pin.env (must contain the three
+# binaries + SHA256SUMS from build_sysbox.sh — run it once per cluster).
 
 set -euo pipefail
 

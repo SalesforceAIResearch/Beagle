@@ -7,6 +7,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 import beagle
 from beagle.agents.core.base import EditResult
 from beagle.algorithms.darwinx import meta_agent as shim
@@ -46,7 +48,7 @@ def test_seam_a_runner_shim_routes_to_eval(monkeypatch, tmp_path) -> None:
 
 
 def _load_vendored_meta_agent():
-    path = _DARWINX / "vendor" / "self_evolve" / "meta_agent.py"
+    path = _DARWINX / "vendor" / "evolve" / "meta_agent.py"
     spec = importlib.util.spec_from_file_location("_vendored_meta_agent", path)
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)
@@ -79,7 +81,32 @@ def test_seam_b_vendored_meta_agent_delegates_to_injected_editor(tmp_path) -> No
         shim.set_editor(None)
 
 
-def test_seam_b_active_backend_without_editor_is_beagle() -> None:
+def test_seam_b_vendored_meta_agent_falls_back_to_standalone_without_an_editor() -> None:
+    """No editor injected means "not hosted", and the vendored module says so.
+
+    This assertion used to read ``== "beagle"``, which was right when beagle *replaced* this
+    file with its own shim: the replacement had no standalone mode, so beagle was the only
+    possible answer. The file is now DarwinX's own module, injectable rather than replaced, and
+    the same copy runs standalone in the pipeline -- where reporting "beagle" would be a lie.
+
+    The safety property that actually matters is not what this reports when uninjected; it is
+    that beagle's own shim refuses to run at all without an editor, so a hosted run can never
+    quietly fall through to a different proposer than the host configured. That is asserted
+    directly below.
+    """
     meta_agent = _load_vendored_meta_agent()
     shim.set_editor(None)
-    assert meta_agent.active_backend() == "beagle"
+    assert meta_agent.active_backend() == "cursor"
+
+
+def test_seam_b_shim_is_fail_closed_without_an_editor(tmp_path) -> None:
+    """The invariant worth protecting: hosted + uninjected must raise, never guess a backend."""
+    shim.set_editor(None)
+    with pytest.raises(RuntimeError, match="no Editor injected"):
+        shim.run("do something", tmp_path / "ws")
+
+
+def test_seam_b_algorithm_injects_before_running() -> None:
+    """DarwinX.evolve must wire the run's evolver into the shim, or the above raise fires."""
+    source = (_DARWINX / "algorithm.py").read_text()
+    assert "shim.set_editor(" in source

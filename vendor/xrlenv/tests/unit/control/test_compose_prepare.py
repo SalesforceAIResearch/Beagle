@@ -204,9 +204,9 @@ def test_subnet_claims_empty_for_dns_only() -> None:
     [
         ("172.16.70.0/24", "172.16.70.0/24", True),   # identical
         ("172.16.70.0/24", "172.16.70.128/25", True),  # subset
-        ("internal-ip/8", "internal-ip/16", True),           # superset
+        ("10.0.0.0/8", "10.5.0.0/16", True),           # superset
         ("172.16.70.0/24", "172.16.71.0/24", False),   # adjacent, disjoint
-        ("internal-ip/8", "192.168.0.0/16", False),       # far disjoint
+        ("10.0.0.0/8", "192.168.0.0/16", False),       # far disjoint
         ("garbage", "garbage", True),                  # unparseable → str-equal
         ("garbage", "other", False),
     ],

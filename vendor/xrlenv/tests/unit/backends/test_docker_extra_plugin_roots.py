@@ -227,8 +227,7 @@ async def test_extra_roots_preserve_in_tree_mount(
 # semantic: with two roots on PYTHONPATH, ``import
 # xrlenv_plugins.benchmarks.<name>.adapter`` from each root must
 # resolve. The end-to-end check (smoke against a real Docker daemon)
-# lives at ``examples/pip_new_datasets_or_benchmark/<pkg>/examples/<pkg>_smoke.py``,
-# not in CI.
+# is exercised out-of-band against a live daemon, not in CI.
 #
 # This test exercises the same Python-import semantics in-process, so
 # CI catches a regression without needing Docker. It builds two

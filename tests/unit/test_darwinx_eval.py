@@ -9,8 +9,17 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+from beagle.algorithms.darwinx import _launch
 from beagle.algorithms.darwinx import eval as ev
 from beagle.types import TaskResult
+
+
+def _cbe():
+    """The vendored eval module (needs the vendored import path prepared, like the pipeline)."""
+    _launch.prepare_import_path()
+    from evolve import codingbench_eval  # noqa: PLC0415 — import after path prep
+
+    return codingbench_eval
 
 
 def test_translate_config_renames_token_and_drops_grpc_secure() -> None:
@@ -127,6 +136,130 @@ def test_run_eval_writes_compat_run_json_at_discovered_path(tmp_path) -> None:
     assert (run_dir / "run.beagle.json").exists()           # clean summary preserved
     # --include-task-name overrode task_ids; parallelism + campaign threaded through to eval.
     assert seen == {"parallelism": 2, "task_ids": ["bn-fit-modify"], "campaign_id": "camp"}
+
+
+# --- evolvee-agnostic agent block (the general bridge) -----------------------
+
+def test_agent_block_monet_default_is_unchanged() -> None:
+    # Default evolvee (name "monet") → the fully-wired monet block: install_cmd + monet_args +
+    # the monet-shaped agent_source (with container_path). This is the byte-identical legacy path.
+    cbe = _cbe()
+    block = cbe._agent_block(cbe.CodingBenchEvalConfig(), forward_env=[{"K": "K"}])
+    assert block["name"] == "monet"
+    cfg = block["config"]
+    assert "install_cmd" in cfg and cfg["monet_args"][0] == "--provider"
+    assert cfg["agent_source"]["container_path"] == "/opt/agent"
+    assert cfg["forward_env"] == [{"K": "K"}]
+
+
+def test_agent_block_non_monet_emits_general_bridge() -> None:
+    # A mini-swe evolvee → the lean {name, config} bridge: NO monet install_cmd / monet_args, the
+    # evolvee's own knobs threaded verbatim, budgets + code-version defaulted in.
+    import dataclasses
+
+    cbe = _cbe()
+    cb_cfg = dataclasses.replace(
+        cbe.CodingBenchEvalConfig(),
+        eval_agent_name="mini-swe",
+        eval_agent_config={"provider": "sfr-gateway", "effort": "high",
+                           "config_path": "src/minisweagent/config/benchmarks/swebench.yaml"},
+        monet_ref="cand-branch", max_turns=25, timeout=1200,
+    )
+    block = cbe._agent_block(cb_cfg, forward_env=[{"K": "K"}])
+    assert block["name"] == "mini-swe"
+    cfg = block["config"]
+    assert "install_cmd" not in cfg and "monet_args" not in cfg          # NOT monet-shaped
+    assert cfg["provider"] == "sfr-gateway" and cfg["effort"] == "high"  # evolvee knobs threaded
+    assert cfg["config_path"] == "src/minisweagent/config/benchmarks/swebench.yaml"
+    assert cfg["max_turns"] == 25 and cfg["timeout"] == 1200            # budgets defaulted in
+    assert cfg["forward_env"] == [{"K": "K"}]                            # cred forwarding defaulted
+    src = cfg["agent_source"]
+    assert src["ref"] == "cand-branch" and src["repo_url"] == cb_cfg.monet_repo_url
+
+
+def test_agent_block_non_monet_explicit_knobs_win() -> None:
+    # Explicit forward_env / budgets in the evolvee config override the bridge defaults.
+    import dataclasses
+
+    cbe = _cbe()
+    cb_cfg = dataclasses.replace(
+        cbe.CodingBenchEvalConfig(), eval_agent_name="mini-swe", max_turns=25,
+        eval_agent_config={"forward_env": [{"OWN": "OWN"}], "max_turns": 99, "token_env": "MY_TOK"})
+    cfg = cbe._agent_block(cb_cfg, forward_env=[{"K": "K"}])["config"]
+    assert cfg["forward_env"] == [{"OWN": "OWN"}] and cfg["max_turns"] == 99
+    assert cfg["agent_source"]["token_env"] == "MY_TOK"                  # evolvee token_env wins
+
+
+def test_build_codingbench_config_flips_agent_name_for_non_monet() -> None:
+    cbe = _cbe()
+    import dataclasses
+
+    cb_cfg = dataclasses.replace(cbe.CodingBenchEvalConfig(), eval_agent_name="mini-swe",
+                                 runtime_kind="local")
+    doc = cbe.build_codingbench_config(task_names=["t1"], cb_cfg=cb_cfg)
+    assert doc["agent"]["name"] == "mini-swe"
+    assert "install_cmd" not in doc["agent"]["config"]
+
+
+def test_from_self_evolve_config_reads_name_and_config(tmp_path) -> None:
+    # The campaign's benchmarked-agent block carries name + config (emitted by _launch) → the eval
+    # config picks up the evolvee selector + its knobs; a legacy block (no name) stays monet.
+    cbe = _cbe()
+    cfg_path = tmp_path / "camp.yaml"
+    cfg_path.write_text(
+        "monet:\n  name: mini-swe\n  model: gpt-5.5\n  max_turns: 30\n"
+        "  config: {provider: sfr-gateway, effort: high}\n"
+        "runtime: {kind: local}\n")
+    cb_cfg = cbe.CodingBenchEvalConfig.from_self_evolve_config(cfg_path)
+    assert cb_cfg.eval_agent_name == "mini-swe"
+    assert cb_cfg.eval_agent_config == {"provider": "sfr-gateway", "effort": "high"}
+    assert cb_cfg.model_name == "gpt-5.5" and cb_cfg.max_turns == 30
+
+    legacy = tmp_path / "legacy.yaml"
+    legacy.write_text("monet: {model: gpt-5.5}\nruntime: {kind: local}\n")
+    assert cbe.CodingBenchEvalConfig.from_self_evolve_config(legacy).eval_agent_name == "monet"
+
+
+def test_end_to_end_mini_swe_evolvee_resolves_to_registry_agent(tmp_path) -> None:
+    # The WHOLE bridge, hermetic (no spend): a mini-swe evolvee → emit_campaign_config →
+    # from_self_evolve_config → build_codingbench_config → translate_config → RunConfig →
+    # beagle.agents.build resolves to the REAL MiniSweAgent, carrying the evolvee's code version
+    # + its own adapter knobs. This is the seam that pins the evolvee to a registry NAME, not monet.
+    import beagle.agents as bagents
+    from beagle.agents.core.spec import AgentSource, AgentSpec, ModelSpec
+    from beagle.agents.mini_swe import MiniSweAgent
+    from beagle.algorithms.darwinx import _launch
+    from beagle.config import RunConfig
+
+    cbe = _cbe()
+    evolvee = bagents.build(AgentSpec(
+        name="mini-swe", model=ModelSpec(name="gpt-5.5"),
+        source=AgentSource(repo="https://example.test/mini-copy", ref="cand-branch"),
+        config={"provider": "sfr-gateway", "effort": "high", "max_turns": 30, "timeout": 1800,
+                "config_path": "src/minisweagent/config/benchmarks/swebench.yaml",
+                "token_env": "GH_TOKEN"}))
+    evolver = SimpleNamespace(spec=AgentSpec(name="cursor", model=ModelSpec(name="auto")))
+    run_cfg = RunConfig.from_dict({
+        "model": {"name": "gpt-5.5"}, "agent": {"name": "mini-swe"},
+        "benchmark": {"name": "terminal_bench_2_1"}, "runtime": {"kind": "local"}})
+
+    camp = _launch.emit_campaign_config(evolvee=evolvee, evolver=evolver,
+                                        run_config=run_cfg, dest=tmp_path / "camp.yaml")
+    cb_cfg = cbe.CodingBenchEvalConfig.from_self_evolve_config(camp)
+    assert cb_cfg.eval_agent_name == "mini-swe"
+
+    doc = cbe.build_codingbench_config(task_names=["t1"], cb_cfg=cb_cfg)
+    assert doc["agent"]["name"] == "mini-swe" and "install_cmd" not in doc["agent"]["config"]
+
+    spec = ev.translate_config(doc).agent_spec()
+    built = bagents.build(spec)
+    assert isinstance(built, MiniSweAgent)                                # resolved via the registry
+    assert built.source().repo == "https://example.test/mini-copy"       # evolvee θ (code version)
+    assert built.source().ref == "cand-branch"
+    assert built.config.get("provider") == "sfr-gateway"                 # adapter knobs survived
+    assert built.config.get("config_path") == "src/minisweagent/config/benchmarks/swebench.yaml"
+    assert built.config.get("token_env") == "GH_TOKEN"
+    assert built.config.get("max_turns") == 30                           # budget threaded through
 
 
 def test_run_eval_tags_acquires_with_group_id(tmp_path) -> None:

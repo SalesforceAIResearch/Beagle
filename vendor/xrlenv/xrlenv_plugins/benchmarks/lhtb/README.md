@@ -20,8 +20,8 @@ probe passes with no sweep-side wrapper.
 | `build_cache.py` | populate (git clone + `git lfs pull`) → normalize `task.toml` → **task-level fixes** (curated overlays + programmatic) → repin the REBUILD tasks (§1) |
 | `patches/` | curated **full-file overlays** applied by `--stage patch` (the pre-generated `2048` / `snake_maze_campaign` game references — see `patches/README.md`) |
 | `build_plan_gen.py` | emit **the** plan (`--all`) — the single source of truth for where each task's image comes from: `type: local` build entries (the 6 rebuilds + compose sidecars) + `type: registry` for the ~40 prebuilt docker.io images |
-| `lhtb_build_plan.yaml` | the generated **mixed** plan (committed; regeneratable via `--all`) |
-| `scripts/build_and_push_images.py` (repo-root `scripts/`) | build the plan's `type: local` entries + push to the `:5011` private registry; skip `type: registry` (§2) |
+| `lhtb_build_plan.yaml` | the generated **mixed** plan (gitignored — every `image_ref` bakes in your private-registry host; regenerate it with `--all` before use) |
+| `deploy/registry/build_and_push_images.py` (repo-root `scripts/`) | build the plan's `type: local` entries + push to the `:5011` private registry; skip `type: registry` (§2) |
 | `run_full_sweep.sh` | the CI gate: (re)build cache → compute the run set by 3-set exclusion → invoke the oracle sweep once |
 | `run_oracle_sweep.py` | the oracle sweep on the xrlenv cluster (dense-reward gate; owns both retry layers) |
 | `STATUS.md` | full 46-task disposition + upstream-image defects + every task-level fix |
@@ -41,7 +41,7 @@ zli12321/LHTB (git + LFS) ─(1)build_cache─▶ <cache>/lhtb/<task>/  (+ task-
 `--stage`-driven; `all` runs `populate` → `patch` → `repin`):
 
 ```bash
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache   # shared root
+# XRLENV_BENCHMARK_CACHE (the shared root) is read from .env — see .env.example
 
 # populate (git clone + git-lfs pull + task.toml normalize) + task-level fixes + repin.
 # `--stage all` REFUSES to guess how to handle the 6 REBUILD tasks — pick one:
@@ -52,6 +52,7 @@ export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache   # shared root
 #                          excluded from that gate anyway)
 # host: $XRLENV_PRIVATE_REGISTRY_HOST from .env (ephemeral per cluster; a bare host gets
 # :5011 appended)
+set -a; source .env; set +a
 .venv/bin/python xrlenv_plugins/benchmarks/lhtb/build_cache.py \
     --stage all --registry "$XRLENV_PRIVATE_REGISTRY_HOST"
 ```
@@ -137,7 +138,7 @@ docker.io pull-through mirror** (same path `xrlenv build apply` warms). Warming 
 **BUILD part (the 6 REBUILD tasks).** `chess-mate`'s `game` compose sidecar (published
 nowhere) + the baked-defect images (duckdb's `-j{os.cpu_count()}`, the `patch`-less audits,
 `unknown-config`'s stale daemon) are `type: local` build entries (+ one per compose sidecar)
-**built and pushed to the `:5011` PRIVATE registry** by `scripts/build_and_push_images.py`.
+**built and pushed to the `:5011` PRIVATE registry** by `deploy/registry/build_and_push_images.py`.
 §1's repin already pointed their `docker_image` at `<host>:5011/lhtb/<task>:main`; those refs
 **404 until you build + push them here**. The `:5011` registry has **no Docker-Hub fallback**,
 and the **prod-colocated registry is off-limits**.
@@ -147,7 +148,7 @@ docker.io refs and are excluded from the out-of-box gate — **skip to §3.** Fo
 real-agent path (§1 `--registry <host>`), run the command sequence:
 
 ```bash
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache   # the cache §1 wrote
+# XRLENV_BENCHMARK_CACHE (the cache §1 wrote) is read from .env — see .env.example
 export XRLENV_PRIVATE_REGISTRY_HOST=<private-registry-host>           # :5011 = the private registry
 
 # (a) repin the 6 REBUILD tasks so the plan types them as type: local (idempotent).
@@ -155,7 +156,7 @@ export XRLENV_PRIVATE_REGISTRY_HOST=<private-registry-host>           # :5011 = 
     --stage all --registry "$XRLENV_PRIVATE_REGISTRY_HOST"
 
 # (b) generate THE plan (mixed): 6 type: local (built) + ~40 type: registry (docker.io).
-#     Committed as lhtb_build_plan.yaml; regenerate whenever the repinned cache changes.
+#     Gitignored (host-specific); (re)generate before use and whenever the repinned cache changes.
 .venv/bin/python -m xrlenv_plugins.benchmarks.lhtb.build_plan_gen \
     --all --output xrlenv_plugins/benchmarks/lhtb/lhtb_build_plan.yaml
 
@@ -163,7 +164,7 @@ export XRLENV_PRIVATE_REGISTRY_HOST=<private-registry-host>           # :5011 = 
 #     (served via the :5010 mirror). Run on a BUILD HOST (docker daemon + the private
 #     registry in insecure-registries — the login/CP box has neither; use a worker node).
 #     Idempotent: HEADs each manifest, skips if present (--force rebuilds).
-.venv/bin/python scripts/build_and_push_images.py \
+.venv/bin/python deploy/registry/build_and_push_images.py \
     --plan xrlenv_plugins/benchmarks/lhtb/lhtb_build_plan.yaml \
     --registry "$XRLENV_PRIVATE_REGISTRY_HOST:5011"
 ```
@@ -186,7 +187,7 @@ before grading, so its anti-cheat probe passes.
 
 ```bash
 set -a; source ./.env; set +a   # XRLENV_GRPC_HOST + XRLENV_CONSUMER_TOKEN + registry from .env
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 
 # THE GATE — run_full_sweep.sh. Two paths, one flag apart; both apply the §1 task-cache
 # fixes and both run the same TBD set. They differ ONLY in the 6 REBUILD tasks (image-level).
@@ -251,7 +252,7 @@ sharpening the capacity estimator's FFD packing. **Optional** — the heuristic 
 sweep runs fine without it (the §3 sweep also materializes images on first acquire).
 
 ```bash
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 export XRLENV_OPERATOR_TOKEN=<operator-token>
 
 # (a) warm — apply the SAME unified plan; warms BOTH the registry pulls (docker.io via the

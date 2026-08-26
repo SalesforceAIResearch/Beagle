@@ -20,7 +20,7 @@ def registry_agnostic_ref(ref: str) -> str:
     works across registries. But a node that *pulled* that image from a
     private registry reports + holds it under its registry-qualified
     Docker tag (e.g.
-    ``node-host:5011/xrlenv-webarena-infinity/substrate:1ca77813``).
+    ``<registry-host>:5011/xrlenv-webarena-infinity/substrate:1ca77813``).
     Cross-referencing the two (calibrate, evict) requires normalizing
     both sides to the same registry-agnostic form first.
 
@@ -53,7 +53,7 @@ def repo_path(ref: str) -> str:
     """The bare **repository path** of ``ref`` — registry host, ``:tag``, and
     ``@sha256:...`` digest all stripped.
 
-    ``node-host:5011/ns/img:main`` and ``ns/img@sha256:abc`` both collapse
+    ``<registry-host>:5011/ns/img:main`` and ``ns/img@sha256:abc`` both collapse
     to ``ns/img``. This is the deliberately-looser sibling of
     :func:`registry_agnostic_ref` (which keeps the tag/digest): it exists for
     **calibrate**, where a plan lists an image by its ``:tag`` but the node

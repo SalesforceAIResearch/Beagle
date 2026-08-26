@@ -36,7 +36,7 @@ datacurve-ai/deep-swe (git; or datacurve/deep-swe HF)
 ## 1. Build the cache
 
 ```bash
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache   # shared cache ROOT
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 
 # the full setup: populate (download + normalize) + patch
 .venv/bin/python xrlenv_plugins/benchmarks/deep_swe/build_cache.py --stage all
@@ -83,7 +83,7 @@ throttling) simply doesn't apply. `build_plan_gen.py --all` reads each task's
 authoritative ref and emits a `context_source: {type: registry}` **warm** plan:
 
 ```bash
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 
 # (re)generate the committed plan from the populated shard:
 .venv/bin/python -m xrlenv_plugins.benchmarks.deep_swe.build_plan_gen \
@@ -113,7 +113,7 @@ iff every oracle solves.
 
 ```bash
 set -a; source ./.env; set +a            # XRLENV_GRPC_HOST + XRLENV_CONSUMER_TOKEN
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 
 # THE FULL GATE:
 bash xrlenv_plugins/benchmarks/deep_swe/run_full_sweep.sh

@@ -45,6 +45,7 @@ from xrlenv.errors import (
     RolloutCancelled,
     RolloutFailed,
     RolloutTruncated,
+    SessionReaped,
     TemplateUnknown,
     XRLEnvError,
 )
@@ -90,6 +91,11 @@ _EXC_TO_CODE: dict[type[XRLEnvError], grpc.StatusCode] = {
     RolloutCancelled:          grpc.StatusCode.CANCELLED,
     RolloutFailed:             grpc.StatusCode.ABORTED,
     ReplayUnavailable:         grpc.StatusCode.NOT_FOUND,
+    # A session the platform tore down (liveness quarantine, wall-clock deadline,
+    # or a node-side orphan seal). FAILED_PRECONDITION, not NOT_FOUND:
+    # the id is real and the platform knows exactly what happened to it, so the
+    # consumer can tell a reap apart from a stale/unknown handle and retry.
+    SessionReaped:             grpc.StatusCode.FAILED_PRECONDITION,
 }
 
 

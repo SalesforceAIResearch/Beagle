@@ -47,7 +47,7 @@ on a `--timeout-multiplier`. (Supersedes the 2026-07-18 run, which was measured 
 
 ```bash
 set -a; . ./.env; set +a                 # XRLENV_GRPC_HOST + tokens
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 
 # Full gate via the entrypoint — (re)builds the cache, then runs all 113 at NATIVE
 # timeout budget (no --timeout-multiplier), concurrency 32, with both default retry

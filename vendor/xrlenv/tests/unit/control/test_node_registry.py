@@ -158,12 +158,12 @@ def test_nodes_yaml_loader_parses_entries(tmp_path) -> None:  # type: ignore[no-
         "version: 1\n"
         "nodes:\n"
         "  - id: gcp-1\n"
-        "    address: internal-ip\n"
+        "    address: 10.0.0.1\n"
         "    cloud: gcp\n"
         "    backends: [docker]\n"
         "    auth_token_env: NODE_TOKEN_GCP_1\n"
         "  - id: aws-1\n"
-        "    address: internal-ip\n"
+        "    address: 10.0.0.2\n"
         "    cloud: aws\n"
         "    backends: [docker]\n"
     )
@@ -183,11 +183,11 @@ def test_nodes_yaml_sysbox_pool_and_allowed_runtimes(tmp_path) -> None:  # type:
         "version: 1\n"
         "nodes:\n"
         "  - id: n-sysbox\n"
-        "    address: internal-ip\n"
+        "    address: 10.0.0.1\n"
         "    backends: [docker]\n"
         "    sysbox: true\n"
         "  - id: n-plain\n"
-        "    address: internal-ip\n"
+        "    address: 10.0.0.2\n"
         "    backends: [docker]\n"
         "policy:\n"
         "  allowed_runtimes: [sysbox-runc]\n"
@@ -621,3 +621,113 @@ def test_register_defaults_isolation_capable_false_for_pre_p6_transport() -> Non
     reg = NodeRegistry(on_node_lost=noop, state=store)
     reg.register(_NoIsoTransport("noiso"))
     assert store.list_nodes()[0].isolation_capable is False
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Stall-aware eviction (2026-08-21) — a control-plane event-loop freeze must not
+# false-mark the fleet lost. These drive ``_sweep`` directly for determinism.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _stale(node_id: str, grace: float) -> _FakeTransport:
+    return _FakeTransport(node_id, last_heartbeat_at=time.monotonic() - grace * 5)
+
+
+async def test_blackout_defers_eviction_then_evicts_after_window() -> None:
+    """A sweep that runs far later than its cadence (the loop was frozen) must
+    NOT evict stale nodes on that first post-thaw sweep — it opens a fresh grace
+    window instead. Only nodes still stale after the window are evicted."""
+    lost: list[str] = []
+
+    async def on_lost(node_id: str) -> None:
+        lost.append(node_id)
+
+    reg = NodeRegistry(
+        on_node_lost=on_lost, disconnect_grace_s=1.0, check_interval_s=0.05,
+    )
+    reg.register(_stale("a", 1.0))
+    # Simulate a prior sweep 1s ago (>> blackout threshold max(0.15, 0.5)=0.5).
+    reg._last_tick = time.monotonic() - 1.0
+    await reg._sweep()
+    assert lost == []                      # deferred, not evicted
+    assert reg.node_ids == ["a"]           # still registered
+    assert reg._resume_deadline > time.monotonic()   # fresh window opened
+
+    # Window closed, no new blackout, node still stale → evicted now.
+    reg._last_tick = time.monotonic()
+    reg._resume_deadline = time.monotonic() - 0.01
+    await reg._sweep()
+    assert lost == ["a"]
+    assert reg.node_ids == []
+
+
+async def test_mass_loss_circuit_breaker_defers_one_cycle() -> None:
+    """Even without a detected blackout, a single sweep that would evict a large
+    fraction of the fleet defers one grace cycle (synchronized loss ⇒ CP-side),
+    fires the on_mass_loss hook, then evicts if still stale."""
+    lost: list[str] = []
+    mass: list[tuple[int, int]] = []
+
+    async def on_lost(node_id: str) -> None:
+        lost.append(node_id)
+
+    reg = NodeRegistry(
+        on_node_lost=on_lost,
+        disconnect_grace_s=1.0,
+        check_interval_s=0.05,
+        mass_loss_min_fleet=3,
+        on_mass_loss=lambda n, total: mass.append((n, total)),
+    )
+    for nid in ("a", "b", "c"):
+        reg.register(_stale(nid, 1.0))
+    reg.register(_FakeTransport("d"))       # healthy — 3/4 stale is > 50%
+    reg._last_tick = time.monotonic()       # NO blackout this sweep
+
+    await reg._sweep()
+    assert lost == []                       # mass loss deferred, not evicted
+    assert mass == [(3, 4)]                  # hook fired with (lost, registered)
+    assert set(reg.node_ids) == {"a", "b", "c", "d"}
+
+    # Still stale after the window → accepted as real and evicted.
+    reg._last_tick = time.monotonic()
+    reg._resume_deadline = time.monotonic() - 0.01
+    await reg._sweep()
+    assert sorted(lost) == ["a", "b", "c"]
+    assert reg.node_ids == ["d"]
+
+
+async def test_single_stale_node_evicted_immediately() -> None:
+    """Regression: a lone stale node in a healthy fleet is NOT a mass loss and
+    is evicted on the first sweep (the deferral must not swallow normal loss)."""
+    lost: list[str] = []
+
+    async def on_lost(node_id: str) -> None:
+        lost.append(node_id)
+
+    reg = NodeRegistry(
+        on_node_lost=on_lost, disconnect_grace_s=1.0, check_interval_s=0.05,
+        mass_loss_min_fleet=3,
+    )
+    reg.register(_stale("stale", 1.0))
+    reg.register(_FakeTransport("h1"))
+    reg.register(_FakeTransport("h2"))
+    # Fresh registry (first sweep) ⇒ _last_tick is None ⇒ no blackout.
+    await reg._sweep()
+    assert lost == ["stale"]
+    assert sorted(reg.node_ids) == ["h1", "h2"]
+
+
+async def test_healthy_sweep_rearms_deferral_flag() -> None:
+    """After the fleet recovers (no stale nodes), the one-shot deferral flag
+    re-arms so the NEXT mass-loss episode also gets its grace window."""
+    reg = NodeRegistry(
+        on_node_lost=_noop_on_lost, disconnect_grace_s=1.0, check_interval_s=0.05,
+    )
+    reg.register(_FakeTransport("a"))
+    reg._post_stall_window_used = True
+    await reg._sweep()                       # no stale nodes
+    assert reg._post_stall_window_used is False
+
+
+async def _noop_on_lost(_node_id: str) -> None:
+    return None

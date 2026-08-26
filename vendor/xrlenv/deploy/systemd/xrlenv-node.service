@@ -1,5 +1,5 @@
 [Unit]
-Description=XRLEnv node agent (spec 04)
+Description=XRLEnv node agent
 Documentation=https://github.com/your-org/xrlenv
 After=docker.service network-online.target
 Wants=docker.service network-online.target
@@ -10,7 +10,7 @@ Type=simple
 User=xrlenv
 Group=xrlenv
 EnvironmentFile=/etc/xrlenv/node.env
-# P6 CPU isolation opt-in (scripts/enable_cpu_isolation.sh). OPTIONAL (leading
+# CPU isolation opt-in (deploy/node/enable_cpu_isolation.sh). OPTIONAL (leading
 # '-'): absent on a stock node, so no effect. When present it carries
 # XRLENV_SELFTEST_IMAGE — kept in a SEPARATE file so it survives the node.env
 # rewrite bootstrap/refresh does on every run.
@@ -27,7 +27,7 @@ StartLimitBurst=20
 WorkingDirectory=/opt/xrlenv
 StandardOutput=journal
 StandardError=journal
-# Egress restriction (spec 07): the node-agent enters a managed container's
+# Egress restriction: the node-agent enters a managed container's
 # network namespace (`nsenter -t <pid> -n iptables …`) to install the egress
 # allowlist. That requires CAP_SYS_PTRACE (open the root-owned container's
 # /proc/<pid>/ns/net — the exact failure without it), CAP_SYS_ADMIN (setns
@@ -40,7 +40,7 @@ StandardError=journal
 # the ambient set at exec, before the no-new-privs lock).
 AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_ADMIN CAP_SYS_PTRACE
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_ADMIN CAP_SYS_PTRACE
-# Spec 19 sandboxing: refuse new privileges, lock down the agent process.
+# Sandboxing: refuse new privileges, lock down the agent process.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only

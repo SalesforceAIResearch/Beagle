@@ -69,16 +69,16 @@ def test_find_dotenv_does_not_cross_above_git(tmp_path) -> None:
 
 
 def test_warns_when_run_knobs_are_in_dotenv(tmp_path, monkeypatch, capsys) -> None:
-    monkeypatch.delenv("ATELIER_GATE_ENABLED", raising=False)
+    monkeypatch.delenv("DARWINX_GATE_ENABLED", raising=False)
     monkeypatch.delenv("XRLENV_GRPC_HOST", raising=False)
     env = tmp_path / ".env"
-    env.write_text("XRLENV_GRPC_HOST=h\nATELIER_GATE_ENABLED=1\n")
+    env.write_text("XRLENV_GRPC_HOST=h\nDARWINX_GATE_ENABLED=1\n")
 
     load_project_dotenv(env, verbose=True)
 
     out = capsys.readouterr().out
-    assert "ATELIER_GATE_ENABLED" in out and "belong in config" in out
-    assert os.environ["ATELIER_GATE_ENABLED"] == "1"   # still loaded (nothing breaks)
+    assert "DARWINX_GATE_ENABLED" in out and "belong in config" in out
+    assert os.environ["DARWINX_GATE_ENABLED"] == "1"   # still loaded (nothing breaks)
 
 
 def test_cli_loads_dotenv_before_dispatch(monkeypatch) -> None:

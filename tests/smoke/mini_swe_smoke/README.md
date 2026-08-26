@@ -4,7 +4,7 @@ Baseline **mini-swe-agent** on a few tasks, via `beagle evaluate`.
 
 ```bash
 set -a; source .env; set +a                 # gateway creds; gateway up (scripts/gateway/)
-cd /fsx/home/yutong/Github/beagle
+cd /path/to/beagle
 
 # terminal-bench-2.1 (2 tasks, harbor)
 beagle evaluate --config tests/smoke/mini_swe_smoke/terminal_bench_2_1_smoke2.yaml --dry-run   # preview

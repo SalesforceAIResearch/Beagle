@@ -34,7 +34,7 @@ shape — there is no ``patch`` stage because swebench content is clean upstream
 
 Usage::
 
-    export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+    export XRLENV_BENCHMARK_CACHE=/path/to/xrlenv_benchmark_cache
     python xrlenv_plugins/benchmarks/swebench_verified/build_cache.py --stage all --all
     python .../build_cache.py --stage all --smoke          # just the 8 smoke instances
 """
@@ -195,7 +195,7 @@ def _materialize(row: dict[str, Any], shard: Path) -> bool:
     * the temp siblings are dot-prefixed and cleaned up (and enumeration skips dot-dirs),
       so a crash can't leave a temp dir that later reads as a real instance;
     * a per-instance file lock (``flock``) serializes SAME-HOST writers; cross-host writers
-      (``/shared-fs`` Lustre is ``localflock``, so flock doesn't coordinate across nodes) converge
+      (``/fsx`` Lustre is ``localflock``, so flock doesn't coordinate across nodes) converge
       via an IDEMPOTENT atomic install — same dataset row -> identical content (audit M7);
     * only an INCOMPLETE destination is replaced (a complete one returns early), so a reader
       using ``_is_complete`` never sees a *complete* dir vanish. A crash mid-replace can

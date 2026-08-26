@@ -230,7 +230,7 @@ def test_distributed_runtime_model_resolves_in_fresh_interpreter() -> None:
     Regression for an issue where ``AdminServer`` was guarded under
     ``if TYPE_CHECKING:``; Pydantic v2 needs the class at runtime to
     resolve the ``admin_server: SkipValidation[AdminServer | None]``
-    annotation, so a fresh ``python tests/smoke/cluster_smoke.py``
+    annotation, so a fresh ``python tests/smoke/cluster_bringup/cluster_smoke.py``
     invocation crashed with ``PydanticUserError: not fully defined``
     even though the unit suite passed.
     """

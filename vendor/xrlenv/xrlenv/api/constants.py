@@ -85,9 +85,64 @@ DEFAULT_BUILD_TARBALL_MAX_BYTES: int = 100 * 1024 * 1024
 # these unconditionally on any channel/server that carries bidi
 # traffic so a single-VM smoke and the multi-VM acceptance gate see
 # the same cap.
-GRPC_CHANNEL_OPTIONS: list[tuple[str, int]] = [
+# Per-beat deadline for the raw-session keepalive RPC. Must stay well under the
+# SDK's beat cadence (XRLENV_RAW_HEARTBEAT_INTERVAL_S, 30 s) so a wedged beat
+# fails and is retried by the next one rather than stalling the loop: the
+# keepalive is single-threaded, so one never-returning RPC silences a whole
+# consumer process and every quiet session it holds dies at the quarantine
+# horizon.
+HEARTBEAT_RPC_TIMEOUT_S: float = 10.0
+
+
+# Sanity ceiling for the keepalive cadence. Not a tuning limit — a typo filter.
+# The keepalive exists to beat several times inside the control plane's liveness
+# TTL (120 s by default), so any cadence measured in hours is indistinguishable
+# from having no keepalive at all: it beats once at registration and never again,
+# which is precisely the "looks healthy while the control plane hears nothing"
+# failure the validation exists to prevent. A day is far above any legitimate
+# setting and far below the values that cause it (1e300 parses and is finite).
+MAX_HEARTBEAT_INTERVAL_S: float = 86_400.0
+
+
+# How often a client channel sends an HTTP/2 keepalive ping while otherwise idle.
+# Without this, a half-open TCP connection (a silently dropped flow, a NAT that
+# forgot us) is invisible: an RPC issued on it hangs instead of failing, which is
+# how a keepalive loop gets wedged. Kept equal to the beat cadence so an idle
+# consumer still exercises the path.
+GRPC_KEEPALIVE_TIME_MS: int = 30_000
+GRPC_KEEPALIVE_TIMEOUT_MS: int = 10_000
+# The server must TOLERATE pings at least as often as clients send them. gRPC
+# servers default to allowing one ping per 5 minutes without data and answer a
+# GOAWAY ``too_many_pings`` beyond that — so a client-only change would break the
+# very connections it is meant to protect. This bound must stay <=
+# GRPC_KEEPALIVE_TIME_MS; a test pins that relationship.
+GRPC_SERVER_MIN_PING_INTERVAL_MS: int = 10_000
+
+_GRPC_MESSAGE_SIZE_OPTIONS: list[tuple[str, int]] = [
     ("grpc.max_send_message_length", DEFAULT_MAX_MESSAGE_BYTES),
     ("grpc.max_receive_message_length", DEFAULT_MAX_MESSAGE_BYTES),
+]
+
+# CLIENT-side channels (consumer SDK + the node's outbound link).
+GRPC_CHANNEL_OPTIONS: list[tuple[str, int]] = [
+    *_GRPC_MESSAGE_SIZE_OPTIONS,
+    ("grpc.keepalive_time_ms", GRPC_KEEPALIVE_TIME_MS),
+    ("grpc.keepalive_timeout_ms", GRPC_KEEPALIVE_TIMEOUT_MS),
+    # Ping even with no RPC in flight — the idle case is the whole point.
+    ("grpc.keepalive_permit_without_calls", 1),
+    ("grpc.http2.max_pings_without_data", 0),
+]
+
+# SERVER-side. Deliberately NOT the client list: a server given
+# ``keepalive_time_ms`` starts pinging its own clients, which is a different
+# decision. What it needs is permission to RECEIVE frequent pings.
+GRPC_SERVER_OPTIONS: list[tuple[str, int]] = [
+    *_GRPC_MESSAGE_SIZE_OPTIONS,
+    ("grpc.keepalive_permit_without_calls", 1),
+    ("grpc.http2.min_recv_ping_interval_without_data_ms",
+     GRPC_SERVER_MIN_PING_INTERVAL_MS),
+    # Never GOAWAY a client purely for ping cadence.
+    ("grpc.http2.max_ping_strikes", 0),
 ]
 
 
@@ -97,5 +152,10 @@ __all__ = [
     "DEFAULT_MAX_GET_ARCHIVE_RELAY_BYTES",
     "DEFAULT_MAX_MESSAGE_BYTES",
     "GRPC_CHANNEL_OPTIONS",
+    "GRPC_KEEPALIVE_TIME_MS",
+    "GRPC_SERVER_MIN_PING_INTERVAL_MS",
+    "GRPC_SERVER_OPTIONS",
+    "HEARTBEAT_RPC_TIMEOUT_S",
+    "MAX_HEARTBEAT_INTERVAL_S",
     "MAX_OUTBOUND_MESSAGE_GUARD_BYTES",
 ]

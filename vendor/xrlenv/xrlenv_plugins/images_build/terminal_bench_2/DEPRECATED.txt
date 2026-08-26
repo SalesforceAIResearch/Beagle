@@ -1,1 +1,0 @@
-Please use xrlenv_plugins/benchmarks/terminal_bench_2_1 for the latest version of the terminal bench.

@@ -1725,10 +1725,10 @@ async def test_evict_ref_matches_registry_qualified_tag() -> None:
     """A node holds the image under its registry-qualified tag (post-pull);
     evicting by the bare plan ref must still match + remove it, and leave
     unrelated images alone. The mutable-tag staleness escape hatch."""
-    qualified = "node-host:5011/wai/substrate:1ca77813"
+    qualified = "ip-10-0-5-6:5011/wai/substrate:1ca77813"
     backend = _FakeImageBackend(present=[
         ImageRecord(name=qualified, size_bytes=1_000_000_000),
-        ImageRecord(name="node-host:5011/other/img:9", size_bytes=42),
+        ImageRecord(name="ip-10-0-5-6:5011/other/img:9", size_bytes=42),
     ])
     cache = ImageCacheManager(backend=backend)
 
@@ -1738,7 +1738,7 @@ async def test_evict_ref_matches_registry_qualified_tag() -> None:
     assert outcome.reclaimed_bytes == 1_000_000_000
     assert outcome.removed == (qualified,)
     assert backend.removed == [qualified]
-    assert "node-host:5011/other/img:9" in backend._present
+    assert "ip-10-0-5-6:5011/other/img:9" in backend._present
 
 
 async def test_evict_ref_absent_when_no_match() -> None:

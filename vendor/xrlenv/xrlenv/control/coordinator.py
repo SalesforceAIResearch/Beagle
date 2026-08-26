@@ -19,6 +19,7 @@ primitives, capacity reservation, scheduler bin-packing.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import sqlite3
 import time
@@ -27,6 +28,7 @@ from typing import Any
 
 from xrlenv.backends.base import NetworkPolicy, SandboxHandle
 from xrlenv.control.admission import DEFAULT_QUEUE_TIMEOUT_S, AdmissionQueue
+from xrlenv.control.build_plan import GitSource, TarballSource
 from xrlenv.control.deadlines import DeadlineWatcher
 from xrlenv.control.defaults import DEFAULT_BACKEND, DEFAULT_NETWORK
 from xrlenv.control.idle_ttl import IdleTtlWatcher
@@ -41,6 +43,7 @@ from xrlenv.control.reward import (
     compute_in_sandbox_final_reward,
 )
 from xrlenv.control.scheduler import Placement, Scheduler
+from xrlenv.control.scratch_build import durable_ref_for, resolve_scratch_image
 from xrlenv.control.state import (
     PendingRolloutRecord,  # noqa: F401 — re-exported transitively for tests
     RolloutRecord,
@@ -56,6 +59,7 @@ from xrlenv.errors import (
     RolloutFailed,
     RolloutTruncated,
     TemplateUnknown,
+    XRLEnvError,
 )
 from xrlenv.observability.metrics import MetricsRegistry
 from xrlenv.observability.tracing import get_tracer
@@ -125,10 +129,17 @@ class RolloutCoordinator:
         idle_ttl_watcher: IdleTtlWatcher | None = None,
         default_idle_ttl_s: float = 120.0,
         metrics: MetricsRegistry | None = None,
+        scratch_registry_host: str | None = None,
     ) -> None:
         self._catalog = catalog
         self._scheduler = scheduler
         self._state = state
+        # Scratch build-on-demand (notes/scratch-registry-build-on-demand.md):
+        # ``host:port`` of the scratch registry that image_build templates are
+        # built into. ``None`` → build-on-demand unconfigured; a scratch_build
+        # rollout then fails fast with a clear XRLENV_SCRATCH_REGISTRY_HOST
+        # pointer rather than a cryptic missing-image error.
+        self._scratch_registry_host = scratch_registry_host
         self._sink = trajectory_sink
         self._admission = admission
         self._metrics = metrics
@@ -353,6 +364,15 @@ class RolloutCoordinator:
             self._maybe_resolve_instance(manifest, init)
         )
 
+        # 2.6 scratch build-on-demand (spec 06 image_build:). For a
+        # scratch_build manifest with no concrete image yet, compute the
+        # content-addressed scratch ref (so the scheduler sizes/places against
+        # it) and hold the build source to register on the chosen node before
+        # create. Non-scratch manifests pass straight through.
+        manifest, scratch_source, scratch_durable_ref = (
+            self._maybe_prepare_scratch_image(manifest)
+        )
+
         # 3. Acquire a placement — admission queue if wired, direct otherwise.
         # The admission queue raises CapacityExhausted on its own queue_timeout.
         # ``backend`` is per-rollout user policy (run-config or per-call kwarg);
@@ -370,6 +390,13 @@ class RolloutCoordinator:
             backend=effective_backend,
         )
         node, backend = placement.node, placement.backend
+
+        # Register the scratch build source on the chosen node so its
+        # ImageCacheManager.ensure_present builds-and-pushes on first use.
+        if scratch_source is not None and manifest.image is not None:
+            await self._register_scratch_source(
+                node, manifest.image, scratch_source, scratch_durable_ref,
+            )
 
         rollout_id = new_id()
         record = RolloutRecord(
@@ -589,6 +616,58 @@ class RolloutCoordinator:
         # mount prefixes.
         validated = self._catalog.validate_overlay(overlay)
         return validated, resolved.network, tuple(resolved.verifier_uploads)
+
+    def _maybe_prepare_scratch_image(
+        self, manifest: TemplateManifest,
+    ) -> tuple[TemplateManifest, GitSource | TarballSource | None, str | None]:
+        """Scratch build-on-demand (spec 06 ``image_build:``).
+
+        For a ``scratch_build`` manifest with no concrete image yet, compute
+        the content-addressed scratch ref (overlaying ``manifest.image`` so
+        the scheduler sizes/places against it) and return the build source +
+        the optional durable destination ref to register on the chosen node.
+        No-op (``source=None, durable=None``) for every other manifest —
+        including one already carrying an image (idempotent re-entry /
+        resolver-supplied).
+        """
+        if (
+            manifest.image_pin_mode != "scratch_build"
+            or manifest.image_build is None
+            or manifest.image is not None
+        ):
+            return manifest, None, None
+        ref, source = resolve_scratch_image(
+            manifest.image_build,
+            scratch_host=self._scratch_registry_host or "",
+        )
+        durable_ref = durable_ref_for(manifest.image_build, ref)
+        return manifest.model_copy(update={"image": ref}), source, durable_ref
+
+    async def _register_scratch_source(
+        self,
+        node: NodeTransport,
+        image_ref: str,
+        source: GitSource | TarballSource,
+        durable_to: str | None = None,
+    ) -> None:
+        """Register a scratch build source on the chosen node so its
+        ``ImageCacheManager.ensure_present`` builds-and-pushes on first use.
+
+        Both the in-process ``NodeAgent`` and the distributed
+        ``RemoteNodeTransport`` (via the spec-21 ``RegisterScratchSourceCommand``)
+        implement ``register_scratch_source``. A transport lacking it (e.g. a
+        future backend) fails fast with a clear pointer instead of a confusing
+        missing-image error later.
+        """
+        register = getattr(node, "register_scratch_source", None)
+        if register is None:
+            raise XRLEnvError(
+                f"scratch build-on-demand for image {image_ref!r} is not "
+                "supported on this node transport (no register_scratch_source).",
+            )
+        result = register(image_ref, source, durable_to=durable_to)
+        if inspect.isawaitable(result):
+            await result
 
     def _resolver_for(self, manifest: TemplateManifest):  # type: ignore[no-untyped-def]
         if manifest.instances is None:
@@ -1305,6 +1384,7 @@ class RolloutCoordinator:
             digest_source = (
                 "per_node" if manifest.image_pin_mode == "per_node_local"
                 else "shared_storage" if manifest.image_pin_mode == "shared_storage"
+                else "scratch" if manifest.image_pin_mode == "scratch_build"
                 else "registry"
             )
             self._state.append_audit(
@@ -1320,10 +1400,13 @@ class RolloutCoordinator:
             )
             # Fail-fast only when the mode has no registry authority
             # behind it. ``registry_digest`` cold-cache misses fall
-            # through to ``ensure_present()`` inside create_sandbox.
+            # through to ``ensure_present()`` inside create_sandbox;
+            # ``scratch_build`` likewise — a cold miss is the *normal*
+            # first-use state, resolved by build-and-push on demand
+            # (notes/scratch-registry-build-on-demand.md).
             if (
                 not check.present
-                and manifest.image_pin_mode != "registry_digest"
+                and manifest.image_pin_mode not in ("registry_digest", "scratch_build")
             ):
                 raise ImageMissingOnNode(
                     f"node {node.node_id!r} does not have image "

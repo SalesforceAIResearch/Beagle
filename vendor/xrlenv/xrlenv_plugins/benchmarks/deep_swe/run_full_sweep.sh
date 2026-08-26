@@ -83,20 +83,25 @@ JOB_ID="${JOB_ID}-$(date +%Y-%m-%d_%H-%M-%S)"
 if [ "$LIST_GREEN" != 1 ]; then
   set +u; set -a; source ./.env 2>/dev/null || true; set +a; set -u
 fi
-: "${XRLENV_BENCHMARK_CACHE:=/path/to/benchmark-cache}"
+if [ -z "${XRLENV_BENCHMARK_CACHE:-}" ]; then
+  echo "ERROR: XRLENV_BENCHMARK_CACHE is not set. Set it (in .env or the environment) to your" >&2
+  echo "       benchmark cache ROOT — the shared directory build_cache.py populates, e.g." >&2
+  echo "       XRLENV_BENCHMARK_CACHE=/path/to/xrlenv_benchmark_cache (see .env.example)." >&2
+  exit 1
+fi
 export XRLENV_BENCHMARK_CACHE
 
 # audit (cache rename): the old XRLENV_HARBOR_CACHE env var and the old
 # .../xrlenv_harbor_cache path are RETIRED. Fail loud so a stale env can't run against the
 # wrong (moved/absent) cache and give unreliable results — use XRLENV_BENCHMARK_CACHE +
-# /path/to/benchmark-cache. (The Python entrypoints guard this too.)
+# /path/to/xrlenv_benchmark_cache. (The Python entrypoints guard this too.)
 if [ -n "${XRLENV_HARBOR_CACHE+x}" ]; then
-  echo "ERROR: XRLENV_HARBOR_CACHE is retired — unset it and set XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache" >&2
+  echo "ERROR: XRLENV_HARBOR_CACHE is retired — unset it and set XRLENV_BENCHMARK_CACHE=/path/to/xrlenv_benchmark_cache" >&2
   exit 1
 fi
 case "$XRLENV_BENCHMARK_CACHE" in
   *xrlenv_harbor_cache*)
-    echo "ERROR: retired cache path '$XRLENV_BENCHMARK_CACHE' — use /path/to/benchmark-cache" >&2
+    echo "ERROR: retired cache path '$XRLENV_BENCHMARK_CACHE' — use /path/to/xrlenv_benchmark_cache" >&2
     exit 1 ;;
 esac
 SHARD="$XRLENV_BENCHMARK_CACHE/deep-swe"

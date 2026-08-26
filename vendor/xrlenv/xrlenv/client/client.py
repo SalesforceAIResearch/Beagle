@@ -14,12 +14,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, Literal
 
+from xrlenv.api.constants import (
+    HEARTBEAT_RPC_TIMEOUT_S,
+    MAX_HEARTBEAT_INTERVAL_S,
+)
 from xrlenv.backends.base import CpuIsolation, RuntimeLimits
 from xrlenv.client.container_session import (
     ClusterComposeSession,
@@ -56,14 +61,68 @@ the platform stays consumer-framework-agnostic per spec 05.
 """
 
 
-# SDK keepalive cadence for raw-container sessions. The control plane reaps a
-# raw session whose consumer stopped beating (XRLENV_RAW_LIVENESS_TTL_S, 120 s
-# default); this is the beat interval, ~1/4 of that so a couple of dropped
-# beats don't false-reap. ``0`` disables the keepalive (sessions then rely on
-# the wall-clock deadline only). Env-tunable.
-_RAW_HEARTBEAT_INTERVAL_S: float = float(
-    os.environ.get("XRLENV_RAW_HEARTBEAT_INTERVAL_S", "30"),
-)
+# SDK keepalive cadence for raw-container sessions. A raw session that stops
+# beating is only marked ``suspect`` at the TTL (XRLENV_RAW_LIVENESS_TTL_S,
+# 120 s default); it is destroyed only if still silent at the quarantine horizon
+# (XRLENV_RAW_LIVENESS_QUARANTINE_S, 900 s). This is the beat interval, ~1/4 of
+# the TTL. ``0`` disables the keepalive (wall-clock deadline only). Env-tunable.
+# The control plane's DEFAULT liveness TTL. A hint, not a contract: the server
+# owns the real value and may be configured differently, so this only drives a
+# warning about a cadence that cannot keep sessions alive.
+_LIVENESS_TTL_HINT_S = 120.0
+
+def _read_heartbeat_interval_s() -> float:
+    """Beat cadence from the environment, rejecting values that would silently
+    disable the keepalive.
+
+    Three inputs reach the same failure — the loop beats once at registration and
+    never again, so the consumer looks healthy while the control plane hears
+    nothing and reaps its idle sessions. ``"nan"`` and ``"inf"`` both parse and
+    slip past a ``<= 0`` disable check (every NaN comparison is False; infinity is
+    positive). So does any absurd-but-finite value like ``1e300``, which is why
+    the bound here is a ceiling rather than a finiteness test: patching the cases
+    one at a time kept missing the next one. The result is a keepalive that
+    beats only when a session registers and never again: the consumer looks
+    healthy, the control plane hears nothing, and its idle sessions die at the
+    horizon. A typo must fall back to the default loudly, not degrade in silence.
+    ``0`` remains a legitimate, documented "disable" value.
+    """
+    raw = os.environ.get("XRLENV_RAW_HEARTBEAT_INTERVAL_S", "30")
+    try:
+        value = float(raw)
+    except ValueError:
+        value = float("nan")
+    if not math.isfinite(value) or value < 0 or value >= MAX_HEARTBEAT_INTERVAL_S:
+        LOGGER.warning(
+            "XRLENV_RAW_HEARTBEAT_INTERVAL_S=%r is not a usable interval; "
+            "falling back to the 30 s default. Pass 0 to disable the keepalive "
+            "deliberately.", raw,
+        )
+        return 30.0
+    if value >= _LIVENESS_TTL_HINT_S and value > 0:
+        # Plausible but probably wrong: at or above the control plane's DEFAULT
+        # liveness TTL the beats cannot arrive often enough to keep an idle
+        # session alive. We cannot see the server's actual TTL from here, and an
+        # operator may have raised both together, so this is a warning rather
+        # than a rejection — but it must not pass silently.
+        LOGGER.warning(
+            "XRLENV_RAW_HEARTBEAT_INTERVAL_S=%.0fs is at or above the control "
+            "plane's default liveness TTL (%.0fs). Unless the server's TTL was "
+            "raised to match, idle sessions will be reaped before the next beat "
+            "and this keepalive cannot protect them.",
+            value, _LIVENESS_TTL_HINT_S,
+        )
+    return value
+
+
+_RAW_HEARTBEAT_INTERVAL_S: float = _read_heartbeat_interval_s()
+
+
+# Consecutive failed beats before the keepalive is considered at risk: 2 misses
+# at the 30 s cadence is 60 s, half the control plane's 120 s liveness TTL — late
+# enough not to cry wolf on a single blip, early enough that a consumer still has
+# the other half of the TTL to react.
+_AT_RISK_FAILURES = 2
 
 
 class _RawSessionKeepalive:
@@ -81,11 +140,33 @@ class _RawSessionKeepalive:
     down — which would let live sessions be reaped.
     """
 
-    def __init__(self, transport: ClientTransport, *, interval_s: float) -> None:
+    def __init__(
+        self,
+        transport: ClientTransport,
+        *,
+        interval_s: float,
+    ) -> None:
         self._transport = transport
         self._interval_s = interval_s
+        # The wire deadline is a fixed constant, but the CADENCE is operator
+        # configurable, so the two can invert: at
+        # XRLENV_RAW_HEARTBEAT_INTERVAL_S=5 a 10 s deadline means a wedged beat
+        # stretches the effective cadence to deadline+interval instead of
+        # interval, eating the margin the 120 s TTL is sized against. Derive a
+        # per-beat budget from the interval so "well under the cadence" holds at
+        # any setting; the transport's own deadline stays as the wire backstop.
+        # Strictly half the cadence, capped by the wire deadline. NO floor: a
+        # floor larger than the interval re-inverts the exact guarantee this
+        # exists to hold (at interval=0.1 a 0.5 s floor is 5x the cadence), which
+        # is the same margin-eating bug at the other end of the range. Values
+        # <= 0 disable the keepalive entirely before this is ever used.
+        self._beat_budget_s = min(HEARTBEAT_RPC_TIMEOUT_S, interval_s / 2.0)
         self._ids: set[str] = set()
         self._task: asyncio.Task[None] | None = None
+        # Consecutive failed beats. Drives ``liveness_at_risk`` — reported, never
+        # raised on (decision 4): the SDK must not kill healthy work on its own
+        # suspicion, which is the exact failure mode this whole design removes.
+        self._consecutive_failures = 0
         # Set by register() to wake the loop for a prompt opt-in beat.
         self._wake = asyncio.Event()
 
@@ -109,6 +190,17 @@ class _RawSessionKeepalive:
     def unregister(self, rollout_id: str) -> None:
         self._ids.discard(rollout_id)
 
+    @property
+    def liveness_at_risk(self) -> bool:
+        """True while this process's beats are not reaching the control plane.
+
+        Advisory. A consumer can surface it, pause dispatching new work, or
+        checkpoint — but the SDK deliberately does NOT raise on it. A false
+        alarm would destroy healthy work, which is precisely the failure this
+        contract exists to prevent, so the decision stays with the caller.
+        """
+        return self._consecutive_failures >= _AT_RISK_FAILURES
+
     async def _run(self) -> None:
         # Beat FIRST, then wait — so the first beat (the opt-in) is prompt.
         while True:
@@ -120,16 +212,50 @@ class _RawSessionKeepalive:
             # made during the RPC, delaying its opt-in a full interval.
             self._wake.clear()
             ids = list(self._ids)
+            if not ids:
+                # Nothing to beat means nothing at risk: a consumer that has
+                # drained its sessions must not keep reporting itself unhealthy
+                # on the strength of failures that no longer matter to anyone.
+                self._consecutive_failures = 0
             if ids:
                 try:
-                    await self._transport.heartbeat_many(ids)
+                    await asyncio.wait_for(
+                        self._transport.heartbeat_many(ids),
+                        timeout=self._beat_budget_s,
+                    )
                 except asyncio.CancelledError:
                     raise
                 except Exception:
-                    LOGGER.debug(
-                        "raw-session keepalive heartbeat failed; will retry",
-                        exc_info=True,
-                    )
+                    self._consecutive_failures += 1
+                    # Escalate rather than whisper. Swallowing at DEBUG is why a
+                    # consumer that had stopped beating looked perfectly healthy
+                    # in its own logs while the control plane counted down to
+                    # destroying its sessions — the failure was only visible from
+                    # the other side of the wire. Two misses is 60 s, half the
+                    # liveness TTL: the last moment a warning is still actionable.
+                    if self._consecutive_failures >= _AT_RISK_FAILURES:
+                        LOGGER.warning(
+                            "raw-session keepalive has failed %d consecutive "
+                            "times (%.0fs). The control plane cannot tell this "
+                            "consumer from a dead one; any session of ours that "
+                            "is idle will be destroyed at the quarantine "
+                            "horizon. Sessions with traffic are unaffected.",
+                            self._consecutive_failures,
+                            self._consecutive_failures * self._interval_s,
+                            exc_info=True,
+                        )
+                    else:
+                        LOGGER.debug(
+                            "raw-session keepalive heartbeat failed; will retry",
+                            exc_info=True,
+                        )
+                else:
+                    if self._consecutive_failures:
+                        LOGGER.info(
+                            "raw-session keepalive recovered after %d failed "
+                            "beat(s)", self._consecutive_failures,
+                        )
+                    self._consecutive_failures = 0
             # Wait the interval, or wake early when a new session registers
             # (so its opt-in beat is prompt). Timeout = ordinary periodic tick;
             # CancelledError propagates to close().
@@ -143,6 +269,7 @@ class _RawSessionKeepalive:
                 await self._task
             self._task = None
         self._ids.clear()
+        self._consecutive_failures = 0
         self._wake.clear()
 
 
@@ -178,6 +305,20 @@ class Client:
         self._keepalive = _RawSessionKeepalive(
             transport, interval_s=_RAW_HEARTBEAT_INTERVAL_S,
         )
+
+    @property
+    def liveness_at_risk(self) -> bool:
+        """True while this client's session keepalive is failing to reach the
+        control plane.
+
+        Advisory only — see :meth:`_RawSessionKeepalive.liveness_at_risk`. While
+        this is set, any session of this client's that goes idle is at risk of
+        being reclaimed at the quarantine horizon, because the control plane has
+        no way to distinguish a consumer it cannot hear from one that died.
+        Sessions with in-flight RPCs are unaffected: those are a liveness signal
+        in their own right.
+        """
+        return self._keepalive.liveness_at_risk
 
     @classmethod
     def in_process(
@@ -584,6 +725,7 @@ class Client:
         self._keepalive.register(result.rollout_id)
         return ClusterContainerSession(
             self._transport, result, on_destroy=self._keepalive.unregister,
+            liveness_probe=lambda: self._keepalive.liveness_at_risk,
         )
 
     # ── Multi-service compose project (P1.7.C.2) ─────────────────────────────
@@ -682,6 +824,7 @@ class Client:
         self._keepalive.register(result.rollout_id)
         return ClusterComposeSession(
             self._transport, result, on_destroy=self._keepalive.unregister,
+            liveness_probe=lambda: self._keepalive.liveness_at_risk,
         )
 
     # ── Cluster status (D21) ─────────────────────────────────────────────────

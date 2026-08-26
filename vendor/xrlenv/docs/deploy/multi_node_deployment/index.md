@@ -70,6 +70,7 @@ cloud_VM_providers/index
 runbook
 registry_mirror
 private_registry
+scratch_registry
 sysbox_pool
 slurm_topology
 ```

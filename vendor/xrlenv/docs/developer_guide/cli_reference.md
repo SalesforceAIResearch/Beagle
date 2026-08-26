@@ -33,7 +33,7 @@ xrlenv up \
 ```
 
 The rotating file at `~/.xrlenv/xrlenv-up.log` is always JSON (one
-spec-08 envelope per line). Tail it with:
+structured JSON envelope per line). Tail it with:
 
 ```bash
 tail -f ~/.xrlenv/xrlenv-up.log | jq -r '[.ts, .level, .event] | @tsv'
@@ -320,10 +320,15 @@ xrlenv rollouts --format json | jq '.[] | select(.final_reward > 0.5)'
 | `--since` | `5m`, `2h`, `1d` | Only rollouts created within this window |
 | `--format` | `text` (default) or `json` | Output format |
 
-`reaped` is a raw-container status, not a failure. It means the GC reclaimed
-the session because its wall-clock deadline or consumer-liveness TTL expired
-and teardown succeeded cleanly. A reap whose teardown itself raises is sealed
-`failed` instead.
+`reaped` is a raw-container status, not a failure. It means the platform tore
+the session down on purpose and recorded why, and the teardown completed
+cleanly. Any teardown carrying a reason seals `reaped`: the wall-clock
+`session_deadline_s` sweep, the consumer-liveness quarantine sweep, a group
+teardown (`terminate_raw_group`), and the orphan sweep sealing a container the
+node reaped on its own (disk guard, OOM). The `error` column carries the
+specific cause. A reap whose teardown is *not* node-confirmed (it raised, or the
+destroy timed out) seals nothing at all — the row stays `running` and the
+reconciler re-attempts on its next sweep.
 
 ---
 
@@ -498,7 +503,7 @@ holds, so you can pass the same ref format your consumer config uses.
 ```bash
 # Evict after rebuilding + re-pushing the webarena-infinity substrate image.
 xrlenv images evict xrlenv-webarena-infinity/substrate:dev \
-    --connect-host internal-ip
+    --connect-host <control-plane-host>
 ```
 
 See {doc}`/technical_details/images/cache_eviction` for the full operator
@@ -569,6 +574,88 @@ xrlenv build apply \
 `--force`, `--fill-missing`, and `--eager` are mutually exclusive.
 `--skip-if-present` is compatible with `--fill-missing` but is overridden
 by `--force`. `--concurrency` is independent of all other flags.
+
+---
+
+(cli-build-push)=
+## `xrlenv build push`
+
+Control-plane-orchestrated build-and-push for plans whose images must be built
+from source (Dockerfile) and stored in the cluster's private registry.
+`build push` is the cluster-scale, control-plane-native replacement for
+the old Slurm-based distributed build workflow.
+
+**How it differs from `build apply`.**
+
+| | `build apply` | `build push` |
+|---|---|---|
+| Source types | all (`git`, `tarball`, `registry`, `local`) | `git` and `tarball` only |
+| Output | image tagged locally on each node | image pushed to `--registry`; digest returned |
+| Registry needed | no | yes — `--registry <host:port>` is required |
+| Use case | warm nodes before a run | populate the private registry before warming |
+
+`registry` and `local` entries are rejected by `build push` — they are already
+in a registry or on-disk and do not need to be built and pushed.
+
+**Build-once, resumable.** Before submitting any build work, the control plane
+asks each node to perform a registry `HEAD` check on the manifest. If the ref is
+already in the registry it is skipped — re-runs are cheap and interrupted runs
+resume where they left off. Overlapping dispatches never double-push the same
+ref.
+
+**Size-aware sharding.** The coordinator distributes entries across nodes using
+size-balanced (LPT-greedy) assignment: the largest images go first to the
+least-loaded node, balanced by `size_hint_bytes` from the plan. Unlike
+`build apply`, there is no disk-fit constraint — a plan can exceed total cluster
+disk capacity because images are pushed to the shared registry and become
+evictable on-node immediately. Run `xrlenv build calibrate` first to measure
+accurate sizes (recommended for plans with heavy-tailed images such as CUDA
+environments).
+
+```bash
+# Populate the private registry from a large build plan.
+xrlenv build push \
+    --plan xrlenv_plugins/benchmarks/seta/build_plan_1376_full.yaml \
+    --registry <registry-host>:5011 \
+    --connect-host <admin-host>
+
+# Preview the per-node shard assignment without building anything.
+xrlenv build push \
+    --plan build_plan.yaml \
+    --registry <registry-host>:5011 \
+    --connect-host <admin-host> \
+    --dry-run
+
+# Force-rebuild all entries, even those already present in the registry.
+xrlenv build push \
+    --plan build_plan.yaml \
+    --registry <registry-host>:5011 \
+    --connect-host <admin-host> \
+    --force
+```
+
+**Options:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--plan PATH` | — | **Required.** Path to the `build-plan.yaml`. Only `git` and `tarball` source entries are processed; `registry` and `local` entries are rejected. |
+| `--registry HOST:PORT` | — | **Required.** Private registry to push built images to, e.g. `<registry-host>:5011`. Each node pushes directly to this address. |
+| `--connect-host HOST` | — | **Required.** Admin host of a running `xrlenv up`. |
+| `--connect-port PORT` | `8080` | Admin port. |
+| `--operator-token TOKEN` | `$XRLENV_OPERATOR_TOKEN` or `~/.xrlenv/secrets/operator.token` | Bearer token with the `operator.admin` scope. |
+| `--concurrency N` | `$XRLENV_BUILD_CONCURRENCY` (default 32) | Max in-flight image dispatches across the cluster. Set to roughly `num_nodes × build_concurrency_per_node` to saturate idle nodes. |
+| `--dry-run` | off | Print the per-node shard assignment and exit without dispatching any builds. |
+| `--force` | off | Rebuild and repush every entry, even refs already present in the registry. |
+| `--build-tarball-max-bytes N` | platform default | Override the maximum tarball payload size for build context uploads. |
+
+After `build push` completes, use `xrlenv build apply` (with a
+registry-source plan) or point template `image_ref` values at
+`<registry-host>:5011/<ref>` with `image_pin_mode: registry_digest` to have
+the control plane pin the pushed digests at template-register time.
+
+See {doc}`/deploy/multi_node_deployment/private_registry` for the end-to-end
+private registry workflow, including how to stand up the registry server and
+configure worker nodes to pull from it.
 
 ---
 
@@ -784,7 +871,7 @@ See {doc}`/deploy/multi_tenancy` for the full fair-share narrative and examples.
 | `raw_rollouts` | 14 days | Tiny table (~a few MB for tens of thousands of rows). The janitor folds pruned rows into `owner_rollout_lifetime` before deleting them, so `/users` cumulative totals survive GC (though rows pruned before lifetime tracking was enabled are not backfilled). Only per-rollout drill-down is bounded by this window. |
 | `events` | 14 days | Rollout-lifecycle events log (`rollout.start`, `rollout.finish`, etc.). |
 
-**Typical production tuning** — the committed prod and dev control-plane launchers (`slurm_scripts/prod_xrlenv_control.sh`, `slurm_scripts/dev_xrlenv_control.sh`) use:
+**Typical production tuning** — the committed prod and dev control-plane launchers (`slurm_scripts/generated/prod_xrlenv_control.sh`, `slurm_scripts/generated/dev_xrlenv_control.sh`) use:
 
 ```bash
 --audit-retention-days 7 --raw-rollout-retention-days 180

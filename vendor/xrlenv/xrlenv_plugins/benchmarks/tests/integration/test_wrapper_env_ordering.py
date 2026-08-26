@@ -35,7 +35,7 @@ def _line_of(lines: list[str], pattern: str) -> int:
 def test_env_sourced_before_cache_resolution(bench: str) -> None:
     lines = (_BENCH_DIR / bench / "run_full_sweep.sh").read_text().splitlines()
     source = _line_of(lines, r"source \./\.env")
-    resolve = _line_of(lines, r'^: "\$\{XRLENV_BENCHMARK_CACHE:=')
+    resolve = _line_of(lines, r'if \[ -z "\$\{XRLENV_BENCHMARK_CACHE')
     shard = _line_of(lines, r"^SHARD=")
     # .env must load first, so the ONE resolved root below drives shell + Python stages (H9).
     assert source < resolve < shard, (

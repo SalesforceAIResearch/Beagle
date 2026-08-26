@@ -17,7 +17,8 @@
 #
 # Usage:
 #   bash xrlenv_plugins/sysbox/build_sysbox.sh [OUT_DIR]
-# Default OUT_DIR: xrlenv_plugins/sysbox/vendor/<commit>/
+# Default OUT_DIR: ${SYSBOX_VENDOR_ROOT}/<commit>/ (resolved per cluster by
+# pin.env; the vendor root is per-cluster storage, so run this once per cluster)
 #
 # Output: OUT_DIR/{sysbox-runc,sysbox-mgr,sysbox-fs}, OUT_DIR/SHA256SUMS, and
 # OUT_DIR/PROVENANCE.txt. Commit those (or host them) so install_sysbox_node.sh
@@ -39,18 +40,32 @@ die()  { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 command -v docker >/dev/null 2>&1 || die "docker is required (the build runs in a container)"
 command -v git    >/dev/null 2>&1 || die "git is required"
 
-log "cloning nestybox/sysbox (recursive) into ${WORK_DIR}/sysbox"
-git clone --recursive --depth 1 https://github.com/nestybox/sysbox.git \
-    "${WORK_DIR}/sysbox"
+# Clone the PARENT at a pinned commit, then let it place its own submodules.
+# ``--filter=blob:none`` keeps full commit history (needed to check out an
+# arbitrary pinned commit) while deferring blob download, so this stays about as
+# fast as the old ``--depth 1``.
+#
+# Do NOT go back to cloning the default branch: the parent supplies the build
+# toolchain and records sysbox-fs / -mgr / -libs / -ipc. Floating the parent
+# while pinning only sysbox-runc mixes eras — the newer siblings' go.mod pulls a
+# newer Go toolchain that then rejects the pinned runc's go.mod with "updates to
+# go.mod needed" (the 2026-08-08 build failure).
+log "cloning nestybox/sysbox into ${WORK_DIR}/sysbox (parent pin ${SYSBOX_PARENT_COMMIT})"
+git clone --filter=blob:none https://github.com/nestybox/sysbox.git "${WORK_DIR}/sysbox"
+git -C "${WORK_DIR}/sysbox" checkout --quiet "${SYSBOX_PARENT_COMMIT}" \
+    || die "could not checkout nestybox/sysbox ${SYSBOX_PARENT_COMMIT} (SYSBOX_PARENT_COMMIT in pin.env)"
+log "initializing submodules recorded by ${SYSBOX_PARENT_COMMIT}"
+git -C "${WORK_DIR}/sysbox" submodule update --init --recursive
 
-log "pinning sysbox-runc submodule to ${SYSBOX_RUNC_COMMIT}"
-git -C "${WORK_DIR}/sysbox/sysbox-runc" fetch --depth 50 origin "${SYSBOX_RUNC_COMMIT}" 2>/dev/null || true
-git -C "${WORK_DIR}/sysbox/sysbox-runc" checkout "${SYSBOX_RUNC_COMMIT}" \
-    || die "could not checkout sysbox-runc ${SYSBOX_RUNC_COMMIT}. \
-The recursive clone pins the submodule to the sysbox master's recorded commit; \
-if that no longer matches ${SYSBOX_RUNC_COMMIT}, update SYSBOX_RUNC_COMMIT in \
-pin.env to the current sysbox-runc main tip that carries PR #106."
-_actual_commit="$(git -C "${WORK_DIR}/sysbox/sysbox-runc" rev-parse --short HEAD)"
+# The parent commit RECORDS the whole submodule set, so sysbox-runc lands on the
+# pinned commit with no forced checkout. Assert that rather than override it: if
+# the two pins disagree it is a config error to fix in pin.env, not something to
+# paper over by dragging one submodule out of step with its siblings.
+_actual_commit="$(git -C "${WORK_DIR}/sysbox/sysbox-runc" rev-parse --short=8 HEAD)"
+[[ "${_actual_commit}" == "${SYSBOX_RUNC_COMMIT}" ]] || die \
+    "parent ${SYSBOX_PARENT_COMMIT} records sysbox-runc ${_actual_commit}, but pin.env \
+pins SYSBOX_RUNC_COMMIT=${SYSBOX_RUNC_COMMIT}. Update pin.env so the two agree \
+(pick the newest parent commit whose recorded sysbox-runc is the one you want)."
 log "sysbox-runc at ${_actual_commit}: $(git -C "${WORK_DIR}/sysbox/sysbox-runc" log --oneline -1)"
 
 log "building static binaries (containerized 'make sysbox-static'; ~15-30 min, first run pulls a builder image)"

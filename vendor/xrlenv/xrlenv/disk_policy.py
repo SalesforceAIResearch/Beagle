@@ -4,8 +4,7 @@ cache must agree on.
 
 Two planes make disk decisions and MUST NOT hardcode disagreeing
 thresholds. When they did, prod nodes deadlocked permanently excluded
-(the P1 finding in ``notes/audit.md``, observed on ``aws-node-host``
-on 2026-07-01):
+(a production deadlock observed on a worker node on 2026-07-01):
 
 - the scheduler's placement gate (control plane, ``_is_disk_pressured``)
   refuses to place work on a node whose free disk is at/below the

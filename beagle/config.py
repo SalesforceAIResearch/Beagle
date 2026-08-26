@@ -239,6 +239,16 @@ class RunConfig(_Base):
     model: ModelConfig
     agent: AgentConfig
     benchmark: BenchmarkConfig
+    #: Additional benchmarks when this run scores a *mixture*. ``None`` (the default) is the
+    #: ordinary single-benchmark run and behaves exactly as before.
+    #:
+    #: ``benchmark`` stays the primary and must be ``benchmarks[0]``, so an algorithm that
+    #: predates mixtures and reads ``.benchmark`` still gets a real member of the mixture
+    #: rather than something invented. Mixture-aware code reads :meth:`all_benchmarks`.
+    #: A single ``BenchmarkConfig`` cannot carry this: task selection (``task_ids``,
+    #: ``num_samples``, ``dataset``) is per benchmark, so the mixture needs a list, not a
+    #: longer task list.
+    benchmarks: list[BenchmarkConfig] | None = None
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     parallelism: int = Field(default=1, ge=1)
     #: Patch-EVALUATION concurrency, separate from agent/patch-GENERATION concurrency
@@ -249,6 +259,24 @@ class RunConfig(_Base):
     parallelism_eval_patches: int | None = Field(default=None, ge=1)
     retry: RetryPolicy = Field(default_factory=RetryPolicy)
 
+    @model_validator(mode="after")
+    def _primary_leads_the_mixture(self) -> RunConfig:
+        if self.benchmarks is not None:
+            if not self.benchmarks:
+                raise ValueError("benchmarks must be non-empty when set; omit it for a "
+                                 "single-benchmark run")
+            if self.benchmarks[0].name != self.benchmark.name:
+                raise ValueError(
+                    f"benchmark {self.benchmark.name!r} must be the first entry of benchmarks "
+                    f"(got {self.benchmarks[0].name!r}); the primary has to be a real member "
+                    "of the mixture or mixture-unaware callers read a benchmark that is not "
+                    "being run"
+                )
+            names = [b.name for b in self.benchmarks]
+            if len(set(names)) != len(names):
+                raise ValueError(f"duplicate benchmark names in the mixture: {names}")
+        return self
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> RunConfig:
         return cls.model_validate(d)
@@ -258,6 +286,30 @@ class RunConfig(_Base):
 
     def benchmark_spec(self) -> BenchmarkSpec:
         return self.benchmark.to_spec()
+
+    def all_benchmarks(self) -> list[BenchmarkConfig]:
+        """Every benchmark this run scores — the mixture, or the single one."""
+        return list(self.benchmarks) if self.benchmarks else [self.benchmark]
+
+    def all_benchmark_specs(self) -> list[BenchmarkSpec]:
+        return [b.to_spec() for b in self.all_benchmarks()]
+
+    def is_mixture(self) -> bool:
+        return bool(self.benchmarks) and len(self.benchmarks) > 1
+
+    def for_benchmark(self, name: str) -> RunConfig:
+        """This run narrowed to one member of the mixture.
+
+        The eval seam is single-benchmark all the way down (one harness, one dataset, one
+        grader), so scoring a mixture means running it once per member and merging. This is
+        the narrowing step; results stay attributable because ``TaskResult.benchmark`` is set
+        from the task.
+        """
+        for b in self.all_benchmarks():
+            if b.name == name:
+                return self.model_copy(update={"benchmark": b, "benchmarks": None})
+        raise KeyError(f"benchmark {name!r} is not part of this run "
+                       f"({[b.name for b in self.all_benchmarks()]})")
 
     def runtime_settings(self) -> RuntimeSettings:
         return self.runtime.to_settings()

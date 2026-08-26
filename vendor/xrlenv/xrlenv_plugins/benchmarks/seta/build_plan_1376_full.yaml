@@ -376,7 +376,7 @@ entries:
 - image_ref: seta-env/26:main
   context_source:
     type: local
-    path: /path/to/benchmark-cache/seta-env/26/environment
+    path: <XRLENV_BENCHMARK_CACHE>/seta-env/26/environment
     dockerfile: Dockerfile
     shared_fs: hyperpod
   placement:
@@ -887,7 +887,7 @@ entries:
 - image_ref: seta-env/60:main
   context_source:
     type: local
-    path: /path/to/benchmark-cache/seta-env/60/environment
+    path: <XRLENV_BENCHMARK_CACHE>/seta-env/60/environment
     dockerfile: Dockerfile
     shared_fs: hyperpod
   placement:
@@ -3286,7 +3286,7 @@ entries:
 - image_ref: seta-env/227:main
   context_source:
     type: local
-    path: /path/to/benchmark-cache/seta-env/227/environment
+    path: <XRLENV_BENCHMARK_CACHE>/seta-env/227/environment
     dockerfile: Dockerfile
     shared_fs: hyperpod
   placement:
@@ -3477,7 +3477,7 @@ entries:
 - image_ref: seta-env/240:main
   context_source:
     type: local
-    path: /path/to/benchmark-cache/seta-env/240/environment
+    path: <XRLENV_BENCHMARK_CACHE>/seta-env/240/environment
     dockerfile: Dockerfile
     shared_fs: hyperpod
   placement:
@@ -5364,7 +5364,7 @@ entries:
 - image_ref: seta-env/367:main
   context_source:
     type: local
-    path: /path/to/benchmark-cache/seta-env/367/environment
+    path: <XRLENV_BENCHMARK_CACHE>/seta-env/367/environment
     dockerfile: Dockerfile
     shared_fs: hyperpod
   placement:
@@ -5683,7 +5683,7 @@ entries:
 - image_ref: seta-env/390:main
   context_source:
     type: local
-    path: /path/to/benchmark-cache/seta-env/390/environment
+    path: <XRLENV_BENCHMARK_CACHE>/seta-env/390/environment
     dockerfile: Dockerfile
     shared_fs: hyperpod
   placement:
@@ -6002,7 +6002,7 @@ entries:
 - image_ref: seta-env/412:main
   context_source:
     type: local
-    path: /path/to/benchmark-cache/seta-env/412/environment
+    path: <XRLENV_BENCHMARK_CACHE>/seta-env/412/environment
     dockerfile: Dockerfile
     shared_fs: hyperpod
   placement:
@@ -6961,7 +6961,7 @@ entries:
 - image_ref: seta-env/475:main
   context_source:
     type: local
-    path: /path/to/benchmark-cache/seta-env/475/environment
+    path: <XRLENV_BENCHMARK_CACHE>/seta-env/475/environment
     dockerfile: Dockerfile
     shared_fs: hyperpod
   placement:
@@ -9216,7 +9216,7 @@ entries:
 - image_ref: seta-env/617:main
   context_source:
     type: local
-    path: /path/to/benchmark-cache/seta-env/617/environment
+    path: <XRLENV_BENCHMARK_CACHE>/seta-env/617/environment
     dockerfile: Dockerfile
     shared_fs: hyperpod
   placement:
@@ -10047,7 +10047,7 @@ entries:
 - image_ref: seta-env/669:main
   context_source:
     type: local
-    path: /path/to/benchmark-cache/seta-env/669/environment
+    path: <XRLENV_BENCHMARK_CACHE>/seta-env/669/environment
     dockerfile: Dockerfile
     shared_fs: hyperpod
   placement:
@@ -10894,7 +10894,7 @@ entries:
 - image_ref: seta-env/723:main
   context_source:
     type: local
-    path: /path/to/benchmark-cache/seta-env/723/environment
+    path: <XRLENV_BENCHMARK_CACHE>/seta-env/723/environment
     dockerfile: Dockerfile
     shared_fs: hyperpod
   placement:
@@ -12525,7 +12525,7 @@ entries:
 - image_ref: seta-env/827:main
   context_source:
     type: local
-    path: /path/to/benchmark-cache/seta-env/827/environment
+    path: <XRLENV_BENCHMARK_CACHE>/seta-env/827/environment
     dockerfile: Dockerfile
     shared_fs: hyperpod
   placement:
@@ -13676,7 +13676,7 @@ entries:
 - image_ref: seta-env/906:main
   context_source:
     type: local
-    path: /path/to/benchmark-cache/seta-env/906/environment
+    path: <XRLENV_BENCHMARK_CACHE>/seta-env/906/environment
     dockerfile: Dockerfile
     shared_fs: hyperpod
   placement:
@@ -14315,7 +14315,7 @@ entries:
 - image_ref: seta-env/946:main
   context_source:
     type: local
-    path: /path/to/benchmark-cache/seta-env/946/environment
+    path: <XRLENV_BENCHMARK_CACHE>/seta-env/946/environment
     dockerfile: Dockerfile
     shared_fs: hyperpod
   placement:
@@ -14426,7 +14426,7 @@ entries:
 - image_ref: seta-env/953:main
   context_source:
     type: local
-    path: /path/to/benchmark-cache/seta-env/953/environment
+    path: <XRLENV_BENCHMARK_CACHE>/seta-env/953/environment
     dockerfile: Dockerfile
     shared_fs: hyperpod
   placement:
@@ -18217,7 +18217,7 @@ entries:
 - image_ref: seta-env/1203:main
   context_source:
     type: local
-    path: /path/to/benchmark-cache/seta-env/1203/environment
+    path: <XRLENV_BENCHMARK_CACHE>/seta-env/1203/environment
     dockerfile: Dockerfile
     shared_fs: hyperpod
   placement:
@@ -19512,7 +19512,7 @@ entries:
 - image_ref: seta-env/1287:main
   context_source:
     type: local
-    path: /path/to/benchmark-cache/seta-env/1287/environment
+    path: <XRLENV_BENCHMARK_CACHE>/seta-env/1287/environment
     dockerfile: Dockerfile
     shared_fs: hyperpod
   placement:
@@ -20471,7 +20471,7 @@ entries:
 - image_ref: seta-env/1349:main
   context_source:
     type: local
-    path: /path/to/benchmark-cache/seta-env/1349/environment
+    path: <XRLENV_BENCHMARK_CACHE>/seta-env/1349/environment
     dockerfile: Dockerfile
     shared_fs: hyperpod
   placement:

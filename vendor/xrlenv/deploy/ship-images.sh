@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A1 / D20 (P1.2) — build-once-ship-many image distribution recipe.
+# Build-once-ship-many image distribution recipe.
 #
 # Operator-facing recipe for the deployment topology where:
 #
@@ -16,9 +16,8 @@
 # manifest must declare ``image_pin_mode: per_node_local`` so the
 # catalog skips central pinning.
 #
-# This is the minimum-viable shell-script form per Fork 4 of the
-# P1.2.a design discussion. A polished CLI wrapper
-# (`xrlenv images ship ...`) lands in P1.5.
+# This is the minimum-viable shell-script form; a polished CLI wrapper
+# (`xrlenv images ship ...`) may follow.
 #
 # Usage:
 #   ./deploy/ship-images.sh --tags '<bench>/<task1>:0.1 <bench>/<task2>:0.1' \

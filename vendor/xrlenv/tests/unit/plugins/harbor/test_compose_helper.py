@@ -31,7 +31,7 @@ POSTGRES_SIDECAR = {
 # tw_188260-shape: per-service sub-directory build contexts + static IPs.
 PER_SERVICE_BUILD = {
     "services": {
-        "main": {"networks": {"ambari-net": {"ipv4_address": "internal-ip"}}},
+        "main": {"networks": {"ambari-net": {"ipv4_address": "10.188.74.100"}}},
         "solr-node": {
             "build": {"context": "./solr-node", "dockerfile": "Dockerfile"},
         },
@@ -40,7 +40,7 @@ PER_SERVICE_BUILD = {
     "networks": {
         "ambari-net": {
             "driver": "bridge",
-            "ipam": {"config": [{"subnet": "internal-ip/24"}]},
+            "ipam": {"config": [{"subnet": "10.188.74.0/24"}]},
         },
     },
 }
@@ -169,11 +169,11 @@ def test_default_image_refs_main_ref_override_and_tag() -> None:
     [
         # repinned private registry (host:port) with a sub-path namespace + tag →
         # the chess-mate case: sidecar becomes <ns>/<task>-game:main.
-        ("node-host:5011/lhtb/chess-mate:main",
-         ("node-host:5011/lhtb", "main")),
+        ("ip-10-0-5-6:5011/lhtb/chess-mate:main",
+         ("ip-10-0-5-6:5011/lhtb", "main")),
         # host:port, no explicit tag → tag defaults to "main".
-        ("node-host:5011/lhtb/chess-mate",
-         ("node-host:5011/lhtb", "main")),
+        ("ip-10-0-5-6:5011/lhtb/chess-mate",
+         ("ip-10-0-5-6:5011/lhtb", "main")),
         # dotted hostname (no port) + non-default tag.
         ("registry.example.com/ns/task:v2", ("registry.example.com/ns", "v2")),
         # localhost is a registry even without a dot or port.
@@ -341,7 +341,7 @@ def test_mem_to_mb(value: str, mb: int) -> None:
 # ── subnet claims ─────────────────────────────────────────────────────────────
 
 def test_subnet_claims() -> None:
-    assert hc.subnet_claims(PER_SERVICE_BUILD) == ["internal-ip/24"]
+    assert hc.subnet_claims(PER_SERVICE_BUILD) == ["10.188.74.0/24"]
     assert hc.subnet_claims(STATIC_IP_PEERS) == ["172.16.70.0/24"]
     # service-DNS-only tasks pin no subnet → nothing to reserve exclusively.
     assert hc.subnet_claims(POSTGRES_SIDECAR) == []

@@ -6,7 +6,7 @@ plane picks a node → spec-21 ``AcquireContainerCommand`` → node-side
 command via ``ContainerExecCommand`` → destroy. No EnvAdapter, no
 in-sandbox stub — the case-2/3 evaluation path.
 
-Three modes (mirrors ``tests/smoke/cluster_smoke.py``):
+Three modes (mirrors ``tests/smoke/cluster_bringup/cluster_smoke.py``):
 
 1. **Embedded** (default, no ``--connect-host``): the script boots
    the control plane in this process. Convenient for laptop dev

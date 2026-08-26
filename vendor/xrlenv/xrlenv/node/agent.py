@@ -395,6 +395,20 @@ class NodeAgent:
         """
         self._lazy_builders.update(mapping)
 
+    def register_scratch_source(
+        self, image_ref: str, source: Any, *, durable_to: str | None = None,
+    ) -> None:
+        """Register a content-addressed scratch ref → build source (spec 06
+        ``image_build``). ``ImageCacheManager.ensure_present`` on this ref then
+        builds-and-pushes it to the scratch registry embedded in the ref
+        (via the source builder's ``build_and_push``). When ``durable_to`` is
+        set, the built image is also copied there so it survives scratch GC.
+        Called by the coordinator for scratch_build rollouts on the in-process
+        transport. ``source`` is a ``GitSource | TarballSource``."""
+        self.source_builder().register_scratch_source(
+            image_ref, source, durable_to=durable_to,
+        )
+
     def source_builder(self) -> Any:
         """Lazy-construct + return the per-node ``GitSourceBuilder``.
 

@@ -35,14 +35,23 @@ for callers that want to lock in JSON output unconditionally.
 
 from __future__ import annotations
 
+import atexit
+import contextlib
 import json
 import logging
 import os
+import queue as _queue
 import sys
 import time
-from logging.handlers import RotatingFileHandler
+from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
 from pathlib import Path
 from typing import Any, Literal
+
+# Module-global so the background listener thread (see ``configure_logging``)
+# is never GC'd mid-run and is flushed/stopped exactly once on interpreter
+# exit. Only the file-firehose path installs one.
+_LISTENER: QueueListener | None = None
+_ATEXIT_REGISTERED: bool = False
 
 # Rotating-file defaults — a 50 MiB x 10-file ceiling caps the firehose at
 # ~500 MiB on disk by construction, so a long-running control plane never
@@ -235,6 +244,7 @@ def configure_logging(
     log_max_bytes: int = _DEFAULT_LOG_MAX_BYTES,
     log_backup_count: int = _DEFAULT_LOG_BACKUP_COUNT,
     stdout_level: int | str | None = None,
+    queue_file_writes: bool = False,
 ) -> logging.Handler:
     """Install handlers on the root logger.
 
@@ -312,14 +322,55 @@ def configure_logging(
     if replace_handlers:
         for existing in list(root.handlers):
             root.removeHandler(existing)
-    for handler in handlers:
-        root.addHandler(handler)
+
+    # A prior listener (idempotent re-config, e.g. re-running a daemon in a
+    # debugger) must be stopped so we don't leak listener threads / double-write.
+    global _LISTENER
+    if _LISTENER is not None:
+        _stop_listener()
+
+    if queue_file_writes and log_file is not None:
+        # Long-running daemon (``xrlenv up`` / ``xrlenv-node serve``): the file
+        # firehose must NOT write on the asyncio event-loop thread. A
+        # synchronous write to a stalled filesystem (a Lustre hiccup on a
+        # network-backed log path) would freeze the whole control-plane loop and
+        # false-mark every node lost (2026-08-21). Route records through an
+        # in-memory queue drained by a dedicated listener thread, so logger
+        # calls on the loop only do a non-blocking ``queue.put``. The real
+        # console + file handlers move behind the listener; the root logger
+        # carries only the (non-blocking) QueueHandler.
+        log_queue: _queue.Queue[logging.LogRecord] = _queue.Queue(-1)
+        listener = QueueListener(log_queue, *handlers, respect_handler_level=True)
+        listener.start()
+        _LISTENER = listener
+        if not _ATEXIT_REGISTERED:
+            atexit.register(_stop_listener)
+            _mark_atexit_registered()
+        root.addHandler(QueueHandler(log_queue))
+    else:
+        for handler in handlers:
+            root.addHandler(handler)
 
     # The root level gates records before any handler sees them, so it must
     # admit the most verbose handler; per-handler levels then route.
     set_levels = [h.level for h in handlers if h.level != logging.NOTSET]
     root.setLevel(min([level, *set_levels]))
     return primary
+
+
+def _stop_listener() -> None:
+    """Flush + stop the background log-listener thread (idempotent). Called on
+    re-config and at interpreter exit so buffered records are not lost."""
+    global _LISTENER
+    listener, _LISTENER = _LISTENER, None
+    if listener is not None:
+        with contextlib.suppress(Exception):
+            listener.stop()
+
+
+def _mark_atexit_registered() -> None:
+    global _ATEXIT_REGISTERED
+    _ATEXIT_REGISTERED = True
 
 
 def _coerce_level(level: int | str | None, *, default: int) -> int:

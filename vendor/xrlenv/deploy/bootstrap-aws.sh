@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # bootstrap-aws.sh — thin wrapper around ``xrlenv bootstrap --target aws``.
 #
-# B8.1 (P1.x slice 5, shipped 2026-05-11) replaced the bash bootstrap
-# logic with a Python subcommand at ``xrlenv/cli/bootstrap.py``. This
+# The bash bootstrap logic was replaced with a Python subcommand at
+# ``xrlenv/cli/bootstrap.py``. This
 # wrapper preserves the historical operator interface:
 #
 #     sudo -E bash deploy/bootstrap-aws.sh [--hyperpod] [<control-plane>] [<node-id>]
@@ -42,14 +42,14 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # the target is Lustre or resolves to the root device.
 if (( HYPERPOD )); then
     echo "==> --hyperpod: relocating Docker data-root to the EBS volume (/opt/sagemaker)"
-    bash "${REPO_ROOT}/scripts/set_docker_data_root.sh"
+    bash "${REPO_ROOT}/deploy/node/set_docker_data_root.sh"
 fi
 
 # Optional CLIENT config: point THIS WORKER's Docker daemon at the xrlenv
 # pull-through registry mirror so cold / re-pulls go over the internal network
 # instead of Docker Hub. This only edits daemon.json (registry-mirrors) — it does
 # NOT run a registry here; the mirror SERVER runs separately on the control-plane
-# box or a dedicated registry node (deploy/registry/run-registry-proxy.sh), never
+# box or a dedicated registry node (deploy/registry/run-registry-mirror.sh), never
 # on a worker. On a fresh node Docker isn't installed yet, so this just writes
 # daemon.json and dockerd reads it on first start; on a re-bootstrap where Docker
 # is already running, configure_docker_registry.sh live-reloads it so the mirror
@@ -64,34 +64,41 @@ fi
 # registry-mirrors entry: private images are addressed by named ref. Setting it
 # here means a freshly provisioned node can pull the private set with no manual
 # per-node step. Full setup: deploy/registry/README.md or the Sphinx registry pages.
-if [ -n "${XRLENV_REGISTRY_MIRROR:-}" ] || [ -n "${XRLENV_PRIVATE_REGISTRY:-}" ]; then
+#
+# XRLENV_SCRATCH_REGISTRY=<registry-ip>:5012 (optional) does the same for the
+# SCRATCH (build-on-demand) registry — every node running scratch_build rollouts
+# push/pulls the on-demand-built image there over plain HTTP, so it must be in
+# insecure-registries too.
+if [ -n "${XRLENV_REGISTRY_MIRROR:-}" ] || [ -n "${XRLENV_PRIVATE_REGISTRY:-}" ] || [ -n "${XRLENV_SCRATCH_REGISTRY:-}" ]; then
     [ -n "${XRLENV_REGISTRY_MIRROR:-}" ] && echo "==> registry mirror (client): ${XRLENV_REGISTRY_MIRROR}"
     [ -n "${XRLENV_PRIVATE_REGISTRY:-}" ] && echo "==> private registry (client): ${XRLENV_PRIVATE_REGISTRY}"
+    [ -n "${XRLENV_SCRATCH_REGISTRY:-}" ] && echo "==> scratch registry (client): ${XRLENV_SCRATCH_REGISTRY}"
     MIRROR_URL="${XRLENV_REGISTRY_MIRROR:-}" \
     PRIVATE_REGISTRY="${XRLENV_PRIVATE_REGISTRY:-}" \
-        bash "${REPO_ROOT}/scripts/configure_docker_registry.sh"
+    SCRATCH_REGISTRY="${XRLENV_SCRATCH_REGISTRY:-}" \
+        bash "${REPO_ROOT}/deploy/registry/configure_docker_registry.sh"
 fi
 
-# ── P6 CPU isolation (opt-in) ────────────────────────────────────────────────
-# Hard CPU isolation (spec: notes/cluster-resource-isolation-plan.md §8) lets the
+# ── CPU isolation (opt-in) ───────────────────────────────────────────────────
+# Hard CPU isolation lets the
 # node confine unpinned containers to the complement of the pinned cores via a
 # shared-parent cpuset cgroup. A node advertises this capability
 # (``isolation_capable=true``) only after a real self-test proves its docker +
 # cgroup driver honor ``cgroup_parent`` cpuset propagation — and that self-test
-# is gated (P6 v1) on the ``cgroupfs`` docker cgroup driver. AL2023 / Ubuntu
+# is gated (v1) on the ``cgroupfs`` docker cgroup driver. AL2023 / Ubuntu
 # 22.04 default to the ``systemd`` driver, so a STOCK node stays NON-capable and
 # behaves exactly as today (per-container pinning / CFS quota) — no action here
 # changes that.
 #
 # To make a node isolation-capable, run (as root, on the worker, in a
 # maintenance window — it restarts docker + the agent, bouncing containers):
-#     sudo bash deploy/../scripts/enable_cpu_isolation.sh
+#     sudo bash deploy/../deploy/node/enable_cpu_isolation.sh
 # which flips docker to the cgroupfs driver, builds a long-lived probe image, and
 # persists XRLENV_SELFTEST_IMAGE in /etc/xrlenv/cpu_isolation.env (survives
 # bootstrap rewrites; delete it + restart docker to revert). Validated end-to-end
 # on a real node 2026-07-28 (an unpinned container becomes physically unable to
 # reach a pinned core). The self-test validates the DEFAULT runtime (runc) only;
-# it does not prove sysbox — see §8.10 "Runtime scope".
+# it does not prove sysbox.
 #
 # Set XRLENV_ENABLE_CPU_ISOLATION=1 in the bootstrap env to run that script
 # automatically. It runs AFTER the Python bootstrap below (not before) — the
@@ -102,18 +109,18 @@ fi
 # See deploy/bootstrap-gcp.sh for why we invoke the bootstrap module
 # as a flat script (avoids importing xrlenv.__init__ on fresh VMs
 # where pydantic isn't installed yet). NOT ``exec`` (unlike gcp) so the shell
-# survives to run the optional P6 auto-enable hook below after Docker is
+# survives to run the optional CPU-isolation auto-enable hook below after Docker is
 # installed; ``set -e`` still aborts here if the bootstrap itself fails.
 python3 "${REPO_ROOT}/xrlenv/cli/bootstrap.py" \
     --target aws \
     --xrlenv-repo "${REPO_ROOT}" \
     "$@"
 
-# P6 CPU isolation (opt-in) — now Docker is installed + the agent set up. The
+# CPU isolation (opt-in) — now Docker is installed + the agent set up. The
 # driver flip + agent restart re-establishes the node's connection as capable.
 if [ "${XRLENV_ENABLE_CPU_ISOLATION:-0}" = "1" ]; then
-    echo "==> XRLENV_ENABLE_CPU_ISOLATION=1: enabling P6 CPU isolation on this node"
-    sudo -E bash "${REPO_ROOT}/scripts/enable_cpu_isolation.sh" || {
+    echo "==> XRLENV_ENABLE_CPU_ISOLATION=1: enabling CPU isolation on this node"
+    sudo -E bash "${REPO_ROOT}/deploy/node/enable_cpu_isolation.sh" || {
         echo "WARN: enable_cpu_isolation.sh failed; node stays non-capable" >&2
     }
 fi

@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from xrlenv_plugins.images_build._dockerhub_probe import (
+from xrlenv_plugins.benchmarks._dockerhub_probe import (
     announce_auth_status,
     print_probe_summary,
     probe_image_size,

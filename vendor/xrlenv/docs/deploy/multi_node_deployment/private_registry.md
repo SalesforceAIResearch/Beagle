@@ -16,8 +16,8 @@ workers always run the exact same image content across an entire training run �
 template manifests are immutable for the duration of a training run.
 
 :::{note}
-This page covers the private registry (Phase B). For the pull-through cache of
-Docker Hub images (Phase A), see {doc}`registry_mirror`.
+This page covers the private registry. For the pull-through cache of
+Docker Hub images, see {doc}`registry_mirror`.
 :::
 
 ## Two registries, side by side
@@ -29,10 +29,10 @@ and their client-side configuration is different. Throughout this page,
 single-cluster setup, but a single shared box when several clusters share one
 registry (see the note under **Bring up the private registry** below).
 
-| | **Proxy** (Phase A, {doc}`registry_mirror`) | **Private** (Phase B, this page) |
+| | **Proxy** ({doc}`registry_mirror`) | **Private** (this page) |
 |---|---|---|
 | Port | `:5010` | `:5011` |
-| Script | `deploy/registry/run-registry-proxy.sh` | `deploy/registry/run-registry-private.sh` |
+| Script | `deploy/registry/run-registry-mirror.sh` | `deploy/registry/run-registry-private.sh` |
 | Storage | `~/xrlenv-registry/proxy` | `~/xrlenv-registry/private` |
 | Mode | Pull-through cache of Docker Hub | Writable; holds images you build |
 | Client config | `registry-mirrors` (docker.io routing) | `insecure-registries` (named refs) |
@@ -64,7 +64,7 @@ instance over the same FSx blob store (two writers on one path corrupts uploads)
 Other clusters reach it by setting `XRLENV_MIRROR_REGISTRY_HOST` /
 `XRLENV_PRIVATE_REGISTRY_HOST` in their `.env` to that box; their control-plane
 wrappers do **not** start a registry. In the bundled Slurm scripts, only
-`slurm_scripts/prod_xrlenv_control.sh` starts the two registries, and the dev
+`slurm_scripts/generated/prod_xrlenv_control.sh` starts the two registries, and the dev
 cluster's `.env` points `XRLENV_{MIRROR,PRIVATE}_REGISTRY_HOST` at that same host.
 :::
 
@@ -73,7 +73,7 @@ The script reads its config from the repo-root `.env` by default (override with
 
 | Key | Default | Purpose |
 |---|---|---|
-| `XRLENV_PRIVATE_REGISTRY_STORAGE` | `/path/to/data$USER/xrlenv-registry/private` | FSx blob-store path. Must be a shared mount (NFS / FSx / Lustre) reachable cluster-wide. Never point it at the Docker data-root. |
+| `XRLENV_PRIVATE_REGISTRY_STORAGE` | `/fsx/home/$USER/xrlenv-registry/private` | FSx blob-store path. Must be a shared mount (NFS / FSx / Lustre) reachable cluster-wide. Never point it at the Docker data-root. |
 | `XRLENV_PRIVATE_REGISTRY_PORT` | `5011` | Host port the registry listens on. |
 | `XRLENV_PRIVATE_REGISTRY_HTTP_SECRET` | unset | A stable shared upload secret. A single-instance deploy does not need this — the registry generates a random secret internally. Set a stable value only if you run two or more replicas behind a load balancer so in-flight uploads routed to a different replica still validate. |
 
@@ -150,7 +150,7 @@ live-reloads the Docker daemon without bouncing running containers:
 
 ```bash
 sudo PRIVATE_REGISTRY=<registry-host>:5011 \
-    bash scripts/configure_docker_registry.sh --restart
+    bash deploy/registry/configure_docker_registry.sh --restart
 ```
 
 Pass both `MIRROR_URL` and `PRIVATE_REGISTRY` together to configure both in one
@@ -159,63 +159,51 @@ persists across xrlenv upgrades.
 
 ## Build and push images (bulk build-and-push tool)
 
-`scripts/build_and_push_images.py` is the build glue. It takes a
+`deploy/registry/build_and_push_images.py` is the build glue. It takes a
 `build-plan.yaml` in the same per-image-ref shape that `xrlenv build apply`
 uses, builds each entry from its Dockerfile (or pulls a registry source), and
 pushes the result to `--registry`. Think of it as the private-registry sibling
-of `scripts/warm_images.py` — `warm_images.py` fills the proxy by streaming
+of `deploy/registry/warm_images.py` — `warm_images.py` fills the proxy by streaming
 docker.io blobs; `build_and_push_images.py` fills the private registry by
 building your own Dockerfiles.
 
 ### Single-host build (small plans, or testing)
 
 ```bash
-.venv/bin/python scripts/build_and_push_images.py \
+.venv/bin/python deploy/registry/build_and_push_images.py \
     --plan xrlenv_plugins/benchmarks/seta/build_plan.yaml \
     --registry <registry-host>:5011
 ```
 
-### Fan out across CPU instances (recommended for large plans)
+### Fan out across the cluster (recommended for large plans)
 
-Building 1000+ Dockerfiles on a single node is slow. Builds are embarrassingly
-parallel — every build host pushes finished images to the one registry over HTTP,
-so there is no coordination needed between builders. Shard the plan and run one
-shard per node.
-
-`slurm_scripts/build_and_push_images.sh` is a single, **cluster-agnostic** batch
-job (it does not talk to a control plane — it only needs Docker, the repo, and the
-registry host). Edit its `--nodelist` to the CPU nodes you want to build on and the
-`XRLENV_BUILD_PLAN` / `XRLENV_PRIVATE_REGISTRY_HOST` defaults, then:
+Building 1000+ Dockerfiles on a single node is slow. For large plans, use
+`xrlenv build push` — the control-plane-orchestrated replacement for the old
+Slurm batch script. It shards the build plan automatically across all
+currently-connected node agents over the node-control bidi stream; each node builds
+its shard from source and pushes the result to `--registry`. Re-runs are
+resumable — already-pushed refs are skipped by a registry HEAD check before
+any build work begins. No Slurm, no hardcoded nodelist, no drift.
 
 ```bash
-sbatch slurm_scripts/build_and_push_images.sh
-tail -f slurm_logs/xrlenv-build-push_*.out
-# cancel: scancel --name=xrlenv-build-push
+xrlenv build push \
+    --plan xrlenv_plugins/benchmarks/seta/build_plan_1376_full.yaml \
+    --registry <registry-host>:5011 \
+    --connect-host <admin-host>
 ```
 
-There is a **single** build job (`slurm_scripts/build_and_push_images.sh`,
-job-name `xrlenv-build-push`) — build/push is cluster-agnostic, so there is no
-dev/prod split. Its committed defaults build the seta-env plan
-(`XRLENV_BUILD_PLAN=xrlenv_plugins/benchmarks/seta/build_plan_1376_full.yaml`,
-`XRLENV_BUILD_CONCURRENCY=8`); edit the `#SBATCH --nodelist` to your CPU nodes.
+Append `--dry-run` to see the per-node shard assignment without building
+anything. Append `--force` to rebuild and repush images that are already in
+the registry.
 
-To shard by hand without Slurm — run N copies, one per box:
+`xrlenv build push` accepts only `git` and `tarball` source entries from the
+plan. `registry` and `local` entries are rejected — they are by definition
+already in a registry or on-disk and do not need to be built and pushed. The
+single-host fallback (`deploy/registry/build_and_push_images.py`) handles `local`
+sources.
 
-```bash
-# On box 0 of 4:
-.venv/bin/python scripts/build_and_push_images.py \
-    --plan build_plan.yaml --registry <registry-host>:5011 \
-    --shard-index 0 --num-shards 4
-
-# On box 1 of 4:
-.venv/bin/python scripts/build_and_push_images.py \
-    --plan build_plan.yaml --registry <registry-host>:5011 \
-    --shard-index 1 --num-shards 4
-```
-
-Under Slurm the shard index and count are read automatically from
-`$SLURM_PROCID` / `$SLURM_NTASKS` (or `$SLURM_ARRAY_TASK_ID` /
-`$SLURM_ARRAY_TASK_COUNT` for a job array).
+For the full flag reference see
+{ref}`cli-build-push` in the CLI reference.
 
 ### Key behaviors
 
@@ -255,7 +243,7 @@ are gitignored (regenerated each run).
 | Flag | Default | Purpose |
 |---|---|---|
 | `--plan` | (required) | Path to a `build-plan.yaml` (per-image-ref shape). |
-| `--registry` | (required) | Private registry `host:port`, e.g. `internal-ip:5011`. |
+| `--registry` | (required) | Private registry `host:port`, e.g. `<registry-host>:5011`. |
 | `--registry-scheme` | `http` | `http` or `https` for the registry API probes. |
 | `--shard-index` | `$SLURM_PROCID` or `0` | This shard's 0-based index. |
 | `--num-shards` | `$SLURM_NTASKS` or `1` | Total number of shards. |
@@ -320,7 +308,7 @@ curl -s http://localhost:5011/v2/<repo>/tags/list
 returns the expected JSON — confirming the registry process is healthy.
 
 **Root cause.** The control plane's freshness resolver probes the registry by
-the host embedded in the image ref (e.g. `node-host:5011`) so that
+the host embedded in the image ref (e.g. `<registry-host>:5011`) so that
 the recorded digest ref is externally routable for worker nodes. When the
 control plane runs on the **same box** as the registry, this probe targets the
 box's own external address. On some managed infrastructure (verified on
@@ -342,7 +330,7 @@ appears in your image refs. The digest ref the control plane returns still
 carries the original external address, so nodes pull correctly.
 
 **Fresh co-located deploys need no manual step.** The shipped Slurm control-plane
-scripts (`slurm_scripts/prod_xrlenv_control.sh` and `dev_xrlenv_control.sh`)
+scripts (`slurm_scripts/generated/prod_xrlenv_control.sh` and `dev_xrlenv_control.sh`)
 build and export this map automatically from the box's own hostname and IP before
 starting `xrlenv up`. A co-located control plane therefore probes loopback out of
 the box; a control plane on a different machine from the registry is unaffected
@@ -353,7 +341,7 @@ resolver knobs and the failure semantics.
 
 ## See also
 
-- {doc}`registry_mirror` — the Phase A pull-through cache of Docker Hub; the
+- {doc}`registry_mirror` — the pull-through cache of Docker Hub; the
   two registries complement each other.
 - {doc}`runbook` — the end-to-end multi-node bring-up; its **Bootstrap node VMs**
   step covers the Docker Hub auth that the mirror and private registry complement.

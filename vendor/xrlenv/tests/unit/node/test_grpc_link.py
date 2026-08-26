@@ -13,6 +13,7 @@ import socket
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import suppress
+from pathlib import Path
 from typing import Any
 
 import grpc
@@ -453,14 +454,14 @@ async def test_apply_egress_round_trip(
     )
     await transport.apply_egress(
         rollout_id="r-eg", container_id="cid-9",
-        allowlist=al, dns_resolver="internal-ip/32",
+        allowlist=al, dns_resolver="10.0.0.2/32",
     )
     assert agent.apply_egress_calls == 1
     got = agent.last_apply_egress
     assert got is not None
     assert got["rollout_id"] == "r-eg"
     assert got["container_id"] == "cid-9"
-    assert got["dns_resolver"] == "internal-ip/32"
+    assert got["dns_resolver"] == "10.0.0.2/32"
     assert got["allowlist"] == al  # reconstructed equal to what was sent
 
 
@@ -1476,3 +1477,236 @@ async def test_exec_acquire_container_runtime_limits_unset_passes_none() -> None
     )
     await link._exec_acquire_container(cmd)
     assert captured["runtime_limits"] is None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# RegisterScratchSourceCommand wire round trip (scratch build-on-demand, 2c-iii)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_register_scratch_source_git_round_trip(
+    linked_pair: tuple[FakeAgent, RemoteNodeTransport, NodeGrpcLink, asyncio.Task[None]],
+    tmp_path: Path,
+) -> None:
+    """A GitSource + durable_to round-trips control → wire → node handler,
+    which records it on the real (docker-free) GitSourceBuilder."""
+    from xrlenv.control.build_plan import GitSource
+    from xrlenv.node.source_builder import GitSourceBuilder
+
+    _agent, transport, link, _task = linked_pair
+    builder = GitSourceBuilder(cache_root=tmp_path / "cache")
+    link._source_builder = builder  # type: ignore[attr-defined]
+
+    src = GitSource(repo="https://x/y", ref="abc123", subdir="env", dockerfile="Dockerfile")
+    ref = "cp:5012/scratch/deadbeef"
+    await transport.register_scratch_source(ref, src, durable_to="reg:5000/team/env:v1")
+
+    stored = builder._scratch_specs.get(ref)
+    assert isinstance(stored, GitSource)
+    assert (stored.repo, stored.ref, stored.subdir) == ("https://x/y", "abc123", "env")
+    assert builder._scratch_durable.get(ref) == "reg:5000/team/env:v1"
+
+
+async def test_register_scratch_source_tarball_round_trip(
+    linked_pair: tuple[FakeAgent, RemoteNodeTransport, NodeGrpcLink, asyncio.Task[None]],
+    tmp_path: Path,
+) -> None:
+    """A TarballSource's bytes survive the wire; no durable_to → not recorded."""
+    import base64
+
+    from xrlenv.control.build_plan import TarballSource
+    from xrlenv.node.source_builder import GitSourceBuilder
+
+    _agent, transport, link, _task = linked_pair
+    builder = GitSourceBuilder(cache_root=tmp_path / "cache")
+    link._source_builder = builder  # type: ignore[attr-defined]
+
+    payload = b"<scratch-context-tarball>"
+    src = TarballSource(
+        path="<wire>", dockerfile="Dockerfile",
+        content_b64=base64.b64encode(payload).decode("ascii"),
+    )
+    ref = "cp:5012/scratch/cafef00d"
+    await transport.register_scratch_source(ref, src)
+
+    stored = builder._scratch_specs.get(ref)
+    assert isinstance(stored, TarballSource)
+    assert stored.content_b64 is not None
+    assert base64.b64decode(stored.content_b64) == payload
+    assert ref not in builder._scratch_durable  # no durable_to
+
+
+async def test_register_scratch_source_failure_raises(
+    linked_pair: tuple[FakeAgent, RemoteNodeTransport, NodeGrpcLink, asyncio.Task[None]],
+) -> None:
+    """A node-side registration failure surfaces as XRLEnvError to the caller."""
+    from xrlenv.control.build_plan import GitSource
+    from xrlenv.errors import XRLEnvError
+
+    _agent, transport, link, _task = linked_pair
+
+    class _RaisingBuilder:
+        def register_scratch_source(self, *_a: Any, **_k: Any) -> None:
+            raise RuntimeError("disk full")
+
+    link._source_builder = _RaisingBuilder()  # type: ignore[attr-defined]
+    with pytest.raises(XRLEnvError, match="failed to register scratch source"):
+        await transport.register_scratch_source(
+            "cp:5012/scratch/x", GitSource(repo="https://x/y", ref="main"),
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# build+push node handler (c1fb9e9 — native distributed build+push)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_exec_build_image_push_true_returns_repo_digest(
+    linked_pair: tuple[FakeAgent, RemoteNodeTransport, NodeGrpcLink, asyncio.Task[None]],
+) -> None:
+    """``push=True`` on BuildImageCommand routes to ``build_and_push`` and
+    the resulting repo_digest propagates back through the reply."""
+    from unittest.mock import AsyncMock
+
+    from xrlenv.control.build_plan import GitSource
+    from xrlenv.node.source_builder import BuildAndPushResult, GitSourceBuilder
+
+    _agent, transport, link, _task = linked_pair
+
+    fake_builder = AsyncMock(spec=GitSourceBuilder)
+    fake_builder.build_and_push = AsyncMock(
+        return_value=BuildAndPushResult(
+            "ok", None, "registry.example.com/team/env@sha256:abc123",
+        ),
+    )
+    link._source_builder = fake_builder  # type: ignore[attr-defined]
+
+    source = GitSource(
+        repo="https://github.com/example/repo",
+        ref="main",
+        subdir=".",
+        dockerfile="Dockerfile",
+    )
+    status, error, repo_digest = await transport.build_and_push_image(
+        image_ref="registry.example.com/team/env:v1",
+        source=source,
+        timeout_s=300.0,
+        labels={"built_by": "xrlenv"},
+    )
+
+    assert status == "ok"
+    assert error == ""
+    assert repo_digest == "registry.example.com/team/env@sha256:abc123"
+    # build_and_push was called with check_registry_first=True (build-once semantics).
+    fake_builder.build_and_push.assert_awaited_once()
+    call_kwargs = fake_builder.build_and_push.call_args
+    assert call_kwargs.kwargs.get("check_registry_first") is True
+    # The plain build() path must NOT have been touched.
+    fake_builder.build.assert_not_called()
+
+
+async def test_exec_build_image_push_true_failing_build_and_push(
+    linked_pair: tuple[FakeAgent, RemoteNodeTransport, NodeGrpcLink, asyncio.Task[None]],
+) -> None:
+    """A ``build_and_push`` that returns status='failed' propagates
+    status='failed' and repo_digest is empty / None in the reply."""
+    from unittest.mock import AsyncMock
+
+    from xrlenv.control.build_plan import GitSource
+    from xrlenv.node.source_builder import BuildAndPushResult, GitSourceBuilder
+
+    _agent, transport, link, _task = linked_pair
+
+    fake_builder = AsyncMock(spec=GitSourceBuilder)
+    fake_builder.build_and_push = AsyncMock(
+        return_value=BuildAndPushResult("failed", "docker daemon unreachable", None),
+    )
+    link._source_builder = fake_builder  # type: ignore[attr-defined]
+
+    source = GitSource(
+        repo="https://github.com/example/repo", ref="main",
+        subdir=".", dockerfile="Dockerfile",
+    )
+    status, error, repo_digest = await transport.build_and_push_image(
+        image_ref="registry.example.com/team/env:v1",
+        source=source, timeout_s=300.0,
+    )
+
+    assert status == "failed"
+    # repo_digest is empty string or None (proto default → empty, transport
+    # returns None for falsy empty string).
+    assert not repo_digest  # None or ""
+
+
+async def test_exec_build_image_push_false_calls_build_not_build_and_push(
+    linked_pair: tuple[FakeAgent, RemoteNodeTransport, NodeGrpcLink, asyncio.Task[None]],
+) -> None:
+    """``push=False`` (the default ``build_image`` path) still calls the
+    plain ``build`` method; ``build_and_push`` must never be touched."""
+    from unittest.mock import AsyncMock
+
+    from xrlenv.control.build_plan import GitSource
+    from xrlenv.node.source_builder import GitSourceBuilder
+
+    _agent, transport, link, _task = linked_pair
+
+    async def _fake_build(
+        *, image_ref: str, source: Any, timeout_s: float,
+        labels: dict[str, str], skip_if_present: bool = False,
+    ) -> tuple[str, str | None]:
+        return ("ok", None)
+
+    fake_builder = AsyncMock(spec=GitSourceBuilder)
+    fake_builder.build = _fake_build
+    link._source_builder = fake_builder  # type: ignore[attr-defined]
+
+    source = GitSource(
+        repo="https://github.com/example/repo", ref="main",
+        subdir=".", dockerfile="Dockerfile",
+    )
+    status, error = await transport.build_image(
+        image_ref="registry.example.com/team/env:v1",
+        source=source, timeout_s=60.0, labels={},
+    )
+
+    assert status == "ok"
+    assert error == ""
+    # repo_digest must be absent from a build_image (push=False) call —
+    # verified indirectly: build_and_push was never called.
+    fake_builder.build_and_push.assert_not_called()
+
+
+async def test_build_and_push_image_transport_sets_push_flag_and_returns_3tuple(
+    linked_pair: tuple[FakeAgent, RemoteNodeTransport, NodeGrpcLink, asyncio.Task[None]],
+) -> None:
+    """``transport.build_and_push_image`` sets ``push=True`` on the wire
+    command and returns a 3-tuple ``(status, error, repo_digest)``."""
+    from unittest.mock import AsyncMock
+
+    from xrlenv.control.build_plan import GitSource
+    from xrlenv.node.source_builder import BuildAndPushResult, GitSourceBuilder
+
+    _agent, transport, link, _task = linked_pair
+
+    DIGEST = "reg.internal:5000/team/env@sha256:deadbeefcafe"
+    fake_builder = AsyncMock(spec=GitSourceBuilder)
+    fake_builder.build_and_push = AsyncMock(
+        return_value=BuildAndPushResult("ok", None, DIGEST),
+    )
+    link._source_builder = fake_builder  # type: ignore[attr-defined]
+
+    result = await transport.build_and_push_image(
+        image_ref="reg.internal:5000/team/env:v2",
+        source=GitSource(
+            repo="https://github.com/example/repo", ref="main",
+            subdir=".", dockerfile="Dockerfile",
+        ),
+        timeout_s=120.0,
+    )
+
+    # Must be a 3-tuple: (status, error, repo_digest)
+    assert len(result) == 3
+    status, error, repo_digest = result
+    assert status == "ok"
+    assert error == ""
+    assert repo_digest == DIGEST

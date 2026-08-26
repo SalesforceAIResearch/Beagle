@@ -36,7 +36,9 @@ from xrlenv.control.image_planner import (
     ImageToPlace,
     InsufficientCapacity,
     NodeBudget,
+    NodeId,
     PlacementResult,
+    PlanAssignment,
     expected_on_disk_bytes,
     plan_opportunistic_placements,
     plan_placements,
@@ -78,6 +80,19 @@ BuildImageFn = Callable[
     [str, str, "GitSource | TarballSource", float, dict[str, str], bool],
     # node_id, image_ref, source, timeout_s, labels, skip_if_present
     Awaitable[tuple[str, str | None]],
+]
+
+# Async callable the coordinator uses to dispatch a single source-build-AND-push
+# entry (``xrlenv build push``) to a node. Same args as BuildImageFn minus
+# skip_if_present — the push path always registry-HEAD-skips (build-once
+# fleet-wide, resumable) — and it additionally returns the pushed
+# ``<repo>@sha256:...`` digest (``None`` on failure / no push). The node builds
+# image_ref then pushes it to the registry the ref encodes; the coordinator
+# records the digest into ``BuildOutcome.digests``.
+BuildPushFn = Callable[
+    [str, str, "GitSource | TarballSource", float, dict[str, str]],
+    # node_id, image_ref, source, timeout_s, labels
+    Awaitable[tuple[str, str | None, str | None]],
 ]
 
 # Async callable returning a node's current ``(free_bytes, total_bytes)`` disk
@@ -165,6 +180,40 @@ class ClusterInventoryProvider(Protocol):
     async def get_inventory(self) -> dict[str, set[str]]: ...
 
 
+def _shard_for_push(
+    images: Sequence[ImageToPlace], nodes: Sequence[NodeBudget],
+) -> PlacementResult:
+    """Size-balanced (LPT-greedy) shard of build+push work across the connected
+    nodes, WITHOUT the FFD fit constraint ``plan_placements`` imposes.
+
+    ``xrlenv build push`` images are TRANSIENT — built, pushed to the registry,
+    then evictable (nothing pins them on-node) — so a node's shard need not fit
+    its disk all at once; the dispatch loop's disk-aware pacing plus the
+    image-cache LRU (which reclaims already-pushed images) keep real disk
+    bounded. That is what lets a push plan far larger than total cluster disk
+    (the 1376-image SETA plan the Slurm build host handled) fan out natively.
+    Every image is assigned to exactly one node; replication is not meaningful
+    for a push-once-to-the-shared-registry campaign.
+    """
+    load: dict[NodeId, int] = {n.node_id: 0 for n in nodes}
+    by_node: dict[NodeId, list[PlanAssignment]] = {n.node_id: [] for n in nodes}
+    # Longest-processing-time first: the biggest builds go to the least-loaded
+    # node so build-bytes stay balanced across the fleet.
+    for img in sorted(images, key=lambda i: i.size_bytes, reverse=True):
+        nid = min(load, key=lambda k: load[k])
+        by_node[nid].append(PlanAssignment(
+            image_ref=img.image_ref, node_id=nid,
+            benchmark=PER_IMAGE_REF_BENCHMARK_TAG, size_bytes=img.size_bytes,
+        ))
+        load[nid] += img.size_bytes
+    return PlacementResult(
+        assignments=tuple(a for rows in by_node.values() for a in rows),
+        assignments_by_node={
+            nid: tuple(rows) for nid, rows in by_node.items() if rows
+        },
+    )
+
+
 class BuildOutcome(BaseModel):
     """Coordinator's return value from ``apply``."""
 
@@ -184,6 +233,11 @@ class BuildOutcome(BaseModel):
     that didn't fit the budget at apply time. Lazy-built on first
     ``ensure_present`` via the H3 builder hook. ``0`` in eager mode."""
     error_summary: list[str] = []
+    digests: dict[str, str] = {}
+    """``xrlenv build push`` only — image_ref → the pushed ``<repo>@sha256:...``
+    for every entry the fleet built and pushed. Empty for local-tag builds
+    (``build apply``). The CLI emits these as a registry-source pin plan so the
+    fleet pulls digest-pinned images (invariant 4)."""
 
 
 class BuildCoordinator:
@@ -204,6 +258,7 @@ class BuildCoordinator:
         budget_provider: NodeBudgetProvider,
         ensure_present_fn: EnsurePresentFn | None = None,
         build_image_fn: BuildImageFn | None = None,
+        build_push_fn: BuildPushFn | None = None,
         inventory_provider: ClusterInventoryProvider | None = None,
         free_disk_fn: FreeDiskFn | None = None,
     ) -> None:
@@ -232,6 +287,12 @@ class BuildCoordinator:
         ``None`` disables source-build dispatch — applying a plan with
         git/tarball entries in that case raises a clear
         ``ManifestInvalid``."""
+        self._build_push_fn = build_push_fn
+        """Dispatch hook for source-build-AND-push entries (``xrlenv build
+        push``). Parallel to ``build_image_fn`` but the node pushes the built
+        image to the registry the ref encodes and returns the digest. ``None``
+        disables push mode — ``apply(push=True)`` with git/tarball entries then
+        raises a clear ``ManifestInvalid``."""
         self._free_disk_fn = free_disk_fn
         """Optional live per-node disk probe. When wired (DistributedRuntime
         passes ``transport.disk_state``), build dispatch paces itself against
@@ -316,6 +377,7 @@ class BuildCoordinator:
         applied_by: str = "local",
         skip_if_present: bool = False,
         concurrency: int | None = None,
+        push: bool = False,
     ) -> BuildOutcome:
         with get_tracer().start_as_current_span(
             "xrlenv.coordinator.build_apply",
@@ -328,6 +390,7 @@ class BuildCoordinator:
                 "skip_if_present": skip_if_present,
                 "applied_by": applied_by,
                 "concurrency": concurrency if concurrency is not None else -1,
+                "push": push,
             },
         ):
             return await self._apply_impl(
@@ -340,6 +403,7 @@ class BuildCoordinator:
                 applied_by=applied_by,
                 skip_if_present=skip_if_present,
                 concurrency=concurrency,
+                push=push,
             )
 
     async def _apply_impl(
@@ -354,6 +418,7 @@ class BuildCoordinator:
         applied_by: str,
         skip_if_present: bool,
         concurrency: int | None = None,
+        push: bool = False,
     ) -> BuildOutcome:
         """Apply ``plan`` against the runtime.
 
@@ -396,8 +461,8 @@ class BuildCoordinator:
             # place and assume it exists on the building host. The cluster
             # build-apply path ships sources to nodes that may not share that
             # path, so reject them here with a clear remediation rather than
-            # silently dropping them at the per-source partition. Build them with
-            # scripts/build_and_push_images.py on a shared-fs build host instead.
+            # silently dropping them at the per-source partition. Express them as
+            # git/tarball + ``xrlenv build push``, or build on a shared-fs host.
             local_refs = [
                 e.image_ref for e in plan.entries
                 if isinstance(e.context_source, LocalSource)
@@ -406,11 +471,12 @@ class BuildCoordinator:
                 raise ManifestInvalid(
                     "build plan rejected: 'local' context sources are "
                     "build-host-only and aren't supported on the cluster "
-                    "build-apply path (it ships sources to nodes that may not "
-                    "share the path). Build them with "
-                    "scripts/build_and_push_images.py on a shared-fs build host "
-                    "(directly or Slurm-sharded), then apply a registry-source "
-                    "plan. Offending entries: "
+                    "build-apply/push paths (they ship sources to nodes that may "
+                    "not share the path). Either express them as git/tarball "
+                    "sources and run ``xrlenv build push`` to build+push them "
+                    "across the fleet, or build them with "
+                    "deploy/registry/build_and_push_images.py on a shared-fs build host "
+                    "and apply a registry-source plan. Offending entries: "
                     + ", ".join(local_refs[:10])
                     + (" ..." if len(local_refs) > 10 else ""),
                 )
@@ -421,6 +487,7 @@ class BuildCoordinator:
                 applied_by=applied_by,
                 skip_if_present=skip_if_present and not force,
                 concurrency=concurrency,
+                push=push,
             )
 
         # 1. Validate every benchmark referenced has an image_builder.
@@ -777,6 +844,7 @@ class BuildCoordinator:
         applied_by: str,
         skip_if_present: bool = False,
         concurrency: int | None = None,
+        push: bool = False,
     ) -> BuildOutcome:
         """Apply an entries-shaped plan.
 
@@ -849,12 +917,19 @@ class BuildCoordinator:
                 "runtime did not wire one (LocalRuntime / "
                 "DistributedRuntime needs an upgrade).",
             )
-        if build_entries and self._build_image_fn is None:
+        if build_entries and not push and self._build_image_fn is None:
             raise ManifestInvalid(
                 "per-image-ref plan with git/tarball-source entries "
                 "requires build_image_fn on BuildCoordinator; the "
                 "active runtime did not wire one (source-build "
                 "dispatch is unavailable).",
+            )
+        if build_entries and push and self._build_push_fn is None:
+            raise ManifestInvalid(
+                "per-image-ref plan applied with push=True requires "
+                "build_push_fn on BuildCoordinator; the active runtime did "
+                "not wire one (source-build-and-push dispatch is "
+                "unavailable).",
             )
 
         # 3. Lower entries to ImageToPlace rows. Size + replication
@@ -944,6 +1019,14 @@ class BuildCoordinator:
         # ``api_build_apply`` docs for the operator-facing rationale.
         # Works regardless of the plan's existing status (completed /
         # partial_failure / cancelled / superseded).
+        if push and fill_missing:
+            raise ManifestInvalid(
+                "build plan rejected: push mode does not combine with "
+                "--fill-missing. The push path already registry-HEAD-skips "
+                "already-pushed refs (build-once fleet-wide, resumable), so "
+                "fill_missing's node-inventory optimization is redundant. "
+                "Apply with push and WITHOUT --fill-missing.",
+            )
         if fill_missing:
             if self._inventory_provider is None:
                 raise ManifestInvalid(
@@ -972,7 +1055,19 @@ class BuildCoordinator:
         #   (works out-of-the-box for registry-source entries; non-
         #   registry deferred entries reject below).
         deferred: tuple[Any, ...] = ()
-        if eager:
+        if push:
+            # Build-push: images are transient (pushed to the registry, then
+            # evictable), so shard the whole plan size-balanced across every
+            # connected node WITHOUT the FFD fit constraint — a plan far larger
+            # than total cluster disk still fans out. No deferred entries;
+            # dispatch-time disk-pacing + the image-cache LRU bound real disk.
+            if not nodes:
+                raise ManifestInvalid(
+                    "build push rejected: no nodes are connected to build and "
+                    "push on. Start the fleet's node agents first.",
+                )
+            placement = _shard_for_push(images, nodes)
+        elif eager:
             placement = plan_placements(images, nodes)
         else:
             opp = plan_opportunistic_placements(images, nodes)
@@ -1095,6 +1190,7 @@ class BuildCoordinator:
 
         successes = 0
         failures: list[str] = []
+        digests: dict[str, str] = {}  # image_ref -> pushed digest (push mode only)
         results_lock = asyncio.Lock()
         sem = asyncio.Semaphore(concurrency or DEFAULT_BUILD_CONCURRENCY)
         watermark_bytes = self._dispatch_watermark_bytes(
@@ -1113,6 +1209,7 @@ class BuildCoordinator:
                     image_ref=image_ref, status="building",
                 )
                 entry = entry_by_ref[image_ref]
+                repo_digest: str | None = None
                 try:
                     if isinstance(entry.context_source, RegistrySource):
                         assert self._ensure_present_fn is not None
@@ -1123,13 +1220,25 @@ class BuildCoordinator:
                     elif isinstance(
                         entry.context_source, (GitSource, TarballSource),
                     ):
-                        assert self._build_image_fn is not None
-                        status, error = await self._build_image_fn(
-                            node_id, image_ref, entry.context_source,
-                            DEFAULT_BUILD_IMAGE_TIMEOUT_S,
-                            dict(entry.labels),
-                            skip_if_present,
-                        )
+                        if push:
+                            # Build AND push to the registry image_ref encodes,
+                            # capturing the pushed digest for the pin plan.
+                            assert self._build_push_fn is not None
+                            status, error, repo_digest = (
+                                await self._build_push_fn(
+                                    node_id, image_ref, entry.context_source,
+                                    DEFAULT_BUILD_IMAGE_TIMEOUT_S,
+                                    dict(entry.labels),
+                                )
+                            )
+                        else:
+                            assert self._build_image_fn is not None
+                            status, error = await self._build_image_fn(
+                                node_id, image_ref, entry.context_source,
+                                DEFAULT_BUILD_IMAGE_TIMEOUT_S,
+                                dict(entry.labels),
+                                skip_if_present,
+                            )
                     else:
                         status = "failed"
                         error = (
@@ -1165,6 +1274,8 @@ class BuildCoordinator:
                     )
                     if terminal == "done":
                         successes += 1
+                        if repo_digest:
+                            digests[image_ref] = repo_digest
                     elif terminal == "failed":
                         failures.append(
                             f"{node_id}/{image_ref}: {error or 'unknown'}",
@@ -1205,6 +1316,7 @@ class BuildCoordinator:
             successes=successes, failures=len(failures),
             deferred=len(deferred),
             error_summary=failures[:20],
+            digests=digests,
         )
 
     async def _apply_per_image_ref_fill_missing(

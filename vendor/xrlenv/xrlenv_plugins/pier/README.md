@@ -70,5 +70,5 @@ essentially verbatim. The behavioural differences are:
 For the DeepSWE **oracle** gate, offline tasks (`allow_internet=false`) acquire
 `--network none`; no allowlist is needed. The pier **agent** network-allowlist
 (egress proxy) is a separate capability build (reproduce pier's Squid sidecar on
-the cluster compose path) — tracked in `notes/deep-swe-pier-onboarding-plan.md`
-§4b; `filtered_egress` flips to `True` in that slice.
+the cluster compose path); `filtered_egress` flips to `True` once that
+capability lands.

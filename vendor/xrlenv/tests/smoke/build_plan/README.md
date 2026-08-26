@@ -37,10 +37,10 @@ images it's been assigned, the cluster's persistent state — admin
 `/builds` panel + `state.db` — reflects the result, and
 re-applying the same plan behaves correctly.
 
-The plan used is the committed phase-0 set at
-`xrlenv_plugins/images_build/terminal_bench_2/build_plan.yaml`:
-8 terminal-bench-2 task images from `alexgshaw/<task>:20251031` on
-Docker Hub.
+The plan is generated at test time from the terminal-bench-2-1
+shard's per-task `docker_image` refs (8 `SMOKE_TASKS`); the committed
+full-shard plan lives at
+`xrlenv_plugins/benchmarks/terminal_bench_2_1/build_plan_89_full.yaml`.
 
 The five tests cover different operator semantics:
 
@@ -89,12 +89,12 @@ The remote tests only run when `$XRLENV_GRPC_HOST` (or
 .venv/bin/python tests/smoke/build_plan/test_dispatch_tb2.py
 
 # Local + remote (reuses your existing $XRLENV_GRPC_HOST):
-XRLENV_GRPC_HOST=internal-ip \
+XRLENV_GRPC_HOST=10.0.0.10 \
 XRLENV_OPERATOR_TOKEN=$(cat ~/.xrlenv/secrets/operator.token) \
 .venv/bin/python tests/smoke/build_plan/test_dispatch_tb2.py --mode all
 
 # Remote only:
-XRLENV_GRPC_HOST=internal-ip \
+XRLENV_GRPC_HOST=10.0.0.10 \
 XRLENV_OPERATOR_TOKEN=... \
 .venv/bin/python tests/smoke/build_plan/test_dispatch_tb2.py --mode remote
 
@@ -793,7 +793,7 @@ To re-run cleanly: a fresh `xrlenv build apply --plan ...` (even with `--force`)
 .venv/bin/python tests/smoke/build_plan/test_dispatch_seta_env.py
 
 # Local + remote:
-XRLENV_GRPC_HOST=internal-ip \
+XRLENV_GRPC_HOST=10.0.0.10 \
 XRLENV_OPERATOR_TOKEN=$(cat ~/.xrlenv/secrets/operator.token) \
 .venv/bin/python tests/smoke/build_plan/test_dispatch_seta_env.py --mode all
 ```
@@ -1000,7 +1000,7 @@ replaces heuristic size hints with cluster-measured values.
   materialized on the cluster — the test uses the canonical
   tb2 plan as input, so running `test_dispatch_tb2.py` first
   (or `xrlenv build apply --plan
-  xrlenv_plugins/images_build/terminal_bench_2/build_plan.yaml
+  xrlenv_plugins/benchmarks/terminal_bench_2_1/build_plan_89_full.yaml
   --connect-host ...`) populates the cluster with images
   the calibrate flow can measure. With zero overlap the
   calibrate still passes — `unmeasured` lists all entries
@@ -1018,7 +1018,7 @@ replaces heuristic size hints with cluster-measured values.
     -v -s
 
 # All tests against a live cluster:
-XRLENV_GRPC_HOST=internal-ip \
+XRLENV_GRPC_HOST=10.0.0.10 \
 XRLENV_OPERATOR_TOKEN=$(cat ~/.xrlenv/secrets/operator.token) \
 .venv/bin/python tests/smoke/build_plan/test_pin_budget_and_calibrate.py --mode all
 ```
@@ -1091,7 +1091,7 @@ SKIPPED entries. Their mode is encoded in the function name.
     -v -s
 
 # Cluster-mode round-trip:
-XRLENV_GRPC_HOST=internal-ip \
+XRLENV_GRPC_HOST=10.0.0.10 \
 XRLENV_OPERATOR_TOKEN=$(cat ~/.xrlenv/secrets/operator.token) \
 .venv/bin/python tests/smoke/build_plan/test_cancel_regression.py --mode remote
 ```

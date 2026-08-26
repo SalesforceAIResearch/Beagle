@@ -104,39 +104,40 @@ def local_image_created_at(ref: str) -> str | None:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def _harbor_cache_root() -> Path:
-    explicit = os.environ.get("XRLENV_BENCHMARK_CACHE")
-    if explicit:
-        return Path(explicit).expanduser()
-    return Path("~/.cache/harbor/tasks").expanduser()
-
-
 def discover_tb2_tasks() -> list[str]:
-    """Every tb2 task id present in the harbor cache."""
-    from xrlenv_plugins.images_build.terminal_bench_2.build_plan_gen import (
+    """Every terminal-bench-2-1 task id present in the harbor cache shard."""
+    from xrlenv_plugins.benchmarks.terminal_bench_2_1.build_plan_gen import (
         _discover_all_tasks,
+        _shard_dir,
     )
-    return _discover_all_tasks()
+    return _discover_all_tasks(_shard_dir())
 
 
 def pick_fresh_tb2_tasks(
     n: int, *, exclude: Iterable[str], require_uncached: bool = False,
-    namespace: str = "alexgshaw", tag: str = "20251031",
 ) -> list[str]:
-    """Pick ``n`` tb2 task ids that aren't in ``exclude``.
+    """Pick ``n`` terminal-bench-2-1 task ids that aren't in ``exclude``.
 
     With ``require_uncached=True`` (used in the fresh-8 test), also
-    filter out tasks whose ``namespace/<task>:tag`` image is already
-    pulled locally — guaranteeing the next apply does real
-    registry work. Skips with a clear message if fewer than ``n``
-    candidates remain.
+    filter out tasks whose authoritative ``task.toml`` image ref is
+    already pulled locally — guaranteeing the next apply does real
+    registry work. terminal-bench-2-1 reads each task's ref from its
+    ``[environment] docker_image`` (mixed upstream tags), so the ref
+    can't be synthesized from a single namespace/tag. Skips with a
+    clear message if fewer than ``n`` candidates remain.
     """
+    from xrlenv_plugins.benchmarks.terminal_bench_2_1.build_plan_gen import (
+        _shard_dir,
+        _task_image_ref,
+    )
+
+    shard = _shard_dir()
     excl = set(exclude)
     candidates = [t for t in discover_tb2_tasks() if t not in excl]
     if require_uncached:
         candidates = [
             t for t in candidates
-            if not image_present_locally(f"{namespace}/{t}:{tag}")
+            if not image_present_locally(_task_image_ref(shard, t))
         ]
     if len(candidates) < n:
         pytest.skip(

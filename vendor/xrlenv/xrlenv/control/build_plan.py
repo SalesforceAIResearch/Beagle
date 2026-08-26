@@ -281,15 +281,17 @@ class LocalSource(BaseModel):
     REQUIRED. It names the shared-fs topology (e.g. ``hyperpod``) that
     guarantees the path on every build node, serving both as a machine-readable
     assertion and as operator-visible documentation of *why* a bare local path
-    is safe here. The Slurm build fan-out
-    (``slurm_scripts/build_and_push_images.sh``) already relies on exactly this
+    is safe here. The build-host fan-out
+    (``deploy/registry/build_and_push_images.py``) already relies on exactly this
     property ("any nodes with docker + the shared FSx home").
 
     **Build-host-only.** This source is consumed by
-    ``scripts/build_and_push_images.py`` (run directly or Slurm-sharded). The
-    cluster ``xrlenv build apply`` path — which ships sources to nodes that may
-    not share the path — rejects ``local`` entries; build them on a shared-fs
-    build host and apply a registry-source plan instead.
+    ``deploy/registry/build_and_push_images.py`` (run directly on a shared-fs build
+    host). The cluster paths — ``xrlenv build apply`` and ``xrlenv build push``,
+    which ship sources to nodes that may not share the path — reject ``local``
+    entries; either build them on a shared-fs build host and apply a
+    registry-source plan, or express them as ``git`` / ``tarball`` sources and
+    use ``xrlenv build push`` to build+push them across the fleet natively.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

@@ -26,32 +26,32 @@ The workflow for Slurm deployments uses three moving parts:
 
 ```yaml
 dev:
-  control_plane: node-host        # Slurm hostname of the control-plane job
+  control_plane: <dev-cp-host>          # Slurm hostname of the control-plane job
   registry:
-    mirror_host: node-host         # pull-through mirror (:5010)
-    private_host: node-host        # private registry (:5011)
+    mirror_host: <dev-registry-host>    # pull-through mirror (:5010)
+    private_host: <dev-registry-host>   # private registry (:5011)
     mirror_port: 5010                   # optional; defaults to 5010
     private_port: 5011                  # optional; defaults to 5011
   workers:
-    - node-host
-    - node-host
+    - <dev-worker-1>
+    - <dev-worker-2>
   sysbox_pool:
-    - node-host
+    - <dev-worker-1>
   cpu_isolation_pool:
-    - node-host
+    - <dev-worker-2>
 
 prod:
-  control_plane: node-host
+  control_plane: <prod-cp-host>
   registry:
-    mirror_host: node-host
-    private_host: node-host
+    mirror_host: <prod-registry-host>
+    private_host: <prod-registry-host>
   workers:
-    - node-host
+    - <prod-worker-1>
     # ...
   sysbox_pool:
-    - node-host
+    - <prod-worker-2>
   cpu_isolation_pool:
-    - node-host
+    - <prod-worker-1>
 ```
 
 | Field | Required | Default | Description |
@@ -101,7 +101,7 @@ After a reboot that changes hostnames:
 
 The generator updates only topology-bearing lines in:
 
-- `slurm_scripts/deploy_{dev,prod}.sh`
+- `slurm_scripts/generated/deploy_{dev,prod}.sh`
 - `slurm_scripts/{dev,prod}_xrlenv_node.sh`
 - `slurm_scripts/{dev,prod}_xrlenv_control.sh`
 

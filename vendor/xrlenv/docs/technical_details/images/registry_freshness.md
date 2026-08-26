@@ -87,7 +87,7 @@ still use whatever scheme the node's Docker daemon is configured for
 
 The default production topology runs the control plane and the private
 registry on the **same box**. The registry is addressed in image refs by
-that box's external hostname or IP (e.g. `node-host:5011/...`) so
+that box's external hostname or IP (e.g. `<registry-host>:5011/...`) so
 that remote worker nodes can pull from it. The control plane's freshness
 resolver therefore probes the registry by that same external address.
 
@@ -107,7 +107,7 @@ same box, which confirms the registry itself is healthy.
 **Symptom.** Acquires fail with:
 
 ```
-RegistryResolveError: cannot resolve 'node-host:5011/...' to a
+RegistryResolveError: cannot resolve '<registry-host>:5011/...' to a
 digest: registry unreachable (ConnectTimeout: ) and no last-known-good
 digest within 900s
 ```
@@ -120,16 +120,16 @@ pulls never take the hairpin path.
 whose registry host is this box:
 
 ```bash
-export XRLENV_REGISTRY_RESOLVE_HOST_MAP="node-host:5011=127.0.0.1:5011"
+export XRLENV_REGISTRY_RESOLVE_HOST_MAP="<registry-host>:5011=127.0.0.1:5011"
 ```
 
-The digest ref the resolver returns still carries `node-host:5011`,
+The digest ref the resolver returns still carries `<registry-host>:5011`,
 so remote nodes pull from the correct external address — only the
 control plane's inbound probe is redirected.
 
 **The shipped Slurm scripts handle this automatically.** Both
-`slurm_scripts/prod_xrlenv_control.sh` and
-`slurm_scripts/dev_xrlenv_control.sh` build and export a self-tuning map
+`slurm_scripts/generated/prod_xrlenv_control.sh` and
+`slurm_scripts/generated/dev_xrlenv_control.sh` build and export a self-tuning map
 before `exec xrlenv up`:
 
 ```bash
@@ -185,7 +185,7 @@ Typical rebuild workflow:
 
 ```bash
 # 1. Rebuild and push the new image under the channel tag.
-.venv/bin/python scripts/build_and_push_images.py \
+.venv/bin/python deploy/registry/build_and_push_images.py \
     --plan xrlenv_plugins/benchmarks/webarena_infinity/build_plan.yaml \
     --registry <REGISTRY_HOST>:5011 --registry-scheme http --force
 

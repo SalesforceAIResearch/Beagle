@@ -1,19 +1,19 @@
 """Build-plan generator for terminal-bench-2-1.
 
-Like the ``xrlenv_plugins/images_build/`` generators, terminal-bench-2-1 tasks
-ship a **prebuilt registry image** (Docker Hub, ``alexgshaw/<task>:<tag>``) — the
+Like the other per-benchmark generators under ``xrlenv_plugins/benchmarks/``,
+terminal-bench-2-1 tasks ship a **prebuilt registry image** (Docker Hub,
+``alexgshaw/<task>:<tag>``) — the
 cluster pulls each task's ``docker_image`` on first acquire — so the plan uses
 ``context_source: type: registry`` throughout and is about *eager warmup*
 (``xrlenv build apply`` lowers each entry to an ``EnsurePresentCommand`` and FFD
 bin-packs them across nodes), not building images. This is unlike terminalworld
 (``type: local`` Dockerfile builds); it follows the newer terminalworld *layout*
 convention only — the generator lives **here**, co-located with the rest of the
-terminal-bench-2-1 tooling (``build_cache.py`` / ``run_oracle_sweep.py``), rather
-than under ``xrlenv_plugins/images_build/``.
+terminal-bench-2-1 tooling (``build_cache.py`` / ``run_oracle_sweep.py``).
 
 **Per-task image refs, read from ``task.toml`` — not a single hard-coded tag.**
-The images_build/terminal_bench_2 (tb2.0) generator synthesized every ref as
-``alexgshaw/<task>:<DEFAULT_TAG>``. terminal-bench-2-1 can't: while most tasks are
+An earlier tb2.0 generator synthesized every ref as
+``alexgshaw/<task>:<tag>``. terminal-bench-2-1 can't: while most tasks are
 on ``:20251031``, a handful were rebuilt at newer tags (``:20260403`` /
 ``:20260430`` as of this writing). So each entry's ``image_ref`` is read from the
 task's authoritative ``[environment] docker_image`` in the populated
@@ -52,7 +52,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from xrlenv_plugins.images_build._dockerhub_probe import (
+from xrlenv_plugins.benchmarks._dockerhub_probe import (
     announce_auth_status,
     print_probe_summary,
     probe_image_size,

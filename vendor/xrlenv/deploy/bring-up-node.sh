@@ -25,7 +25,7 @@
 # Required env vars (must survive ``sudo -E``):
 #   XRLENV_CONTROL_PLANE   <host:port> of the control plane gRPC port
 #   XRLENV_NODE_TOKEN      bearer token issued by ``xrlenv tokens issue node``
-#                          (omit for an unauthenticated phase-0 smoke)
+#                          (omit for an unauthenticated smoke)
 #
 # Optional:
 #   XRLENV_NODE_ID         stable id; auto-detected from cloud metadata
@@ -46,7 +46,7 @@ require_env XRLENV_CONTROL_PLANE \
 if [[ -z "${XRLENV_NODE_TOKEN:-}" ]]; then
     log "WARN: XRLENV_NODE_TOKEN not set — skipping token drop-in."
     log "      The daemon will connect without a bearer token; the control plane"
-    log "      will reject it unless it's running in unauth (phase-0 smoke) mode."
+    log "      will reject it unless it's running in unauthenticated mode."
 fi
 
 # Default ``XRLENV_REPO`` to the checkout this script lives in. Saves

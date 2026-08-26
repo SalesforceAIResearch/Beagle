@@ -346,16 +346,23 @@ RawRolloutStatus = Literal[
     # with ``acquire``; symmetric verb pair so the operator sees
     # "released" rather than the alarming-sounding "destroyed".
     "released",
-    # Operator-initiated cancel before normal end (or sweep-stuck-
-    # transient on control-plane restart).
+    # An acquire cancelled while still in flight — the caller went
+    # away (or its deadline fired) before any session existed. This is
+    # the ONLY writer for raw rollouts; the sweep-stuck-transient path
+    # this comment used to also claim belongs to the gym/step
+    # coordinator, not to this table, and never writes here.
     "cancelled",
     # Acquire-time error (image missing, scheduler rejected, etc.)
     # OR mid-run failure (node disconnect, exec-timeout cascade).
     # ``error`` field carries the diagnostic message.
     "failed",
     # GC-reclaimed by the raw-GC reconciler: the session outlived its
-    # wall-clock deadline (``session_deadline_s`` / the default cap) or
-    # its consumer-liveness TTL, and was force-destroyed cleanly.
+    # wall-clock deadline (``session_deadline_s`` / the default cap) or its
+    # consumer-liveness QUARANTINE HORIZON (not the TTL — crossing the TTL only
+    # marks a session ``suspect``), and was force-destroyed cleanly. Not only
+    # the reconciler: EVERY node-confirmed teardown carrying a ``reason`` seals
+    # ``reaped``, so a ``terminate_raw_group`` group teardown and a node-side
+    # orphan seal (``seal_orphan`` / ``drop_orphan_session``) record it too.
     # Deliberately distinct from ``failed`` — the rollout's work did not
     # error; the platform reclaimed an over-budget or abandoned session.
     # ``error`` carries the reap reason so an operator can tell a reap
@@ -451,11 +458,15 @@ class RawRolloutRecord(BaseModel):
     created_at: float = Field(default_factory=time.time)
     finished_at: float | None = None
     """Set when status transitions to a terminal state — ``released`` /
-    ``cancelled`` / ``failed`` / ``reaped``."""
+    ``cancelled`` / ``failed`` / ``reaped`` / ``capacity_rejected`` —
+    the same set the retention janitor treats as terminal."""
     error: str | None = None
     """Populated when status == ``"failed"``, ``"reaped"`` (carries the
-    raw-GC reap reason), or sometimes ``cancelled`` (if the cancel
-    carried a reason)."""
+    teardown reason recorded by whichever platform path sealed it — the
+    raw-GC deadline/liveness sweeps, ``terminate_raw_group``, or a
+    node-side orphan seal), ``"capacity_rejected"`` (carries the original
+    ``CapacityExhausted`` text), or sometimes ``cancelled`` (if the
+    cancel carried a reason)."""
     deadline_at: float | None = None
     """Resolved wall-clock reap deadline (epoch seconds) — the
     consumer-supplied ``session_deadline_s`` or the coordinator default,

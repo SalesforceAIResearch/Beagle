@@ -53,7 +53,7 @@ shard at `$XRLENV_BENCHMARK_CACHE/deep-swe/`. It is idempotent — re-running sk
 tasks already present.
 
 ```bash
-export XRLENV_BENCHMARK_CACHE=/path/to/shared/cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 
 # populate from git + apply curated patches (the default):
 .venv/bin/python xrlenv_plugins/benchmarks/deep_swe/build_cache.py --stage all
@@ -122,9 +122,9 @@ re-use.
 ### One-command gate
 
 ```bash
-# Load .env, set cache, run the full 113-task corpus:
+# Load .env (control-plane host, tokens, cache root), run the full 113-task corpus:
 set -a; . ./.env; set +a
-export XRLENV_BENCHMARK_CACHE=/path/to/shared/cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 
 bash xrlenv_plugins/benchmarks/deep_swe/run_full_sweep.sh
 ```
@@ -146,7 +146,7 @@ the environment:
 | `--jobs-dir DIR` | `./tmp` | Per-trial artifact root |
 | `--skip-build-cache` | — | Skip `build_cache.py` (use the cache as-is) |
 | `--list-green` | — | Print the green set (`present − EXCLUDE`) and exit |
-| `XRLENV_BENCHMARK_CACHE` *(env)* | `/path/to/benchmark-cache` | Cache root |
+| `XRLENV_BENCHMARK_CACHE` *(env)* | `/path/to/xrlenv_benchmark_cache` | Cache root |
 
 Extra CLI args pass through to `run_oracle_sweep.py`:
 

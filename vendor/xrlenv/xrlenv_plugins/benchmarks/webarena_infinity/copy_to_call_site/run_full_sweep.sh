@@ -8,7 +8,7 @@
 # after the two host-side prep steps are done (README §"Run an eval, end to end"):
 #
 #   # 1) (host, once per image change) build + push the answer-free substrate:
-#   scripts/build_and_push_images.py --plan .../webarena_infinity/build_plan.yaml --force
+#   deploy/registry/build_and_push_images.py --plan .../webarena_infinity/build_plan.yaml --force
 #   # 2) stage this payload into the WAI checkout's evaluation/:
 #   cp .../webarena_infinity/copy_to_call_site/* <WAI-Repo>/evaluation/
 #   # 3) run the FULL real-tasks sweep from the checkout:

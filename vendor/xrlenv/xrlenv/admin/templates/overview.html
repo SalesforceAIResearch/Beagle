@@ -13,10 +13,22 @@
   Start the control plane (<code>xrlenv up</code>) to populate it.</p>
 {% endif %}
 
+{% if nodes_lost and nodes_lost > 0 %}
+  <p class="warn" style="border-left:4px solid #c0392b;background:#fdecea;color:#611a15;padding:.6em .8em;font-weight:600;">
+  ⚠ {{ nodes_lost }} rostered node{{ 's' if nodes_lost != 1 }} not connected
+  ({{ node_connected }} / {{ node_rostered }} connected). If they all dropped at
+  once, suspect a control-plane stall — see <a href="/health">health</a> and the
+  <code>xrlenv_control_loop_lag_seconds</code> metric before restarting the fleet.</p>
+{% endif %}
+
 <section class="cards">
   <div class="card">
     <h2>{{ node_active }} / {{ node_count }}</h2>
     <p><a href="/nodes">nodes (active / known)</a></p>
+    {% if nodes_lost and nodes_lost > 0 %}
+    <p style="color:#c0392b;font-weight:600;margin-top:.3em;">
+      <a href="/nodes" style="color:#c0392b;">{{ nodes_lost }} lost / absent</a></p>
+    {% endif %}
   </div>
   <div class="card">
     <h2>{{ container_count }}</h2>

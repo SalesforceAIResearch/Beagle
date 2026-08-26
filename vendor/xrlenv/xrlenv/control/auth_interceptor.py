@@ -12,7 +12,7 @@ the same auth check:
 
 When the :class:`TokenStore` is **empty** (no tokens issued yet,
 phase-0 single-host smoke), the interceptor is a no-op so the
-``tests/smoke/single_rollout.py`` and ``tests/smoke/cluster_smoke.py``
+``tests/smoke/cluster_bringup/single_rollout.py`` and ``tests/smoke/cluster_bringup/cluster_smoke.py``
 embedded-mode paths keep working without an explicit
 ``xrlenv tokens issue``.
 

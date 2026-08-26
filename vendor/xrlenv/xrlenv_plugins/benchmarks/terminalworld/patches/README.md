@@ -205,7 +205,7 @@ container doesn't provide; the overlay supplies the equivalent in-container.
   single-acquire path's lack of compose. The cluster-compose path now brings the
   real sidecars up on a project network, so the task runs its **original,
   unpatched** `solve.sh` faithfully — the overlay is deleted (`patches/tw_299387/`
-  gone). See `notes/multi-service-compose-step5-runbook.md`.
+  gone).
 - **`tw_668448`** — drop the `~/.local/bin/env` uv dependency (use the image's
   system pip), add the deps ezpz needs but doesn't pull (`mpi4py`,
   `torchvision`), cap the run at `--train_iters 20`, and stop masking the test

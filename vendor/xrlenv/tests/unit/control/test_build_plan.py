@@ -330,7 +330,7 @@ def test_per_image_ref_discriminated_union_loads_each_source(tmp_path) -> None:
                 "image_ref": "turing-tb2/abs-mex-service:main",
                 "context_source": {
                     "type": "local",
-                    "path": "/path/to/data",
+                    "path": "/fsx/cache/turing-tb2/abs-mex-service/environment",
                     "dockerfile": "Dockerfile",
                     "shared_fs": "hyperpod",
                 },
@@ -356,14 +356,14 @@ def test_local_source_requires_shared_fs() -> None:
     from pydantic import ValidationError
 
     with pytest.raises(ValidationError):
-        LocalSource(path="/path/to/data")  # type: ignore[call-arg]
+        LocalSource(path="/fsx/cache/t/environment")  # type: ignore[call-arg]
 
 
 def test_local_source_rejects_empty_shared_fs() -> None:
     from pydantic import ValidationError
 
     with pytest.raises(ValidationError, match="shared_fs"):
-        LocalSource(path="/path/to/data", shared_fs="")
+        LocalSource(path="/fsx/cache/t/environment", shared_fs="")
 
 
 def test_local_source_rejects_empty_path() -> None:
@@ -491,27 +491,8 @@ def test_replication_for_unknown_benchmark_in_per_image_ref_mode() -> None:
 # ────────────────────────────────────────────────────────────────────────────
 
 
-def test_terminal_bench_2_generator_no_probe() -> None:
-    from xrlenv_plugins.images_build.terminal_bench_2.build_plan_gen import (
-        DEFAULT_SIZE_HINT_BYTES,
-        generate_plan,
-    )
-
-    plan_dict = generate_plan(
-        ["fix-git", "build-pov-ray"],
-        probe_sizes=False,
-    )
-    assert plan_dict["version"] == 1
-    assert len(plan_dict["entries"]) == 2
-    assert plan_dict["entries"][0]["image_ref"] == "alexgshaw/fix-git:20251031"
-    assert plan_dict["entries"][0]["context_source"] == {"type": "registry"}
-    assert plan_dict["entries"][0]["placement"]["size_hint_source"] == "heuristic"
-    assert plan_dict["entries"][0]["placement"]["size_hint_bytes"] == DEFAULT_SIZE_HINT_BYTES
-    BuildPlan.model_validate(plan_dict)
-
-
 def test_swebench_verified_generator_image_ref_derivation() -> None:
-    from xrlenv_plugins.images_build.swebench_verified.build_plan_gen import (
+    from xrlenv_plugins.benchmarks.swebench_verified.build_plan_gen import (
         _instance_to_image_ref,
         generate_plan,
     )
@@ -730,16 +711,15 @@ def test_resolve_tarball_sources_passes_through_non_tarball() -> None:
 
 
 def test_committed_canonical_plans_load() -> None:
-    """The three committed build_plan.yaml snapshots must round-trip
-    through the loader. Catches drift between the generator and the
-    schema."""
+    """The committed build-plan snapshots must round-trip through the
+    loader. Catches drift between the generator and the schema."""
     import importlib.resources as ir
-    for package in (
-        "xrlenv_plugins.images_build.terminal_bench_2",
-        "xrlenv_plugins.images_build.swebench_verified",
-        "xrlenv_plugins.benchmarks.seta",  # relocated from images_build.seta_env
+    for package, plan_file in (
+        ("xrlenv_plugins.benchmarks.terminal_bench_2_1", "build_plan_89_full.yaml"),
+        ("xrlenv_plugins.benchmarks.swebench_verified", "swebench_verified_build_plan.yaml"),
+        ("xrlenv_plugins.benchmarks.seta", "build_plan.yaml"),
     ):
-        ref = ir.files(package).joinpath("build_plan.yaml")
+        ref = ir.files(package).joinpath(plan_file)
         with ir.as_file(ref) as p:
             plan = load_build_plan(p)
         assert plan.is_per_image_ref()

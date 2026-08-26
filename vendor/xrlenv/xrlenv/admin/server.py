@@ -46,6 +46,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict, Field, SkipValidation
 
+from xrlenv._version import __version__
 from xrlenv.control.state import (
     BuildAssignmentStatus,
     RolloutRecord,
@@ -592,7 +593,7 @@ def build_admin_app(cfg: AdminServerConfig) -> FastAPI:
     app = FastAPI(
         title="XRLEnv admin",
         description="Phase-0 read-only cluster dashboard (spec 13).",
-        version="0.0.1",
+        version=__version__,
     )
     if _STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
@@ -1403,6 +1404,10 @@ def build_admin_app(cfg: AdminServerConfig) -> FastAPI:
         eager = bool(body.get("eager", False))
         fill_missing = bool(body.get("fill_missing", False))
         skip_if_present = bool(body.get("skip_if_present", False))
+        # ``xrlenv build push`` — build git/tarball entries AND push them to the
+        # registry each ref encodes (build-once fleet-wide). The coordinator
+        # rejects push + fill_missing.
+        push = bool(body.get("push", False))
         applied_by = str(body.get("applied_by") or "operator-token")
         # Per-invocation coordinator fan-out override — the dynamic knob
         # that replaces the import-time XRLENV_BUILD_CONCURRENCY env +
@@ -1441,6 +1446,7 @@ def build_admin_app(cfg: AdminServerConfig) -> FastAPI:
                     applied_by=applied_by,
                     skip_if_present=skip_if_present,
                     concurrency=concurrency,
+                    push=push,
                 )
             except Exception as exc:
                 raise HTTPException(
@@ -1534,6 +1540,7 @@ def build_admin_app(cfg: AdminServerConfig) -> FastAPI:
                     applied_by=applied_by,
                     skip_if_present=skip_if_present,
                     concurrency=concurrency,
+                    push=push,
                 )
             except Exception as exc:
                 LOGGER.exception(
@@ -1580,6 +1587,27 @@ def build_admin_app(cfg: AdminServerConfig) -> FastAPI:
                 status_code=404, detail=f"plan_id {plan_id!r} not found",
             )
         return JSONResponse(snapshot)
+
+    @app.get("/api/scratch/active-digests")
+    async def api_scratch_active_digests(request: Request) -> JSONResponse:
+        """The scratch repos active runs reference — the scratch-registry GC's
+        exemption set. Point ``deploy/registry/scratch_registry_gc.py --exempt-url`` at
+        this so the GC never reclaims a build-on-demand image an in-flight
+        rollout still uses (notes/scratch-registry-build-on-demand.md)."""
+        _require_operator(request)
+
+        def _gather() -> list[str]:
+            from xrlenv.control.scratch_gc import active_scratch_repos
+            if not cfg.state_db.exists():
+                return []
+            store = SqliteStateStore(cfg.state_db, read_only=True)
+            try:
+                pairs = [(sb.image, sb.status) for sb in store.list_sandboxes()]
+            finally:
+                store.close()
+            return sorted(active_scratch_repos(pairs))
+
+        return JSONResponse({"repos": await asyncio.to_thread(_gather)})
 
     @app.post("/api/build/calibrate")
     async def api_build_calibrate(request: Request) -> JSONResponse:
@@ -2758,6 +2786,7 @@ def _overview_blocking(cfg: AdminServerConfig, started_at: float) -> dict[str, A
     if not cfg.state_db.exists():
         return {
             "node_count": 0, "node_active": 0,
+            "node_connected": 0, "node_rostered": 0, "nodes_lost": 0,
             "container_count": 0, "rollout_running": 0,
             "rollout_finished_1h": 0, "rollout_failed_1h": 0,
             "rollout_capacity_rejected_1h": 0,
@@ -2804,6 +2833,13 @@ def _overview_blocking(cfg: AdminServerConfig, started_at: float) -> dict[str, A
         # the same union ``_nodes_blocking`` does for the page rows
         # so the overview count + the Nodes-page row count agree.
         registry_node_ids: set[str] = {n.node_id for n in store.list_nodes()}
+        # Currently-connected subset, so the overview can flag rostered nodes
+        # that have dropped off. Without this the overview stayed green through
+        # a full-fleet loss (2026-08-21) because it only counted rollouts/
+        # containers, never node liveness.
+        connected_node_ids: set[str] = {
+            n.node_id for n in store.list_nodes(status="connected")
+        }
     finally:
         store.close()
 
@@ -2844,9 +2880,16 @@ def _overview_blocking(cfg: AdminServerConfig, started_at: float) -> dict[str, A
     # ``rollout_running`` (which also counts ``acquiring``) is the
     # cold-pull backlog the operator wants to see.
     container_count = len(sandboxes) + raw_status_counts.get("running", 0)
+    # Rostered nodes that are NOT currently connected — "lost" (was connected)
+    # or "absent" (never connected). Any nonzero value is an operator alarm the
+    # overview must not hide behind green rollout tiles.
+    nodes_lost = len(rostered_ids - connected_node_ids)
     return {
         "node_count": len(nodes_total),
         "node_active": len(nodes_active),
+        "node_connected": len(connected_node_ids),
+        "node_rostered": len(rostered_ids),
+        "nodes_lost": nodes_lost,
         "container_count": container_count,
         "rollout_running": running,
         "rollout_finished_1h": finished_1h,

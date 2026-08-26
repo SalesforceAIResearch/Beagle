@@ -11,9 +11,9 @@ gives up (privileged DinD's inner root *is* host root).
 - **EvoClaw / element-web** needs Docker-in-Docker for `testcontainers`.
 - **harbor-terminalworld-verified** needs DinD + systemd + `NET_ADMIN`/netns.
 
-The design rationale, the xrlenv-core integration, and the security analysis live
-in `notes/sysbox-dind-runner.md` (the proposal). This README is the operational
-"how to build + install + run the pool" companion.
+This README is the operational "how to build + install + run the pool" guide,
+covering the design rationale, the xrlenv-core integration, and the security
+analysis for the sysbox DinD runner.
 
 ---
 
@@ -64,18 +64,37 @@ then, the vendored binary is the only way to run sysbox on our current Docker.
 | `deploy_sysbox_pool.sh` | Reads `nodes.yaml`, and runs `install_sysbox_node.sh` on every node marked `sysbox: true`. |
 
 The build output (`{sysbox-runc,sysbox-mgr,sysbox-fs,SHA256SUMS}`) lives **out of
-the git tree** on shared storage — `SYSBOX_VENDOR_ROOT/<commit>/` (default
-`/path/to/sysbox-vendor`, override with
-`XRLENV_SYSBOX_VENDOR_DIR`). A ~40 MB unofficial build has no business in-tree,
-and holding it in both the dev and prod repos would duplicate it and invite
-drift; one canonical copy on shared `/shared-fs` serves both. The current pinned build
-is already there.
+the git tree** on shared storage — `SYSBOX_VENDOR_ROOT/<commit>/`. A ~40 MB
+unofficial build has no business in-tree, and holding it in both the dev and prod
+repos would duplicate it and invite drift; one canonical copy on shared storage
+serves every repo on that cluster.
+
+`SYSBOX_VENDOR_ROOT` is **cluster-specific** — the shared filesystem is laid out
+differently per cluster — so `pin.env` does not hard-code it: you set
+`XRLENV_SYSBOX_VENDOR_DIR` (in `.env`) to this cluster's shared-storage vendor
+root and `pin.env` uses it verbatim. There is **no default** — an unset value
+fails loud with the exact variable to set, rather than guessing a path that
+only exists on one cluster. Point it at a path visible from both the login node
+(where `build_sysbox.sh` runs) and the pool nodes (where install runs under
+sudo) — e.g. a shared `/fsx` mount.
+
+**Each cluster needs its own build.** The vendor root is per-cluster storage, so
+a new cluster starts empty until you run the build there once. The generated
+deploy scripts pre-flight this **before** they scancel anything, so a new cluster
+fails fast with the exact command to run rather than bouncing both jobs and then
+failing per-node in step 3.
+
+`XRLENV_SYSBOX_VENDOR_DIR` is the **only** knob (required — there is no probed
+default). `SYSBOX_VENDOR_ROOT` is what `pin.env` *computes* from it — setting it
+in the environment is ignored, and
+`pin.env` warns rather than discarding it silently. It is a **build-tooling**
+knob: nothing in the running control plane or node agent reads it.
 
 ### Who sets `XRLENV_SYSBOX_VENDOR_DIR`?
 
 | Role | Sets it? | Why |
 |---|---|---|
-| **Sysbox-pool operator** (runs build/install/deploy) | **Only if the vendored binaries live somewhere other than the default `/shared-fs` path.** It has a default, so it is *not required* on this cluster. | It's a build-tooling knob read by `pin.env` → `build_sysbox.sh` / `install_sysbox_node.sh` / `deploy_sysbox_pool.sh`. |
+| **Sysbox-pool operator** (runs build/install/deploy) | **Yes — always.** `pin.env` has no probed default, so it requires `XRLENV_SYSBOX_VENDOR_DIR` (in `.env`) pointing at this cluster's shared-storage vendor root; an unset value fails loud. | It's a build-tooling knob read by `pin.env` → `build_sysbox.sh` / `install_sysbox_node.sh` / `deploy_sysbox_pool.sh`. |
 | **Operator of a non-sysbox cluster** | No | Never runs the sysbox toolkit. |
 | **Consumer** (RL trainer calling `acquire_container(container_runtime="sysbox-runc")`) | **Never** | Consumers select the runtime by *name*; they never see the binaries, the vendor path, or this variable. |
 
@@ -113,12 +132,12 @@ Two independent knobs:
 ```yaml
 version: 1
 nodes:
-  - id: aws-node-host
-    address: internal-ip
+  - id: aws-ip-10-0-1-2
+    address: 10.0.1.2
     backends: [docker]
     sysbox: true          # ← (1) pool membership: deploy installs sysbox here
-  - id: aws-node-host
-    address: internal-ip
+  - id: aws-ip-10-0-3-4
+    address: 10.0.3.4
     backends: [docker]
     # no sysbox: this node stays a normal docker node
 
@@ -180,8 +199,7 @@ Recommended sequence (order between 1 and 2 does not matter for correctness):
 
 ## How xrlenv core consumes this (the runtime plumbing)
 
-The `container_runtime` field is threaded end-to-end (design `notes/sysbox-dind-runner.md`
-§5). Consumers select it per-acquire:
+The `container_runtime` field is threaded end-to-end. Consumers select it per-acquire:
 
 ```python
 await client.acquire_container(image="...", container_runtime="sysbox-runc")

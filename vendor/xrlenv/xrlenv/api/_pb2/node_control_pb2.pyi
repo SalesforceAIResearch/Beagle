@@ -183,6 +183,7 @@ class ControlMsg(_message.Message):
     ACQUIRE_COMPOSE_PROJECT_FIELD_NUMBER: _builtins.int
     DESTROY_COMPOSE_PROJECT_FIELD_NUMBER: _builtins.int
     CONTAINER_PUT_ARCHIVE_CHUNK_FIELD_NUMBER: _builtins.int
+    REGISTER_SCRATCH_SOURCE_FIELD_NUMBER: _builtins.int
     ACK_FIELD_NUMBER: _builtins.int
     stream_epoch: _builtins.str
     """Mirrors the node's current stream_epoch from NodeHello."""
@@ -301,6 +302,10 @@ class ControlMsg(_message.Message):
         """chunked put_archive (oversized-upload fix; N frames share command_id)"""
 
     @_builtins.property
+    def register_scratch_source(self) -> Global___RegisterScratchSourceCommand:
+        """scratch build-on-demand — register content-addressed ref -> source"""
+
+    @_builtins.property
     def ack(self) -> Global___Ack: ...
     def __init__(
         self,
@@ -338,13 +343,14 @@ class ControlMsg(_message.Message):
         acquire_compose_project: Global___AcquireComposeProjectCommand | None = ...,
         destroy_compose_project: Global___DestroyComposeProjectCommand | None = ...,
         container_put_archive_chunk: Global___ContainerPutArchiveChunk | None = ...,
+        register_scratch_source: Global___RegisterScratchSourceCommand | None = ...,
         ack: Global___Ack | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "acquire_compose_project", b"acquire_compose_project", "acquire_container", b"acquire_container", "apply_egress", b"apply_egress", "body", b"body", "build_image", b"build_image", "build_images", b"build_images", "cancel_build_image", b"cancel_build_image", "container_exec", b"container_exec", "container_get_archive", b"container_get_archive", "container_put_archive", b"container_put_archive", "container_put_archive_chunk", b"container_put_archive_chunk", "create", b"create", "destroy", b"destroy", "destroy_compose_project", b"destroy_compose_project", "destroy_container", b"destroy_container", "ensure_present", b"ensure_present", "env_setup", b"env_setup", "env_step", b"env_step", "env_teardown", b"env_teardown", "evict_image", b"evict_image", "fetch_trajectory", b"fetch_trajectory", "force_destroy_container", b"force_destroy_container", "hello", b"hello", "list_raw_containers", b"list_raw_containers", "list_sandboxes", b"list_sandboxes", "put_archive", b"put_archive", "query_image", b"query_image", "report_images", b"report_images", "run_in_sandbox", b"run_in_sandbox", "stats_req", b"stats_req", "stream_container_exec", b"stream_container_exec"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "acquire_compose_project", b"acquire_compose_project", "acquire_container", b"acquire_container", "apply_egress", b"apply_egress", "body", b"body", "build_image", b"build_image", "build_images", b"build_images", "cancel_build_image", b"cancel_build_image", "container_exec", b"container_exec", "container_get_archive", b"container_get_archive", "container_put_archive", b"container_put_archive", "container_put_archive_chunk", b"container_put_archive_chunk", "create", b"create", "destroy", b"destroy", "destroy_compose_project", b"destroy_compose_project", "destroy_container", b"destroy_container", "ensure_present", b"ensure_present", "env_setup", b"env_setup", "env_step", b"env_step", "env_teardown", b"env_teardown", "evict_image", b"evict_image", "fetch_trajectory", b"fetch_trajectory", "force_destroy_container", b"force_destroy_container", "hello", b"hello", "list_raw_containers", b"list_raw_containers", "list_sandboxes", b"list_sandboxes", "put_archive", b"put_archive", "query_image", b"query_image", "register_scratch_source", b"register_scratch_source", "report_images", b"report_images", "run_in_sandbox", b"run_in_sandbox", "stats_req", b"stats_req", "stream_container_exec", b"stream_container_exec"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "acquire_compose_project", b"acquire_compose_project", "acquire_container", b"acquire_container", "apply_egress", b"apply_egress", "body", b"body", "build_image", b"build_image", "build_images", b"build_images", "cancel_build_image", b"cancel_build_image", "container_exec", b"container_exec", "container_get_archive", b"container_get_archive", "container_put_archive", b"container_put_archive", "container_put_archive_chunk", b"container_put_archive_chunk", "control_instance_id", b"control_instance_id", "create", b"create", "destroy", b"destroy", "destroy_compose_project", b"destroy_compose_project", "destroy_container", b"destroy_container", "ensure_present", b"ensure_present", "env_setup", b"env_setup", "env_step", b"env_step", "env_teardown", b"env_teardown", "evict_image", b"evict_image", "fetch_trajectory", b"fetch_trajectory", "force_destroy_container", b"force_destroy_container", "hello", b"hello", "list_raw_containers", b"list_raw_containers", "list_sandboxes", b"list_sandboxes", "put_archive", b"put_archive", "query_image", b"query_image", "report_images", b"report_images", "run_in_sandbox", b"run_in_sandbox", "seq", b"seq", "stats_req", b"stats_req", "stream_container_exec", b"stream_container_exec", "stream_epoch", b"stream_epoch"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "acquire_compose_project", b"acquire_compose_project", "acquire_container", b"acquire_container", "apply_egress", b"apply_egress", "body", b"body", "build_image", b"build_image", "build_images", b"build_images", "cancel_build_image", b"cancel_build_image", "container_exec", b"container_exec", "container_get_archive", b"container_get_archive", "container_put_archive", b"container_put_archive", "container_put_archive_chunk", b"container_put_archive_chunk", "control_instance_id", b"control_instance_id", "create", b"create", "destroy", b"destroy", "destroy_compose_project", b"destroy_compose_project", "destroy_container", b"destroy_container", "ensure_present", b"ensure_present", "env_setup", b"env_setup", "env_step", b"env_step", "env_teardown", b"env_teardown", "evict_image", b"evict_image", "fetch_trajectory", b"fetch_trajectory", "force_destroy_container", b"force_destroy_container", "hello", b"hello", "list_raw_containers", b"list_raw_containers", "list_sandboxes", b"list_sandboxes", "put_archive", b"put_archive", "query_image", b"query_image", "register_scratch_source", b"register_scratch_source", "report_images", b"report_images", "run_in_sandbox", b"run_in_sandbox", "seq", b"seq", "stats_req", b"stats_req", "stream_container_exec", b"stream_container_exec", "stream_epoch", b"stream_epoch"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    _WhichOneofReturnType_body: _TypeAlias = _typing.Literal["hello", "create", "destroy", "env_setup", "env_step", "env_teardown", "run_in_sandbox", "stats_req", "fetch_trajectory", "put_archive", "list_sandboxes", "query_image", "report_images", "build_images", "ensure_present", "acquire_container", "container_exec", "destroy_container", "container_put_archive", "container_get_archive", "list_raw_containers", "force_destroy_container", "stream_container_exec", "build_image", "cancel_build_image", "apply_egress", "evict_image", "acquire_compose_project", "destroy_compose_project", "container_put_archive_chunk", "ack"]  # noqa: Y015
+    _WhichOneofReturnType_body: _TypeAlias = _typing.Literal["hello", "create", "destroy", "env_setup", "env_step", "env_teardown", "run_in_sandbox", "stats_req", "fetch_trajectory", "put_archive", "list_sandboxes", "query_image", "report_images", "build_images", "ensure_present", "acquire_container", "container_exec", "destroy_container", "container_put_archive", "container_get_archive", "list_raw_containers", "force_destroy_container", "stream_container_exec", "build_image", "cancel_build_image", "apply_egress", "evict_image", "acquire_compose_project", "destroy_compose_project", "container_put_archive_chunk", "register_scratch_source", "ack"]  # noqa: Y015
     _WhichOneofArgType_body: _TypeAlias = _typing.Literal["body", b"body"]  # noqa: Y015
     def WhichOneof(self, oneof_group: _WhichOneofArgType_body) -> _WhichOneofReturnType_body | None: ...
 
@@ -1580,6 +1586,7 @@ class BuildImageCommand(_message.Message):
     TIMEOUT_S_FIELD_NUMBER: _builtins.int
     LABELS_FIELD_NUMBER: _builtins.int
     SKIP_IF_PRESENT_FIELD_NUMBER: _builtins.int
+    PUSH_FIELD_NUMBER: _builtins.int
     image_ref: _builtins.str
     timeout_s: _builtins.float
     """Build deadline. 0 means use the node's default
@@ -1594,6 +1601,14 @@ class BuildImageCommand(_message.Message):
     warm cluster (typical post-calibrate flow + partial-failure
     recovery) where most entries are already built. Default false
     preserves the existing "always rebuild" behavior.
+    """
+    push: _builtins.bool
+    """When true, the node BUILDS then PUSHES image_ref to the registry embedded
+    in the (registry-qualified) ref — ``build_and_push`` — and returns the
+    pushed digest in ``BuildImageReply.repo_digest``. Used by ``xrlenv build
+    push`` to populate the private registry fleet-wide. Registry-HEAD skip is
+    implied (already-pushed refs are not rebuilt: resumable + overlap-safe).
+    Default false = today's local-tag-only build.
     """
     @_builtins.property
     def header(self) -> Global___CommandHeader: ...
@@ -1619,10 +1634,11 @@ class BuildImageCommand(_message.Message):
         timeout_s: _builtins.float = ...,
         labels: _abc.Mapping[_builtins.str, _builtins.str] | None = ...,
         skip_if_present: _builtins.bool = ...,
+        push: _builtins.bool = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["git", b"git", "header", b"header", "source", b"source", "tarball", b"tarball"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["git", b"git", "header", b"header", "image_ref", b"image_ref", "labels", b"labels", "skip_if_present", b"skip_if_present", "source", b"source", "tarball", b"tarball", "timeout_s", b"timeout_s"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["git", b"git", "header", b"header", "image_ref", b"image_ref", "labels", b"labels", "push", b"push", "skip_if_present", b"skip_if_present", "source", b"source", "tarball", b"tarball", "timeout_s", b"timeout_s"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     _WhichOneofReturnType_source: _TypeAlias = _typing.Literal["git", "tarball"]  # noqa: Y015
     _WhichOneofArgType_source: _TypeAlias = _typing.Literal["source", b"source"]  # noqa: Y015
@@ -1688,6 +1704,7 @@ class BuildImageReply(_message.Message):
     STATUS_FIELD_NUMBER: _builtins.int
     ERROR_FIELD_NUMBER: _builtins.int
     DURATION_S_FIELD_NUMBER: _builtins.int
+    REPO_DIGEST_FIELD_NUMBER: _builtins.int
     image_ref: _builtins.str
     status: _builtins.str
     """'ok' (build succeeded; image tagged locally) or 'failed'."""
@@ -1695,6 +1712,11 @@ class BuildImageReply(_message.Message):
     """Empty when status == 'ok'."""
     duration_s: _builtins.float
     """Build duration in seconds (clone + docker build, not wire time)."""
+    repo_digest: _builtins.str
+    """The pushed ``<repo>@sha256:...`` when the command carried ``push=true`` and
+    the push succeeded; empty for a local-tag build or on any failure. The
+    control plane pins the fleet to this digest (invariant 4).
+    """
     def __init__(
         self,
         *,
@@ -1702,10 +1724,11 @@ class BuildImageReply(_message.Message):
         status: _builtins.str = ...,
         error: _builtins.str = ...,
         duration_s: _builtins.float = ...,
+        repo_digest: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["duration_s", b"duration_s", "error", b"error", "image_ref", b"image_ref", "status", b"status"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["duration_s", b"duration_s", "error", b"error", "image_ref", b"image_ref", "repo_digest", b"repo_digest", "status", b"status"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -1789,6 +1812,84 @@ class CancelBuildImageReply(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___CancelBuildImageReply: _TypeAlias = CancelBuildImageReply  # noqa: Y015
+
+@_typing.final
+class RegisterScratchSourceCommand(_message.Message):
+    """──────────────────────────────────────────────────────────────────────────────
+    RegisterScratchSourceCommand: scratch build-on-demand registration
+
+    For a scratch_build template (spec 06 image_build:), the coordinator
+    computes the content-addressed scratch ref + build source and dispatches
+    one RegisterScratchSourceCommand to the chosen node BEFORE create. The node
+    records (image_ref -> source, durable_to); the later
+    ``ImageCacheManager.ensure_present(image_ref)`` builds the source AND pushes
+    it to the scratch registry embedded in the ref (build_and_push), copying to
+    ``durable_to`` when set. This is a lightweight *registration* — no build
+    happens synchronously here (mirrors lazy_registrations).
+    See notes/scratch-registry-build-on-demand.md.
+    ──────────────────────────────────────────────────────────────────────────────
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    HEADER_FIELD_NUMBER: _builtins.int
+    IMAGE_REF_FIELD_NUMBER: _builtins.int
+    GIT_FIELD_NUMBER: _builtins.int
+    TARBALL_FIELD_NUMBER: _builtins.int
+    DURABLE_TO_FIELD_NUMBER: _builtins.int
+    image_ref: _builtins.str
+    durable_to: _builtins.str
+    """Optional user-owned durable registry ref; empty => scratch-only."""
+    @_builtins.property
+    def header(self) -> Global___CommandHeader: ...
+    @_builtins.property
+    def git(self) -> Global___GitSourceProto: ...
+    @_builtins.property
+    def tarball(self) -> Global___TarballSourceProto: ...
+    def __init__(
+        self,
+        *,
+        header: Global___CommandHeader | None = ...,
+        image_ref: _builtins.str = ...,
+        git: Global___GitSourceProto | None = ...,
+        tarball: Global___TarballSourceProto | None = ...,
+        durable_to: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["git", b"git", "header", b"header", "source", b"source", "tarball", b"tarball"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["durable_to", b"durable_to", "git", b"git", "header", b"header", "image_ref", b"image_ref", "source", b"source", "tarball", b"tarball"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType_source: _TypeAlias = _typing.Literal["git", "tarball"]  # noqa: Y015
+    _WhichOneofArgType_source: _TypeAlias = _typing.Literal["source", b"source"]  # noqa: Y015
+    def WhichOneof(self, oneof_group: _WhichOneofArgType_source) -> _WhichOneofReturnType_source | None: ...
+
+Global___RegisterScratchSourceCommand: _TypeAlias = RegisterScratchSourceCommand  # noqa: Y015
+
+@_typing.final
+class RegisterScratchSourceReply(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    IMAGE_REF_FIELD_NUMBER: _builtins.int
+    STATUS_FIELD_NUMBER: _builtins.int
+    ERROR_FIELD_NUMBER: _builtins.int
+    image_ref: _builtins.str
+    status: _builtins.str
+    """'ok' | 'failed'"""
+    error: _builtins.str
+    def __init__(
+        self,
+        *,
+        image_ref: _builtins.str = ...,
+        status: _builtins.str = ...,
+        error: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["error", b"error", "image_ref", b"image_ref", "status", b"status"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___RegisterScratchSourceReply: _TypeAlias = RegisterScratchSourceReply  # noqa: Y015
 
 @_typing.final
 class EvictImageCommand(_message.Message):
@@ -3384,6 +3485,7 @@ class CommandReply(_message.Message):
     EVICT_IMAGE_FIELD_NUMBER: _builtins.int
     CONTAINER_GET_ARCHIVE_CHUNK_FIELD_NUMBER: _builtins.int
     ACQUIRE_COMPOSE_PROJECT_FIELD_NUMBER: _builtins.int
+    REGISTER_SCRATCH_SOURCE_FIELD_NUMBER: _builtins.int
     ERROR_KIND_FIELD_NUMBER: _builtins.int
     ERROR_MESSAGE_FIELD_NUMBER: _builtins.int
     command_id: _builtins.str
@@ -3473,6 +3575,10 @@ class CommandReply(_message.Message):
     def acquire_compose_project(self) -> Global___AcquireComposeProjectReply:
         """P1.7.C.2 — multi-service compose up"""
 
+    @_builtins.property
+    def register_scratch_source(self) -> Global___RegisterScratchSourceReply:
+        """scratch build-on-demand registration ack"""
+
     def __init__(
         self,
         *,
@@ -3500,14 +3606,15 @@ class CommandReply(_message.Message):
         evict_image: Global___EvictImageReply | None = ...,
         container_get_archive_chunk: Global___ContainerGetArchiveChunk | None = ...,
         acquire_compose_project: Global___AcquireComposeProjectReply | None = ...,
+        register_scratch_source: Global___RegisterScratchSourceReply | None = ...,
         error_kind: _builtins.str = ...,
         error_message: _builtins.str = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["acquire_compose_project", b"acquire_compose_project", "acquire_container", b"acquire_container", "apply_egress", b"apply_egress", "build_image", b"build_image", "build_images", b"build_images", "cancel_build_image", b"cancel_build_image", "container_exec_chunk", b"container_exec_chunk", "container_get_archive", b"container_get_archive", "container_get_archive_chunk", b"container_get_archive_chunk", "create", b"create", "destroy", b"destroy", "ensure_present", b"ensure_present", "env", b"env", "evict_image", b"evict_image", "exec", b"exec", "list_raw_containers", b"list_raw_containers", "list_sandboxes", b"list_sandboxes", "payload", b"payload", "put_archive", b"put_archive", "query_image", b"query_image", "report_images", b"report_images", "stats", b"stats", "trajectory", b"trajectory"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["acquire_compose_project", b"acquire_compose_project", "acquire_container", b"acquire_container", "apply_egress", b"apply_egress", "build_image", b"build_image", "build_images", b"build_images", "cancel_build_image", b"cancel_build_image", "container_exec_chunk", b"container_exec_chunk", "container_get_archive", b"container_get_archive", "container_get_archive_chunk", b"container_get_archive_chunk", "create", b"create", "destroy", b"destroy", "ensure_present", b"ensure_present", "env", b"env", "evict_image", b"evict_image", "exec", b"exec", "list_raw_containers", b"list_raw_containers", "list_sandboxes", b"list_sandboxes", "payload", b"payload", "put_archive", b"put_archive", "query_image", b"query_image", "register_scratch_source", b"register_scratch_source", "report_images", b"report_images", "stats", b"stats", "trajectory", b"trajectory"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["acquire_compose_project", b"acquire_compose_project", "acquire_container", b"acquire_container", "apply_egress", b"apply_egress", "build_image", b"build_image", "build_images", b"build_images", "cancel_build_image", b"cancel_build_image", "command_id", b"command_id", "container_exec_chunk", b"container_exec_chunk", "container_get_archive", b"container_get_archive", "container_get_archive_chunk", b"container_get_archive_chunk", "create", b"create", "destroy", b"destroy", "ensure_present", b"ensure_present", "env", b"env", "error_kind", b"error_kind", "error_message", b"error_message", "evict_image", b"evict_image", "exec", b"exec", "list_raw_containers", b"list_raw_containers", "list_sandboxes", b"list_sandboxes", "payload", b"payload", "put_archive", b"put_archive", "query_image", b"query_image", "report_images", b"report_images", "stats", b"stats", "status", b"status", "trajectory", b"trajectory"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["acquire_compose_project", b"acquire_compose_project", "acquire_container", b"acquire_container", "apply_egress", b"apply_egress", "build_image", b"build_image", "build_images", b"build_images", "cancel_build_image", b"cancel_build_image", "command_id", b"command_id", "container_exec_chunk", b"container_exec_chunk", "container_get_archive", b"container_get_archive", "container_get_archive_chunk", b"container_get_archive_chunk", "create", b"create", "destroy", b"destroy", "ensure_present", b"ensure_present", "env", b"env", "error_kind", b"error_kind", "error_message", b"error_message", "evict_image", b"evict_image", "exec", b"exec", "list_raw_containers", b"list_raw_containers", "list_sandboxes", b"list_sandboxes", "payload", b"payload", "put_archive", b"put_archive", "query_image", b"query_image", "register_scratch_source", b"register_scratch_source", "report_images", b"report_images", "stats", b"stats", "status", b"status", "trajectory", b"trajectory"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["create", "destroy", "env", "exec", "stats", "trajectory", "put_archive", "list_sandboxes", "query_image", "report_images", "build_images", "ensure_present", "acquire_container", "container_get_archive", "list_raw_containers", "container_exec_chunk", "build_image", "cancel_build_image", "apply_egress", "evict_image", "container_get_archive_chunk", "acquire_compose_project"]  # noqa: Y015
+    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["create", "destroy", "env", "exec", "stats", "trajectory", "put_archive", "list_sandboxes", "query_image", "report_images", "build_images", "ensure_present", "acquire_container", "container_get_archive", "list_raw_containers", "container_exec_chunk", "build_image", "cancel_build_image", "apply_egress", "evict_image", "container_get_archive_chunk", "acquire_compose_project", "register_scratch_source"]  # noqa: Y015
     _WhichOneofArgType_payload: _TypeAlias = _typing.Literal["payload", b"payload"]  # noqa: Y015
     def WhichOneof(self, oneof_group: _WhichOneofArgType_payload) -> _WhichOneofReturnType_payload | None: ...
 

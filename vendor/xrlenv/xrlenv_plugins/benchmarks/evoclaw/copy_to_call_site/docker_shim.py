@@ -597,7 +597,7 @@ def _run(args: list[str]) -> tuple[int, bytes, bytes]:
         _vols = run_kwargs.setdefault("volumes", {})
         for host, ctr, ro in binds:
             _vols[host] = {"bind": ctr, "mode": "ro" if ro else "rw"}
-            # Sysbox can't uid-shift bind mounts on a network FS (our /shared-fs):
+            # Sysbox can't uid-shift bind mounts on a network FS (our /fsx):
             # idmapped mounts don't apply there, so the container sees the tree
             # as `nobody` and writes as an unmapped subuid → a normally-owned
             # host dir rejects writes ("Permission denied"). Make each WRITABLE
@@ -682,7 +682,7 @@ def _effective_mem(declared: int | None, nano_cpus: int | None) -> int | None:
 
 def _chmod_world_writable(host: str) -> None:
     """Make a writable host bind dir (and existing contents) world-writable so a
-    sysbox container can write to it on a network FS (/shared-fs) where sysbox can't
+    sysbox container can write to it on a network FS (/fsx) where sysbox can't
     uid-shift the mount. Best-effort; recurses so pre-existing files the
     container must modify are writable too. Only called on the sysbox path."""
     try:

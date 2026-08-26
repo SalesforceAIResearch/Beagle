@@ -10,11 +10,11 @@ attaches and surfaces in the admin `/nodes` page with the
 ```yaml
 nodes:
   - id: gcp-1
-    host: internal-ip
+    host: <gcp-node-host>
     provider: gcp
     zone: us-central1-a
   - id: aws-1
-    host: internal-ip
+    host: <aws-node-host>
     provider: aws
     zone: us-west-2a
   - id: local-laptop
@@ -68,11 +68,11 @@ knobs working together:
 version: 1
 nodes:
   - id: aws-sysbox-1
-    address: internal-ip
+    address: <sysbox-node-host>
     backends: [docker]
     sysbox: true           # (1) pool membership
   - id: aws-worker-1
-    address: internal-ip
+    address: <worker-node-host>
     backends: [docker]
     # no sysbox: stays a normal Docker node
 
@@ -98,7 +98,7 @@ control plane automatically prunes stale node rows from `state.db`:
 
 - **Pruned:** rows with `status='lost'` whose `node_id` is NOT in the
   current roster. These are decommissioned hosts — most commonly
-  IP-derived node IDs (e.g. `aws-node-host`) that were orphaned
+  IP-derived node IDs (e.g. `aws-<hostname>`) that were orphaned
   by a cluster reboot that reassigned IP addresses.
 - **Kept:** rows for nodes that are `connected`, and rows for any
   `node_id` still present in `nodes.yaml` (flapping-node history is
@@ -121,7 +121,7 @@ A `startup-prune` log line confirms the action:
 
 ```text
 INFO startup-prune: reaped 4 unrostered lost node(s) from the registry:
-  aws-node-host, aws-node-host, ...
+  aws-<hostname-1>, aws-<hostname-2>, ...
 ```
 
 No log line means there was nothing to prune — both outcomes are normal.

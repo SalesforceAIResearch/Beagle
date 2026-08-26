@@ -107,7 +107,9 @@ class VerifierUpload(BaseModel):
 #: imports back from this module — circular). Both definitions
 #: must stay in lockstep; the canonical contract documentation
 #: lives in :data:`xrlenv.control.template_catalog.ImagePinMode`.
-ImagePinMode = Literal["registry_digest", "per_node_local", "shared_storage"]
+ImagePinMode = Literal[
+    "registry_digest", "per_node_local", "shared_storage", "scratch_build",
+]
 
 
 class ResolvedInstance(BaseModel):

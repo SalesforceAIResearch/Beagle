@@ -21,13 +21,13 @@ def test_extract_slurm_nodelist_from_sbatch_equals_form(tmp_path: Path) -> None:
         "\n".join([
             "#!/bin/bash",
             "#SBATCH --nodes=2",
-            "#SBATCH --nodelist=node-host,node-host # workers",
+            "#SBATCH --nodelist=ip-10-0-7-8,ip-10-0-11-12 # workers",
             "srun hostname",
         ]),
         encoding="utf-8",
     )
 
-    assert extract_slurm_nodelist(script) == "node-host,node-host"
+    assert extract_slurm_nodelist(script) == "ip-10-0-7-8,ip-10-0-11-12"
 
 
 def test_extract_slurm_nodelist_from_short_flag(tmp_path: Path) -> None:
@@ -47,7 +47,7 @@ def test_expand_slurm_nodelist_preserves_order_and_removes_duplicates() -> None:
 
 
 def test_default_address_for_hostname_converts_hyperpod_ip_names() -> None:
-    assert default_address_for_hostname("node-host") == "internal-ip"
+    assert default_address_for_hostname("ip-10-0-7-8") == "10.0.7.8"
     assert default_address_for_hostname("worker-01") == "worker-01"
 
 
@@ -69,7 +69,7 @@ def test_render_nodes_inventory_preserves_existing_policy(tmp_path: Path) -> Non
     )
 
     inventory = render_nodes_inventory(
-        hostnames=["node-host"],
+        hostnames=["ip-10-0-7-8"],
         source_script=tmp_path / "workers.sh",
         output_path=output,
         id_template="aws-{hostname}",
@@ -80,11 +80,11 @@ def test_render_nodes_inventory_preserves_existing_policy(tmp_path: Path) -> Non
     )
 
     assert inventory["nodes"] == [{
-        "id": "aws-node-host",
+        "id": "aws-ip-10-0-7-8",
         "cloud": "aws",
         "backends": ["docker"],
         "auth_token_env": "XRLENV_NODE_TOKEN",
-        "address": "internal-ip",
+        "address": "10.0.7.8",
     }]
     assert inventory["policy"]["denied_caps"] == ["SYS_MODULE"]
     assert inventory["policy"]["allow_host_network"] is True
@@ -168,7 +168,7 @@ def test_render_nodes_inventory_marks_sysbox_by_hostname_or_id(tmp_path: Path) -
     output = tmp_path / "nodes.yaml"  # does not exist
 
     inventory = render_nodes_inventory(
-        hostnames=["node-host", "node-host"],
+        hostnames=["ip-10-0-1-2", "ip-10-0-3-4"],
         source_script=tmp_path / "job.sh",
         output_path=output,
         id_template="aws-{hostname}",
@@ -176,10 +176,10 @@ def test_render_nodes_inventory_marks_sysbox_by_hostname_or_id(tmp_path: Path) -
         cloud="aws",
         backends=["docker"],
         auth_token_env=None,
-        sysbox_nodes={"node-host", "aws-node-host"},  # one by host, one by id
+        sysbox_nodes={"ip-10-0-1-2", "aws-ip-10-0-3-4"},  # one by host, one by id
     )
     marked = {n["id"] for n in inventory["nodes"] if n.get("sysbox")}
-    assert marked == {"aws-node-host", "aws-node-host"}
+    assert marked == {"aws-ip-10-0-1-2", "aws-ip-10-0-3-4"}
 
 
 def test_render_nodes_inventory_merges_allowed_runtimes(tmp_path: Path) -> None:
@@ -215,14 +215,14 @@ def test_render_nodes_inventory_preserves_sysbox_across_regen(tmp_path: Path) ->
     output.write_text(
         "version: 1\n"
         "nodes:\n"
-        "  - id: aws-node-host\n"
+        "  - id: aws-ip-10-0-1-2\n"
         "    sysbox: true\n"
-        "  - id: aws-node-host\n"
+        "  - id: aws-ip-10-0-3-4\n"
         "policy: {}\n",
         encoding="utf-8",
     )
     inventory = render_nodes_inventory(
-        hostnames=["node-host", "node-host"],
+        hostnames=["ip-10-0-1-2", "ip-10-0-3-4"],
         source_script=tmp_path / "job.sh",
         output_path=output,
         id_template="aws-{hostname}",
@@ -233,13 +233,13 @@ def test_render_nodes_inventory_preserves_sysbox_across_regen(tmp_path: Path) ->
         sysbox_nodes=None,  # NOT re-passed
     )
     marked = {n["id"] for n in inventory["nodes"] if n.get("sysbox")}
-    assert marked == {"aws-node-host"}
+    assert marked == {"aws-ip-10-0-1-2"}
 
 
 def test_cmd_nodes_from_slurm_writes_nodes_yaml(tmp_path: Path) -> None:
     script = tmp_path / "workers.sh"
     output = tmp_path / "generated" / "nodes.yaml"
-    script.write_text("#SBATCH --nodelist=node-host,node02\n", encoding="utf-8")
+    script.write_text("#SBATCH --nodelist=ip-10-0-7-8,node02\n", encoding="utf-8")
     out = io.StringIO()
 
     exit_code = cmd_nodes_from_slurm(
@@ -260,8 +260,8 @@ def test_cmd_nodes_from_slurm_writes_nodes_yaml(tmp_path: Path) -> None:
     assert "*id" not in body
     raw = yaml.safe_load(body)
     assert set(raw) == {"version", "nodes", "policy"}
-    assert raw["nodes"][0]["id"] == "cluster-node-host"
-    assert raw["nodes"][0]["address"] == "internal-ip"
+    assert raw["nodes"][0]["id"] == "cluster-ip-10-0-7-8"
+    assert raw["nodes"][0]["address"] == "10.0.7.8"
     assert raw["nodes"][1]["id"] == "cluster-node02"
     assert raw["nodes"][1]["address"] == "node02"
 
@@ -275,7 +275,7 @@ def test_sysbox_max_concurrent_flag_stamps_cap_on_pool_nodes(
     """--sysbox-max-concurrent stamps max_concurrent_by_runtime on Sysbox-pool
     nodes only; non-sysbox nodes are untouched (unlimited)."""
     inventory = render_nodes_inventory(
-        hostnames=["node-host", "node-host"],
+        hostnames=["ip-10-0-1-2", "ip-10-0-3-4"],
         source_script=tmp_path / "job.sh",
         output_path=tmp_path / "nodes.yaml",  # does not exist
         id_template="aws-{hostname}",
@@ -283,19 +283,19 @@ def test_sysbox_max_concurrent_flag_stamps_cap_on_pool_nodes(
         cloud="aws",
         backends=["docker"],
         auth_token_env=None,
-        sysbox_nodes={"node-host"},
+        sysbox_nodes={"ip-10-0-1-2"},
         sysbox_max_concurrent=8,
     )
     by_id = {n["id"]: n for n in inventory["nodes"]}
-    assert by_id["aws-node-host"]["max_concurrent_by_runtime"] == {
+    assert by_id["aws-ip-10-0-1-2"]["max_concurrent_by_runtime"] == {
         "sysbox-runc": 8,
     }
-    assert "max_concurrent_by_runtime" not in by_id["aws-node-host"]
+    assert "max_concurrent_by_runtime" not in by_id["aws-ip-10-0-3-4"]
 
 
 def test_sysbox_max_concurrent_omitted_leaves_no_cap(tmp_path: Path) -> None:
     inventory = render_nodes_inventory(
-        hostnames=["node-host"],
+        hostnames=["ip-10-0-1-2"],
         source_script=tmp_path / "job.sh",
         output_path=tmp_path / "nodes.yaml",
         id_template="aws-{hostname}",
@@ -303,7 +303,7 @@ def test_sysbox_max_concurrent_omitted_leaves_no_cap(tmp_path: Path) -> None:
         cloud="aws",
         backends=["docker"],
         auth_token_env=None,
-        sysbox_nodes={"node-host"},
+        sysbox_nodes={"ip-10-0-1-2"},
         # no sysbox_max_concurrent
     )
     assert "max_concurrent_by_runtime" not in inventory["nodes"][0]
@@ -318,7 +318,7 @@ def test_runtime_cap_preserved_across_regen_and_wins_over_flag(
     output.write_text(
         "version: 1\n"
         "nodes:\n"
-        "  - id: aws-node-host\n"
+        "  - id: aws-ip-10-0-1-2\n"
         "    sysbox: true\n"
         "    max_concurrent_by_runtime:\n"
         "      sysbox-runc: 12\n"      # operator override
@@ -326,7 +326,7 @@ def test_runtime_cap_preserved_across_regen_and_wins_over_flag(
         encoding="utf-8",
     )
     inventory = render_nodes_inventory(
-        hostnames=["node-host"],
+        hostnames=["ip-10-0-1-2"],
         source_script=tmp_path / "job.sh",
         output_path=output,
         id_template="aws-{hostname}",
@@ -351,7 +351,7 @@ def test_allowed_host_paths_additively_merged(tmp_path: Path) -> None:
         "version: 1\n"
         "nodes: []\n"
         "policy:\n"
-        "  allowed_host_paths: [/path/to/data]\n",
+        "  allowed_host_paths: [/fsx/shared/preexisting]\n",
         encoding="utf-8",
     )
     inventory = render_nodes_inventory(
@@ -363,11 +363,11 @@ def test_allowed_host_paths_additively_merged(tmp_path: Path) -> None:
         cloud=None,
         backends=["docker"],
         auth_token_env=None,
-        allowed_host_paths=["/path/to/data"],
+        allowed_host_paths=["/fsx/shared/evoclaw-golden"],
     )
     assert inventory["policy"]["allowed_host_paths"] == [
-        "/path/to/data",
-        "/path/to/data",
+        "/fsx/shared/preexisting",
+        "/fsx/shared/evoclaw-golden",
     ]
 
 

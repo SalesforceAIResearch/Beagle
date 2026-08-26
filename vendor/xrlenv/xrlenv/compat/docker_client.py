@@ -2346,8 +2346,9 @@ class XrlenvDockerClient(docker.DockerClient):
         A consumer driving raw containers through this drop-in (``containers.run`` /
         ``acquire_container``) that aborts a run — e.g. Ctrl-C — calls this to tear its
         containers down actively: a node-confirmed destroy frees capacity immediately instead
-        of leaving them for the ~120 s raw-liveness reaper. Idempotent (already-terminal rows
-        are reported, not re-destroyed).
+        of leaving them for the raw-liveness reaper (which destroys only at the ~900 s
+        quarantine horizon, not the 120 s TTL) or the 4 h wall-clock deadline. Idempotent
+        (already-terminal rows are reported, not re-destroyed).
 
         Cluster mode only — the ``from_env(grpc_host=...)`` factory that owns a Client + runner.
         Returns ``None`` in LocalDocker / caller-managed mode (no cluster raw-group registry to

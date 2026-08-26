@@ -90,7 +90,7 @@ def expand_slurm_nodelist(value: str) -> list[str]:
     """Expand a Slurm nodelist expression into hostnames.
 
     Supports the common comma-separated and bracketed numeric range forms, for
-    example ``node-host,node[01-03,09]``.
+    example ``ip-10-0-1-2,node[01-03,09]``.
     """
 
     nodes: list[str] = []

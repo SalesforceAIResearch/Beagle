@@ -11,7 +11,7 @@ import env_loader
 
 def test_loads_env_and_env_private(tmp_path, monkeypatch):
     (tmp_path / ".env").write_text(
-        "# comment\nexport XRLENV_GRPC_HOST=internal-ip\nXRLENV_GRPC_PORT=50051\n"
+        "# comment\nexport XRLENV_GRPC_HOST=10.0.0.9\nXRLENV_GRPC_PORT=50051\n"
     )
     (tmp_path / ".env_private").write_text('EVOCLAW_DATA_ROOT="/data/EvoClaw-data"\n')
     for k in ("XRLENV_GRPC_HOST", "XRLENV_GRPC_PORT", "EVOCLAW_DATA_ROOT"):
@@ -21,7 +21,7 @@ def test_loads_env_and_env_private(tmp_path, monkeypatch):
     assert root == tmp_path.resolve()
     import os
 
-    assert os.environ["XRLENV_GRPC_HOST"] == "internal-ip"
+    assert os.environ["XRLENV_GRPC_HOST"] == "10.0.0.9"
     assert os.environ["XRLENV_GRPC_PORT"] == "50051"
     assert os.environ["EVOCLAW_DATA_ROOT"] == "/data/EvoClaw-data"  # quotes stripped
 

@@ -192,8 +192,8 @@ def test_calibrate_writes_cluster_reported_sizes(
 
     plan_path = (
         Path(__file__).resolve().parents[3]
-        / "xrlenv_plugins" / "images_build" / "terminal_bench_2"
-        / "build_plan.yaml"
+        / "xrlenv_plugins" / "benchmarks" / "terminal_bench_2_1"
+        / "build_plan_89_full.yaml"
     )
     if not plan_path.is_file():
         pytest.skip(f"canonical tb2 plan not found at {plan_path}")

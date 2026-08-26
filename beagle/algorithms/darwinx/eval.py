@@ -58,7 +58,7 @@ def translate_config(raw: dict[str, Any]):
         rt.pop("grpc_secure", None)                       # unexpressible TLS toggle (contract #3)
     bench = d.get("benchmark")
     if isinstance(bench, dict):
-        # The algorithm's `benchmark.dataset` is its OWN dataset reference (a coding-bench relative
+        # The algorithm's `benchmark.dataset` is its OWN dataset reference (a benchmark-suite relative
         # path, e.g. "benchmarks/terminal_bench/vendor"); beagle's loaders resolve tasks
         # themselves — harbor-family from `$XRLENV_BENCHMARK_CACHE` — and `BenchmarkSpec.dataset`
         # means a task-source PATH override, a different thing. Drop it so we don't mis-glob an

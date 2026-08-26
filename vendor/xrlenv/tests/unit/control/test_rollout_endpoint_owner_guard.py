@@ -300,7 +300,7 @@ async def test_apply_egress_aborts_on_cross_owner(tmp_path: Any) -> None:
         await servicer.ApplyEgress(
             rpb.ApplyEgressRequest(
                 rollout_id=_R_BOB, container_id="c",
-                allow=[rpb.EgressAllowEntry(cidr="internal-ip/8")],
+                allow=[rpb.EgressAllowEntry(cidr="10.0.0.0/8")],
             ),
             ctx,
         )
@@ -323,7 +323,7 @@ async def test_apply_egress_passes_through_with_allowlist(tmp_path: Any) -> None
                     rpb.EgressAllowEntry(cidr="3.149.157.52/32", ports=[443]),
                     rpb.EgressAllowEntry(cidr="18.225.81.238/32"),
                 ],
-                dns_resolver="internal-ip/32",
+                dns_resolver="10.0.0.2/32",
             ),
             ctx,
         )
@@ -333,7 +333,7 @@ async def test_apply_egress_passes_through_with_allowlist(tmp_path: Any) -> None
     assert [(r.cidr, r.ports) for r in al.rules] == [
         ("3.149.157.52/32", (443,)), ("18.225.81.238/32", None),
     ]
-    assert kw["dns_resolver"] == "internal-ip/32"
+    assert kw["dns_resolver"] == "10.0.0.2/32"
 
 
 @pytest.mark.asyncio

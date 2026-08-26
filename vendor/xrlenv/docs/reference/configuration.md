@@ -56,9 +56,10 @@ Controls per-node limits for container lifecycle operations.
 | `XRLENV_RAW_CREATE_CONCURRENCY` | `4` | Concurrent container-create operations per node | node |
 | `XRLENV_RAW_SYSBOX_CREATE_CONCURRENCY` | `1` | Concurrent create operations for **sysbox** (non-`runc`) containers per node — a tighter, separate cap because sysbox-fs pre-register is much slower than a plain runc create. `0` falls back to `XRLENV_RAW_CREATE_CONCURRENCY`. | node |
 | `XRLENV_RAW_DESTROY_CONCURRENCY` | `4` | Concurrent container-destroy operations per node | node |
-| `XRLENV_RAW_LIVENESS_TTL_S` | `120` | Seconds before a raw session whose consumer stopped heartbeating is declared dead and reaped | control-plane |
-| `XRLENV_RAW_LIVENESS_REAP_BATCH` | `50` | Maximum sessions destroyed per GC sweep | control-plane |
-| `XRLENV_RAW_HEARTBEAT_INTERVAL_S` | `30` | How often the SDK sends a keepalive heartbeat for open raw sessions | consumer |
+| `XRLENV_RAW_LIVENESS_TTL_S` | `120` | Seconds before a raw session whose consumer stopped heartbeating is marked `suspect` (warning + metric only — no teardown). Setting it to `7200` or more pushes the synthesized `2 x TTL` quarantine to or past the 4 h default `session_deadline_s`, which silently disables liveness reaping — see the row below | control-plane |
+| `XRLENV_RAW_LIVENESS_QUARANTINE_S` | `900` | Seconds of continued silence before a suspect session is actually destroyed. Must be **strictly greater** than the TTL — both phases read one clock, so a value at or below it (including `0` or a negative) would destroy on the very sweep that marks a session `suspect`. Such a value is not honoured and is **not** clamped to the TTL: the control plane logs a WARNING and uses `2 x TTL` instead (240 s at the default TTL). Conversely, a horizon at or **beyond** the default `session_deadline_s` (4 h) is unreachable — the deadline sweep runs first in the same GC pass and always destroys first — so the liveness reaper is effectively disabled. That case is only WARNED about, not clamped, because `session_deadline_s` is overridable per acquire | control-plane |
+| `XRLENV_RAW_LIVENESS_REAP_BATCH` | `50` | Maximum liveness (quarantine-expiry) destroys per GC sweep; the remainder reap on the next sweep. Does not cap the `suspect`-marking pass or the wall-clock-deadline sweep | control-plane |
+| `XRLENV_RAW_HEARTBEAT_INTERVAL_S` | `30` | How often the SDK sends a keepalive heartbeat for open raw sessions. `0` disables the keepalive. Validated: a value that is not a usable cadence — unparseable, negative, non-finite (`nan`, `inf`, or a literal that overflows such as `1e400`), or `>= 86400` — falls back to `30` with a WARNING, because such a value beats once at registration and never again, which looks healthy while the control plane hears nothing. A cadence at or above the control plane's default liveness TTL (120 s) is accepted but warned about: it cannot keep an idle session alive unless the server's TTL was raised to match | consumer |
 | `XRLENV_EXEC_CHUNK_TIMEOUT_S` | `3600` | Output-idle ceiling for a **streaming** `exec`: how long the control plane waits for the next stdout/stderr chunk before aborting the stream. The effective wait is `min(this, remaining exec budget)`, so the large default defers to the per-exec `timeout_s` (`timeout_s + 30` whole-stream cap) — a legitimately silent test/compile phase in a benchmark verifier is not killed at a tight idle window and spuriously retried. A dead node is still caught by the heartbeat / stream-disconnect path, not this ceiling. Must be `> 0` (a non-numeric or non-positive value falls back to the default). | control-plane |
 | `XRLENV_DISK_GUARD_ENABLED` | `true` | Enable node-side disk-pressure guard | node |
 | `XRLENV_DISK_GUARD_INTERVAL_S` | `15` | Seconds between disk-pressure checks | node |
@@ -133,9 +134,9 @@ for the private-registry setup.
 | `XRLENV_REGISTRY_SCHEME` | `http` | HTTP scheme used to probe the private registry for manifest digests (`http` or `https`) | control-plane |
 | `XRLENV_REGISTRY_RESOLVE_TTL_S` | `60.0` | Seconds a resolved digest is considered fresh before re-probing | control-plane |
 | `XRLENV_REGISTRY_RESOLVE_MAX_STALE_S` | `900.0` | Seconds a stale cached digest may be served during a transient registry outage | control-plane |
-| `XRLENV_REGISTRY_RESOLVE_HOST_MAP` | — | Comma-separated `src=dst` host remappings applied when the CP probes the registry (e.g. `node-host:5011=127.0.0.1:5011`) | control-plane |
+| `XRLENV_REGISTRY_RESOLVE_HOST_MAP` | — | Comma-separated `src=dst` host remappings applied when the CP probes the registry (e.g. `<registry-host>:5011=127.0.0.1:5011`) | control-plane |
 | `XRLENV_REGISTRY_MIRROR` | — | Docker pull-through mirror address forwarded to nodes in the node-config payload | control-plane |
-| `XRLENV_PRIVATE_REGISTRY` | — | Address of the private registry forwarded to nodes (e.g. `node-host:5011`) | control-plane |
+| `XRLENV_PRIVATE_REGISTRY` | — | Address of the private registry forwarded to nodes (e.g. `<registry-host>:5011`) | control-plane |
 | `XRLENV_PRIVATE_REGISTRY_HOST` | — | Hostname of the private registry; used by benchmark plugins to construct image refs | benchmark-plugin |
 | `XRLENV_PRIVATE_REGISTRY_PORT` | `5011` | Port of the private registry | benchmark-plugin |
 
@@ -181,14 +182,12 @@ terminal-bench-style benchmark scripts.
 
 **`XRLENV_BENCHMARK_CACHE` default, by context.** The golden-path benchmark sweep wrappers
 (`xrlenv_plugins/benchmarks/*/run_full_sweep.sh`) treat it as a deployment constant: when unset
-they fall back to the shared FSx root `/path/to/benchmark-cache`. The
-**phase-0 `terminal-bench-2` onboarding example** is a self-contained demo and instead defaults
-to `~/.cache/harbor/tasks` (where its `scripts/populate-harbor-cache.sh` clones the catalog) —
-this applies to that example's `smoke.py`, its populate script, and
-`xrlenv_plugins/images_build/terminal_bench_2/build_plan_gen.py`. Either way the retired
+they fall back to the shared FSx root `/path/to/xrlenv_benchmark_cache`. The
+per-benchmark build-plan generators (`xrlenv_plugins/benchmarks/*/build_plan_gen.py`) instead
+default to `~/.cache/harbor/tasks` when it is unset. Either way the retired
 `XRLENV_HARBOR_CACHE` variable and the `.../xrlenv_harbor_cache` path are **hard-rejected**
 (fail loud with a migration hint), and `build_plan_gen --all` fails loud rather than silently
-emitting the 8-task smoke plan when its cache is absent.
+emitting a partial plan when its cache is absent.
 
 **Harbor image resolution** is not controlled by an environment variable. The adapter resolves the container image in this order: (1) the `xrlenv_image_template` per-run kwarg (injected by sweep drivers such as `seta/run_oracle_sweep.py` and `terminalworld/run_oracle_sweep.py` via `EnvironmentConfig(kwargs={"xrlenv_image_template": ...})`), (2) the per-task `docker_image` field in the task's `task.toml` (e.g. set by `build_cache.py --stage repin` for benchmarks like LHTB), (3) the `hb__<environment_name>` local-build convention. Sweep drivers compose the template from `--registry` / `$XRLENV_PRIVATE_REGISTRY_HOST`; operators set those, not the template itself.
 
@@ -211,7 +210,7 @@ trample its cores. A node must be explicitly opted in; see
 
 | Variable / knob | Default | What it controls | Scope |
 |---|---|---|---|
-| `CPU_ISOLATION_POOL` | `()` (empty) | **Deploy-script array** in `slurm_scripts/deploy_dev.sh` / `deploy_prod.sh`. Lists node hostnames to enable via `scripts/enable_cpu_isolation.sh` during each deploy (idempotent). An empty array = all nodes non-capable; the committed deploy scripts populate their own pools (consult each file for the current set — both dev and prod currently list isolation-enabled nodes). On prod, enabling a node restarts docker (maintenance window). Do not overlap with `SYSBOX_POOL`. | bootstrap |
+| `CPU_ISOLATION_POOL` | `()` (empty) | **Deploy-script array** in `slurm_scripts/generated/deploy_dev.sh` / `deploy_prod.sh`. Lists node hostnames to enable via `deploy/node/enable_cpu_isolation.sh` during each deploy (idempotent). An empty array = all nodes non-capable; the committed deploy scripts populate their own pools (consult each file for the current set — both dev and prod currently list isolation-enabled nodes). On prod, enabling a node restarts docker (maintenance window). Do not overlap with `SYSBOX_POOL`. | bootstrap |
 | `XRLENV_SELFTEST_IMAGE` | `xrlenv-selftest:1` | Probe image tag used by the **enable-time** container self-test in `enable_cpu_isolation.sh` (run as root), which gates whether the node sets up the delegated `xrlenv-shared` cgroup. Persisted in `/etc/xrlenv/cpu_isolation.env` (a separate optional `EnvironmentFile` that survives `node.env` rewrites). The non-root agent detects capability from the delegated cgroup (§8.13), not from this image directly — but a node whose probe cannot run (image absent) never gets delegation and so stays non-capable. | node |
 | `min_shared_cores` | 25% of logical CPUs | **Internal floor (not operator-configurable via `nodes.yaml`).** The minimum number of logical CPUs kept in the shared pool; pinning that would drop below it is refused (`best_effort` degrades to CFS quota; `required` fails placement/pin). Currently a fixed default derived at node wiring, not a `nodes.yaml` field. | node |
 

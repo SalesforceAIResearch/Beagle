@@ -18,7 +18,7 @@ pullable). The optional pull-through-mirror (Path 2) rewrites the ref host to an
 ECR-upstream proxy — see the plan §3b; not this generator's concern.
 
 **Sizes: probe OFF by default.** The shared size probe
-(``images_build/_dockerhub_probe``) targets **Docker Hub**, not public ECR, so it
+(``benchmarks/_dockerhub_probe``) targets **Docker Hub**, not public ECR, so it
 can't size these refs. We default to a conservative hint and refine to true on-disk
 ``cluster-reported`` sizes via ``xrlenv build calibrate`` after the first warm.
 ``--probe`` opts into the (best-effort, likely-miss) Docker Hub probe anyway.
@@ -135,7 +135,7 @@ def generate_plan(
     if probe_sizes:
         # Best-effort Docker Hub probe (will miss for public.ecr.aws refs; falls to
         # the default hint). Imported lazily so the generator stays import-light.
-        from xrlenv_plugins.images_build._dockerhub_probe import (
+        from xrlenv_plugins.benchmarks._dockerhub_probe import (
             announce_auth_status,
             print_probe_summary,
             probe_image_size,

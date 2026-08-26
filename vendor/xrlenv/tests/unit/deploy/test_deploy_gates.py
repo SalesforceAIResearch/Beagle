@@ -1,4 +1,4 @@
-"""Fail-closed behavior of the shared deploy gates (slurm_scripts/_deploy_gates.sh).
+"""Fail-closed behavior of the shared deploy gates (slurm_scripts/lib/_deploy_gates.sh).
 
 Runs the REAL bash gate functions with STUBBED squeue/scontrol/ssh/xrlenv/sleep
 on PATH, so the audit's deploy failure paths (empty host expansion,
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-GATES = Path(__file__).resolve().parents[3] / "slurm_scripts" / "_deploy_gates.sh"
+GATES = Path(__file__).resolve().parents[3] / "slurm_scripts" / "lib" / "_deploy_gates.sh"
 _SLURM = Path(__file__).resolve().parents[3] / "slurm_scripts"
 
 
@@ -208,6 +208,153 @@ def test_verify_fleet_empty_hosts_force_skips_without_false_success(tmp_path: Pa
 # so nothing touches a live cluster.
 
 
+# ── deploy_check_topology ─────────────────────────────────────────────────────
+#
+# The pre-deploy topology gate: clusters.yaml is authoritative, so the checkout's
+# .env + generated scripts must match it (proved by the generator's --check). The
+# generator command is passed as args so tests inject a stub instead of running
+# the real generator.
+
+
+def test_check_topology_in_sync_ok(tmp_path: Path) -> None:
+    r = _run_gate(tmp_path, {"gen": "exit 0"}, "deploy_check_topology dev gen")
+    assert r.returncode == 0
+    assert "in sync with clusters.yaml" in r.stdout
+
+
+def test_check_topology_drift_is_fatal(tmp_path: Path) -> None:
+    # generator --check exits nonzero → .env/scripts drifted → fail closed.
+    r = _run_gate(tmp_path, {"gen": "exit 1"}, "deploy_check_topology dev gen")
+    assert r.returncode == 1
+    assert "drifted from clusters.yaml" in r.stderr
+
+
+def test_check_topology_drift_force_overrides(tmp_path: Path) -> None:
+    r = _run_gate(tmp_path, {"gen": "exit 1"},
+                  "deploy_check_topology dev gen", force=True)
+    assert r.returncode == 0
+    assert "XRLENV_DEPLOY_FORCE=1" in r.stderr
+
+
+def test_check_topology_skip_flag_bypasses_even_drift(tmp_path: Path) -> None:
+    r = _run_gate(
+        tmp_path, {"gen": "exit 1"},
+        "export XRLENV_DEPLOY_SKIP_ENV_CHECK=1\ndeploy_check_topology dev gen",
+    )
+    assert r.returncode == 0
+    assert "skipping" in r.stdout
+
+
+def test_check_topology_skip_wins_over_force(tmp_path: Path) -> None:
+    # When BOTH XRLENV_DEPLOY_SKIP_ENV_CHECK=1 AND XRLENV_DEPLOY_FORCE=1 are
+    # set with a drifted generator (exit 1), SKIP must win: the function
+    # returns before consulting FORCE, so the output must be the "skipping"
+    # message, NOT the force-warn. This rules out an implementation that
+    # checked FORCE before SKIP and accidentally applied force semantics.
+    r = _run_gate(
+        tmp_path, {"gen": "exit 1"},
+        "export XRLENV_DEPLOY_SKIP_ENV_CHECK=1\ndeploy_check_topology dev gen",
+        force=True,
+    )
+    assert r.returncode == 0
+    assert "skipping" in r.stdout
+    assert "XRLENV_DEPLOY_FORCE" not in r.stderr, (
+        "SKIP=1 must short-circuit before FORCE is consulted — "
+        "force-warn output must NOT appear when SKIP is set"
+    )
+
+
+def test_check_topology_passes_cluster_flags_to_generator(tmp_path: Path) -> None:
+    # The gate must invoke the generator with --cluster/--env-cluster <c> --check.
+    r = _run_gate(tmp_path, {"gen": 'echo "$@"; exit 0'},
+                  "deploy_check_topology prod gen")
+    assert r.returncode == 0
+    assert "--cluster prod --env-cluster prod --check" in r.stdout
+
+
+# ── deploy_check_registry_storage ─────────────────────────────────────────────
+#
+# Registry-launching clusters (deploy_registry: true) must set the registry
+# blob-store paths in .env — they have NO default (the /fsx assumption isn't
+# portable). The gate fails closed on any missing key BEFORE jobs restart.
+
+
+def _write_env(tmp_path: Path, body: str) -> Path:
+    p = tmp_path / "envfile"
+    p.write_text(body)
+    return p
+
+
+def test_check_registry_storage_all_present_ok(tmp_path: Path) -> None:
+    env = _write_env(
+        tmp_path,
+        "XRLENV_MIRROR_REGISTRY_STORAGE=/x/m\n"
+        "XRLENV_PRIVATE_REGISTRY_STORAGE=/x/p\n"
+        "XRLENV_SCRATCH_REGISTRY_STORAGE=/x/s\n",
+    )
+    r = _run_gate(
+        tmp_path, {},
+        f"deploy_check_registry_storage {env} XRLENV_MIRROR_REGISTRY_STORAGE "
+        "XRLENV_PRIVATE_REGISTRY_STORAGE XRLENV_SCRATCH_REGISTRY_STORAGE",
+    )
+    assert r.returncode == 0
+
+
+def test_check_registry_storage_missing_is_fatal(tmp_path: Path) -> None:
+    env = _write_env(
+        tmp_path,
+        "XRLENV_MIRROR_REGISTRY_STORAGE=/x/m\n"
+        "XRLENV_PRIVATE_REGISTRY_STORAGE=/x/p\n",  # scratch missing
+    )
+    r = _run_gate(
+        tmp_path, {},
+        f"deploy_check_registry_storage {env} XRLENV_MIRROR_REGISTRY_STORAGE "
+        "XRLENV_PRIVATE_REGISTRY_STORAGE XRLENV_SCRATCH_REGISTRY_STORAGE",
+    )
+    assert r.returncode == 1
+    assert "XRLENV_SCRATCH_REGISTRY_STORAGE is not set" in r.stderr
+
+
+def test_check_registry_storage_empty_value_counts_as_missing(tmp_path: Path) -> None:
+    env = _write_env(tmp_path, "XRLENV_PRIVATE_REGISTRY_STORAGE=\n")  # empty value
+    r = _run_gate(tmp_path, {},
+                  f"deploy_check_registry_storage {env} XRLENV_PRIVATE_REGISTRY_STORAGE")
+    assert r.returncode == 1
+
+
+def test_check_registry_storage_alias_satisfies_spec(tmp_path: Path) -> None:
+    # The mirror accepts the deprecated XRLENV_REGISTRY_STORAGE alias via KEY|ALIAS.
+    env = _write_env(tmp_path, "XRLENV_REGISTRY_STORAGE=/x/legacy\n")
+    r = _run_gate(
+        tmp_path, {},
+        f'deploy_check_registry_storage {env} '
+        '"XRLENV_MIRROR_REGISTRY_STORAGE|XRLENV_REGISTRY_STORAGE"',
+    )
+    assert r.returncode == 0
+
+
+def test_check_registry_storage_force_overrides(tmp_path: Path) -> None:
+    env = _write_env(tmp_path, "# nothing\n")
+    r = _run_gate(tmp_path, {},
+                  f"deploy_check_registry_storage {env} XRLENV_PRIVATE_REGISTRY_STORAGE",
+                  force=True)
+    assert r.returncode == 0
+    assert "XRLENV_DEPLOY_FORCE=1" in r.stderr
+
+
+def test_check_registry_storage_skip_flag_bypasses(tmp_path: Path) -> None:
+    # Same skip as the topology gate — the full deploy-script node-gate test
+    # relies on it to get past both .env pre-flight checks.
+    env = _write_env(tmp_path, "# nothing\n")
+    r = _run_gate(
+        tmp_path, {},
+        "export XRLENV_DEPLOY_SKIP_ENV_CHECK=1\n"
+        f"deploy_check_registry_storage {env} XRLENV_PRIVATE_REGISTRY_STORAGE",
+    )
+    assert r.returncode == 0
+    assert "skipping" in r.stdout
+
+
 @pytest.mark.parametrize("script", ["deploy_prod.sh", "deploy_dev.sh"])
 def test_full_deploy_script_aborts_before_cp_restart_on_node_gate_failure(
     tmp_path: Path, script: str,
@@ -230,9 +377,15 @@ def test_full_deploy_script_aborts_before_cp_restart_on_node_gate_failure(
     env = dict(os.environ)
     env["PATH"] = f"{bindir}:{env['PATH']}"
     env.pop("XRLENV_DEPLOY_FORCE", None)  # FORCE would defeat the fail-closed gate
+    # Skip the .env↔clusters.yaml topology gate — it runs the real generator
+    # against the real checkout's .env, which this test doesn't control; this
+    # test targets the NODE gate specifically. (deploy_check_topology has its own
+    # unit tests below.) Skipping it is independent of FORCE, so the node gate
+    # still fails closed.
+    env["XRLENV_DEPLOY_SKIP_ENV_CHECK"] = "1"
 
     r = subprocess.run(
-        ["bash", str(_SLURM / script)],
+        ["bash", str(_SLURM / "generated" / script)],
         capture_output=True, text=True, env=env,
     )
     combined = r.stdout + r.stderr

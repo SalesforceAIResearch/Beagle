@@ -72,20 +72,31 @@ The toolkit lives in `xrlenv_plugins/sysbox/`:
 | `deploy_sysbox_pool.sh` | Reads `nodes.yaml`, runs `install_sysbox_node.sh` on every node marked `sysbox: true`. |
 
 The built binaries live **out of the git tree** on shared storage —
-`SYSBOX_VENDOR_ROOT/<commit>/` (default `/path/to/sysbox-vendor`).
-A ~40 MB unofficial build does not belong in-tree, and duplicating it across the
-dev and prod repos would invite drift; one canonical copy on shared `/shared-fs` serves
-both.
+`SYSBOX_VENDOR_ROOT/<commit>/`. A ~40 MB unofficial build does not belong
+in-tree, and duplicating it across the repos on a cluster would invite drift; one
+canonical copy on shared storage serves them all.
+
+`SYSBOX_VENDOR_ROOT` is **cluster-specific**, because the shared filesystem is
+laid out differently per cluster, so `pin.env` does not hard-code it: set
+`XRLENV_SYSBOX_VENDOR_DIR` (in `.env`) to this cluster's shared-storage vendor
+root and `pin.env` uses it verbatim. There is **no default** — an unset value
+fails loud with the exact variable to set. Point it at a path visible from both
+the login node and the pool nodes — e.g. a shared `/fsx` mount.
+
+Because that storage is per-cluster, **each cluster needs its own build** — a new
+cluster starts empty and `install_sysbox_node.sh` fails with `no SHA256SUMS in
+<dir>; run build_sysbox.sh first` until the build has been run there once.
 
 ### The `XRLENV_SYSBOX_VENDOR_DIR` variable
 
-`XRLENV_SYSBOX_VENDOR_DIR` overrides where the toolkit reads/writes the vendored
-binaries. It is a **build-tooling knob, not a runtime setting** — nothing in the
-running `xrlenv` control plane or node agent reads it.
+`XRLENV_SYSBOX_VENDOR_DIR` sets where the toolkit reads/writes the vendored
+binaries (required — there is no default). It is a **build-tooling knob, not a
+runtime setting** — nothing in the running `xrlenv` control plane or node agent
+reads it.
 
 | Role | Sets it? |
 |---|---|
-| **Sysbox-pool operator** (runs build/install/deploy) | Only to point at storage other than the default `/shared-fs` path; it has a default, so it is *not required* on this cluster. |
+| **Sysbox-pool operator** (runs build/install/deploy) | **Yes — always.** No default; point it at this cluster's shared-storage vendor root or the toolkit fails loud. |
 | Operator of a non-sysbox cluster | No — never runs the toolkit. |
 | **Consumer** (calls `acquire_container(container_runtime="sysbox-runc")`) | **Never** — consumers select the runtime by name and never see the binaries or this variable. |
 
@@ -117,8 +128,8 @@ first run; subsequent runs use the Docker layer cache.
 bash xrlenv_plugins/sysbox/build_sysbox.sh
 ```
 
-Output lands on shared storage at `SYSBOX_VENDOR_ROOT/<commit>/` (default
-`/path/to/sysbox-vendor/<commit>/`):
+Output lands on shared storage at `SYSBOX_VENDOR_ROOT/<commit>/` (resolved as
+above — e.g. `$XRLENV_SYSBOX_VENDOR_DIR/<commit>/`):
 
 ```
 sysbox-runc
@@ -139,12 +150,12 @@ Two independent knobs are required:
 ```yaml
 version: 1
 nodes:
-  - id: aws-node-host
-    address: internal-ip
+  - id: aws-sysbox-1
+    address: <sysbox-node-host>
     backends: [docker]
     sysbox: true          # (1) pool membership — install + advertise this runtime
-  - id: aws-node-host
-    address: internal-ip
+  - id: aws-worker-1
+    address: <worker-node-host>
     backends: [docker]
     # no sysbox: stays a normal Docker node
 

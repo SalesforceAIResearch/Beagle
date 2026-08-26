@@ -67,9 +67,8 @@ flag is passed)::
 
 Pre-req: harbor task suite cached at
 ``$HARBOR_TASKS_DIR`` (default ``~/.cache/harbor/tasks/``). The
-8-task reference set (``SMOKE_8``) is the phase-0 acceptance set
-defined verbatim in
-``examples/benchmarks-onboarding/terminal-bench-2/smoke.py::SMOKE_TASKS``.
+8-task reference set (``SMOKE_8``) is the phase-0 acceptance set —
+the 8 tasks that seal a fast green/red infrastructure signal.
 
 Excluded from the default ``pytest -q`` suite via
 ``--ignore=tests/smoke``. Skipped automatically when no Docker
@@ -99,8 +98,8 @@ from pathlib import Path
 
 import pytest
 
-# 8-task phase-0 acceptance set, mirrored from
-# ``examples/benchmarks-onboarding/terminal-bench-2/smoke.py::SMOKE_TASKS``.
+# 8-task phase-0 acceptance set — the canonical fast-signal task list
+# for the terminal-bench-2 drop-in smoke.
 # Operators can pass this whole set to ``--task-ids`` for a longer
 # batch run; the default is one small task for fast infrastructure
 # validation.

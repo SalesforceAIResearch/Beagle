@@ -37,7 +37,7 @@ complete source (we need both for the verifier + the oracle sweep).
 
 Images: most tasks pull a prebuilt docker.io image (``build_plan_gen.py --all`` warm
 plan). The :data:`REBUILD_TASKS` are built by us instead — ``build_plan_gen.py --all``
-→ ``scripts/build_and_push_images.py`` → this script's ``--stage repin``. This script
+→ ``deploy/registry/build_and_push_images.py`` → this script's ``--stage repin``. This script
 populates the *task-dir* cache and (in ``patch``) fixes the build context of the
 rebuild tasks.
 
@@ -697,7 +697,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--registry",
         default=os.environ.get("XRLENV_PRIVATE_REGISTRY_HOST"),
         help="Private registry host[:port] to repin the REBUILD tasks at (used by "
-        "`--stage all` and `--stage repin`), e.g. node-host:5011. Defaults to "
+        "`--stage all` and `--stage repin`), e.g. <registry-host>:5011. Defaults to "
         "$XRLENV_PRIVATE_REGISTRY_HOST (a bare host gets :5011 appended).",
     )
     p.add_argument(

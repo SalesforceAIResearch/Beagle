@@ -98,6 +98,11 @@ _INFRA_RETRY_EXCEPTIONS = frozenset({
     "ControlPlaneLost",
     "NodeLost",
     "NodeCommandTimeout",
+    # The control plane destroyed the session out from under us — a stalled
+    # consumer past the quarantine horizon, a lost node, a deadline. The
+    # rollout's work never failed; the platform reclaimed it, so a fresh
+    # acquire is the correct response, not a content result.
+    "SessionReaped",
 })
 
 

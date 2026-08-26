@@ -317,6 +317,7 @@ def build_local_runtime(
     scheduler = Scheduler([node], catalog=catalog, state=state)
     metrics_registry = metrics or MetricsRegistry()
     admission = AdmissionQueue(scheduler=scheduler, state=state, metrics=metrics_registry)
+    from xrlenv.control.scratch_build import scratch_registry_host_from_env
     coordinator = RolloutCoordinator(
         catalog=catalog,
         scheduler=scheduler,
@@ -324,6 +325,7 @@ def build_local_runtime(
         trajectory_sink=sink,
         admission=admission,
         metrics=metrics_registry,
+        scratch_registry_host=scratch_registry_host_from_env(),
     )
     # Crash-recovery sweep: any rollout left in a transient state by
     # a previous process (or by ``_terminate`` hitting one of the
@@ -334,6 +336,7 @@ def build_local_runtime(
     coordinator.sweep_stuck_transients()
     raw_container_coordinator = RawContainerCoordinator(
         scheduler=scheduler, state=state,
+        metrics=metrics_registry,
         # Freshness model: resolve registry tag -> content digest per
         # acquire (kill-switch XRLENV_REGISTRY_DIGEST_RESOLVE=0).
         digest_resolver=resolver_from_env(),
@@ -403,6 +406,21 @@ def build_local_runtime(
             skip_if_present=skip_if_present,
         )
 
+    async def _local_build_push(
+        node_id: str, image_ref: str, source: Any,
+        timeout_s: float, labels: dict[str, str],
+    ) -> tuple[str, str | None, str | None]:
+        # ``xrlenv build push`` on the local node: build AND push image_ref to
+        # the registry it encodes, returning the pushed digest.
+        result = await _local_source_builder.build_and_push(
+            image_ref=image_ref, source=source,
+            timeout_s=timeout_s, labels=labels,
+            check_registry_first=True,
+        )
+        if result.status == "ok":
+            return ("ok", None, result.repo_digest)
+        return ("failed", result.error, None)
+
     build_coordinator = BuildCoordinator(
         catalog=catalog,
         state=state,
@@ -410,6 +428,7 @@ def build_local_runtime(
         budget_provider=_LocalNodeBudgetProvider(node=node),
         ensure_present_fn=_local_ensure_present,
         build_image_fn=_local_build_image,
+        build_push_fn=_local_build_push,
     )
 
     return LocalRuntime(

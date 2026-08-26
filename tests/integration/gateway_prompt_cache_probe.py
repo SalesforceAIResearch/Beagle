@@ -24,7 +24,7 @@ METHOD NOTES — this version fixes an earlier flawed probe (see the audit):
   * One persistent connection (relay backend affinity), fresh nonce per variant (cold).
 
 Run:
-  cd /fsx/home/yutong/Github/beagle
+  cd /path/to/beagle
   .venv/bin/python tests/integration/gateway_prompt_cache_probe.py
 Reads LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL + LLM_GATEWAY_EXPRESS_API_KEY_LIST from beagle/.env.
 Hits the live gateway (spends a little). Not a pytest test (no test_ prefix) — a manual live probe.

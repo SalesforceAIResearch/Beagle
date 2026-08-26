@@ -160,8 +160,8 @@ def test_cmd_nodes_text_output(state_db: Path, tmp_path: Path) -> None:
         yaml.safe_dump(
             {
                 "nodes": [
-                    {"id": "node-A", "cloud": "gcp", "expected_address": "internal-ip"},
-                    {"id": "node-C", "cloud": "aws", "expected_address": "internal-ip"},
+                    {"id": "node-A", "cloud": "gcp", "expected_address": "10.0.0.1"},
+                    {"id": "node-C", "cloud": "aws", "expected_address": "10.0.0.5"},
                 ]
             }
         )
@@ -279,12 +279,12 @@ def test_cmd_nodes_accepts_both_address_and_expected_address(
         yaml.safe_dump(
             {
                 "nodes": [
-                    {"id": "node-legacy", "address": "internal-ip"},
-                    {"id": "node-spec",   "expected_address": "internal-ip"},
+                    {"id": "node-legacy", "address": "10.0.0.1"},
+                    {"id": "node-spec",   "expected_address": "10.0.0.2"},
                     # Both set: spec key wins (forward-compat).
                     {"id": "node-both",
-                     "address": "internal-ip-OLD",
-                     "expected_address": "internal-ip"},
+                     "address": "10.0.0.3-OLD",
+                     "expected_address": "10.0.0.3"},
                 ]
             }
         )
@@ -298,9 +298,9 @@ def test_cmd_nodes_accepts_both_address_and_expected_address(
     assert rc == 0
     payload = json.loads(out.getvalue())
     by_id = {n["id"]: n for n in payload}
-    assert by_id["node-legacy"]["expected_address"] == "internal-ip"
-    assert by_id["node-spec"]["expected_address"] == "internal-ip"
-    assert by_id["node-both"]["expected_address"] == "internal-ip"
+    assert by_id["node-legacy"]["expected_address"] == "10.0.0.1"
+    assert by_id["node-spec"]["expected_address"] == "10.0.0.2"
+    assert by_id["node-both"]["expected_address"] == "10.0.0.3"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -441,7 +441,7 @@ def test_cmd_events_filters_by_since(state_db: Path) -> None:
 
 def test_cmd_audit_emits_all_rows_by_default(state_db: Path) -> None:
     store = SqliteStateStore(state_db)
-    store.append_audit("auth.token_used", role="node", method="/x.NodeControl/Stream", source="internal-ip")
+    store.append_audit("auth.token_used", role="node", method="/x.NodeControl/Stream", source="10.0.0.1")
     store.append_audit("auth.denied", role=None, method="/x.NodeControl/Stream", result="denied")
     store.close()
 

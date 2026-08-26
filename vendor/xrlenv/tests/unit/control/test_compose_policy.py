@@ -154,9 +154,9 @@ def test_long_form_bind_rejected_named_volume_clean() -> None:
 
 
 def test_allowed_host_path_bind_passes() -> None:
-    policy = KwargsPolicy(allowed_host_paths=("/path/to/data",))
+    policy = KwargsPolicy(allowed_host_paths=("/fsx/data",))
     vet_compose_project(
-        {"services": {"m": {"volumes": ["/path/to/data:/x"]}}}, policy=policy,
+        {"services": {"m": {"volumes": ["/fsx/data/x:/x"]}}}, policy=policy,
     )
 
 
@@ -186,7 +186,7 @@ def test_all_service_violations_collected() -> None:
 # the shared FSx cache isn't mounted.
 
 _CACHE = Path(
-    os.environ.get("XRLENV_BENCHMARK_CACHE", "/path/to/benchmark-cache"),
+    os.environ.get("XRLENV_BENCHMARK_CACHE", "/path/to/xrlenv_benchmark_cache"),
 ) / "terminalworld-verified"
 
 # The 6 tasks this feature unblocks — all vet clean under the default policy

@@ -3,8 +3,8 @@
 Five tests against a real Docker daemon (or a remote control plane
 when ``XRLENV_GRPC_HOST`` / ``XRLENV_ADMIN_HOST`` is set):
 
-1. Apply the committed phase-0 plan (8 entries from
-   ``alexgshaw/<task>:20251031`` on Docker Hub).
+1. Apply a generated phase-0 plan (8 SMOKE_TASKS; each entry's
+   ref read from the populated shard's ``task.toml``).
 2. Idempotent re-apply — ``no_op_already_completed`` short-circuit.
 3. ``--force`` re-apply — re-dispatches all 8 entries.
 4. Calibration: hint vs measured uncompressed size, with a soft
@@ -29,7 +29,7 @@ script mode (local only)::
 script mode (remote — requires $XRLENV_GRPC_HOST or
 $XRLENV_ADMIN_HOST + $XRLENV_OPERATOR_TOKEN)::
 
-    XRLENV_GRPC_HOST=internal-ip \\
+    XRLENV_GRPC_HOST=10.0.0.10 \\
     XRLENV_OPERATOR_TOKEN=$(cat ~/.xrlenv/secrets/operator.token) \\
     .venv/bin/python tests/smoke/test_build_plan_dispatch_tb2.py --mode remote
 
@@ -43,7 +43,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from xrlenv.control.build_plan import BuildPlan, load_build_plan
+from xrlenv.control.build_plan import BuildPlan
 
 from tests.smoke._build_plan_dispatch_helpers import (
     ApplyResult,
@@ -60,12 +60,6 @@ from tests.smoke._build_plan_dispatch_helpers import (
     write_summary,
 )
 
-CANONICAL_PLAN_PATH = (
-    # this file lives at tests/smoke/build_plan/<file>.py;
-    # project root is 4 parents up.
-    Path(__file__).resolve().parents[3]
-    / "xrlenv_plugins" / "images_build" / "terminal_bench_2" / "build_plan.yaml"
-)
 SMOKE_TASKS = (
     "fix-git", "build-pov-ray", "overfull-hbox", "cobol-modernization",
     "prove-plus-comm", "constraints-scheduling", "nginx-request-logging",
@@ -89,8 +83,28 @@ def mode(request: pytest.FixtureRequest) -> str:
 
 @pytest.fixture(scope="module")
 def canonical_plan() -> BuildPlan:
-    """The committed tb2 phase-0 build plan (8 smoke entries)."""
-    plan = load_build_plan(CANONICAL_PLAN_PATH)
+    """A terminal-bench-2-1 phase-0 build plan (8 SMOKE_TASKS),
+    generated from the populated shard's authoritative per-task
+    ``docker_image`` refs. Uses registry-probe sizes so the
+    calibration test's hint-vs-actual band stays meaningful. Skips
+    if the shard isn't populated with all 8 smoke tasks."""
+    from xrlenv_plugins.benchmarks.terminal_bench_2_1.build_plan_gen import (
+        _discover_all_tasks,
+        _shard_dir,
+        generate_plan,
+    )
+
+    shard = _shard_dir()
+    present = set(_discover_all_tasks(shard))
+    missing = [t for t in SMOKE_TASKS if t not in present]
+    if missing:
+        pytest.skip(
+            f"terminal-bench-2-1 shard at {shard} missing smoke task(s) "
+            f"{missing!r}; populate it (build_cache.py --stage populate) "
+            "or set $XRLENV_BENCHMARK_CACHE.",
+        )
+    plan_dict = generate_plan(list(SMOKE_TASKS), shard_dir=shard)
+    plan = BuildPlan.model_validate(plan_dict)
     assert plan.is_per_image_ref(), "tb2 canonical plan must be entries-shaped"
     assert len(plan.entries) == 8
     return plan
@@ -343,9 +357,8 @@ def test_calibration_hint_vs_actual(
 def test_fresh_eight_dispatch(
     mode: str, isolated_state: tuple[Path, Path], out_dir: Path,
 ) -> None:
-    from xrlenv_plugins.images_build.terminal_bench_2.build_plan_gen import (
-        DEFAULT_NAMESPACE,
-        DEFAULT_TAG,
+    from xrlenv_plugins.benchmarks.terminal_bench_2_1.build_plan_gen import (
+        _shard_dir,
         generate_plan,
     )
 
@@ -356,9 +369,9 @@ def test_fresh_eight_dispatch(
     fresh = pick_fresh_tb2_tasks(
         n=8, exclude=SMOKE_TASKS,
         require_uncached=(mode == "local"),
-        namespace=DEFAULT_NAMESPACE, tag=DEFAULT_TAG,
     )
-    plan_dict = generate_plan(fresh, probe_sizes=False)  # offline-friendly
+    # offline-friendly (heuristic sizes); refs read per-task from task.toml.
+    plan_dict = generate_plan(fresh, shard_dir=_shard_dir(), probe_sizes=False)
     plan = BuildPlan.model_validate(plan_dict)
     assert plan.is_per_image_ref()
     assert len(plan.entries) == 8
@@ -382,8 +395,9 @@ def test_fresh_eight_dispatch(
     _assert_every_entry_done(plan, result, mode=mode)
 
     if mode == "local":
-        for task in fresh:
-            ref = f"{DEFAULT_NAMESPACE}/{task}:{DEFAULT_TAG}"
+        # refs come from each task's task.toml (mixed upstream tags),
+        # so read them from the generated plan rather than synthesizing.
+        for ref in (e.image_ref for e in plan.entries):
             assert image_present_locally(ref), (
                 f"expected {ref} in `docker images` after fresh-8 apply"
             )

@@ -82,15 +82,15 @@ def test_dockerhub_ref_unknown_repo_returns_none(evoclaw_root):
 
 
 # --- go-zero base-image redirect: the one image knob kept as env
-#     (EVOCLAW_GOZERO_BASE_IMAGE), defaulting to the corrected image ---
+#     (EVOCLAW_GOZERO_BASE_IMAGE), REQUIRED (no default) ---
 _GZ = "zeromicro_go-zero_v1.6.0_v1.9.3"
 
 
-def test_gozero_base_defaults_to_corrected_image(evoclaw_root, monkeypatch):
-    monkeypatch.delenv("EVOCLAW_GOZERO_BASE_IMAGE", raising=False)  # unset -> default
+def test_gozero_base_unset_fails_loud(evoclaw_root, monkeypatch):
+    monkeypatch.delenv("EVOCLAW_GOZERO_BASE_IMAGE", raising=False)  # unset -> fail loud
     m = image_resolution.load_repo_short_map(evoclaw_root)
-    assert image_resolution.dockerhub_ref(f"{_GZ}/base", m) \
-        == image_resolution._DEFAULT_GOZERO_BASE_IMAGE
+    with pytest.raises(SystemExit):
+        image_resolution.dockerhub_ref(f"{_GZ}/base", m)
 
 
 def test_gozero_base_env_override(evoclaw_root, monkeypatch):

@@ -43,8 +43,8 @@ Usage
     # one task, explicit image + control plane
     python evaluation/run_eval_parallel_xrlenv.py --model gpt --task-id task_e1 \
         --workers 1 --web-app apps/gmail \
-        --image node-host:5011/xrlenv-webarena-infinity/substrate:dev \
-        --xrlenv-host node-host --xrlenv-port 50051
+        --image <registry-host>:5011/xrlenv-webarena-infinity/substrate:dev \
+        --xrlenv-host <control-plane-host> --xrlenv-port 50051
 """
 
 import argparse

@@ -37,7 +37,7 @@ def test_manifest_digest_none_for_non_digest_refs() -> None:
 
 def test_registry_agnostic_ref_strips_host_port() -> None:
     assert registry_agnostic_ref(
-        "node-host:5011/xrlenv-webarena-infinity/substrate:1ca77813",
+        "ip-10-0-5-6:5011/xrlenv-webarena-infinity/substrate:1ca77813",
     ) == "xrlenv-webarena-infinity/substrate:1ca77813"
 
 
@@ -68,7 +68,7 @@ def test_registry_agnostic_ref_preserves_digest_suffix() -> None:
 
 def test_same_image_matches_across_registry_host() -> None:
     assert same_image(
-        "node-host:5011/wai/substrate:1ca77813",
+        "ip-10-0-5-6:5011/wai/substrate:1ca77813",
         "wai/substrate:1ca77813",
     )
     assert same_image("localhost:5000/a/b:1", "a/b:1")
@@ -80,11 +80,11 @@ def test_same_image_matches_across_registry_host() -> None:
 def test_repo_path_strips_host_tag_and_digest() -> None:
     # host + tag
     assert repo_path(
-        "node-host:5011/terminalworld-verified/tw_99185:main",
+        "ip-10-0-5-6:5011/terminalworld-verified/tw_99185:main",
     ) == "terminalworld-verified/tw_99185"
     # host + digest (the digest-pull form a node holds)
     assert repo_path(
-        "node-host:5011/terminalworld-verified/tw_99185@sha256:7cd3964",
+        "ip-10-0-5-6:5011/terminalworld-verified/tw_99185@sha256:7cd3964",
     ) == "terminalworld-verified/tw_99185"
     # bare tag / bare digest
     assert repo_path("terminalworld-verified/tw_99185:main") == (
@@ -103,7 +103,7 @@ def test_repo_path_reunites_the_digest_pull() -> None:
     # calibrate can credit the plan ref from the on-disk image. same_image (used
     # by evict) deliberately does NOT — it never equates a tag with a digest.
     plan = "terminalworld-verified/tw_99185:main"
-    node = "node-host:5011/terminalworld-verified/tw_99185@sha256:7cd3964"
+    node = "ip-10-0-5-6:5011/terminalworld-verified/tw_99185@sha256:7cd3964"
     assert repo_path(plan) == repo_path(node)
     assert not same_image(plan, node)
 
@@ -111,7 +111,7 @@ def test_repo_path_reunites_the_digest_pull() -> None:
 def test_has_explicit_tag() -> None:
     # An explicit :tag (the calibrate over-credit trigger: a stale sibling tag).
     assert has_explicit_tag("ns/img:20251031")
-    assert has_explicit_tag("node-host:5011/ns/img:main")
+    assert has_explicit_tag("ip-10-0-5-6:5011/ns/img:main")
     assert has_explicit_tag("library/python:3.12-slim")
     # A digest pull carries NO explicit tag → the fallback may credit it.
     assert not has_explicit_tag("ns/img@sha256:abc")

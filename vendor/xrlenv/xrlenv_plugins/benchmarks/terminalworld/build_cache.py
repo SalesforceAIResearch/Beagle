@@ -36,7 +36,7 @@ Stages
 The shard name (``terminalworld-verified``) doubles as the image namespace: a
 task lands at ``<dest>/terminalworld-verified/<id>/`` and its image at
 ``<registry>/terminalworld-verified/<id>:main`` (built by the sibling
-``xrlenv_plugins/images_build/`` scripts). Keeping the two identical is what
+``xrlenv_plugins/benchmarks/<name>/`` build scripts). Keeping the two identical is what
 lets the oracle sweep resolve ``dataset`` and image ref from the one shard name.
 
 How xrlenv consumers pick it up
@@ -70,7 +70,7 @@ REPO_ID = os.environ.get("TW_REPO_ID", "EuniAI/TerminalWorld")
 CONFIG = os.environ.get("TW_CONFIG", "verified")
 SPLIT = os.environ.get("TW_SPLIT", "test")
 # Shard subdir name == image namespace. The name every consumer's shard-scan
-# sees and the sibling images_build scripts push under.
+# sees and the sibling benchmark build scripts push under.
 SHARD = os.environ.get("TW_SHARD", "terminalworld-verified")
 
 # Curated per-task fixes live beside this script. Each ``patches/<task_id>/<rel>``
@@ -317,7 +317,7 @@ def apply_cpu_pinning(shard_dir: Path) -> list[tuple[str, str]]:
 # transform) and re-populate to restore the authored compose.
 COMPOSE_DROP_PRIVILEGED: tuple[str, ...] = (
     "tw_304270",  # st2/lb iptables peers on 172.16.70.0/24
-    "tw_304271",  # same shape on internal-ip/24
+    "tw_304271",  # same shape on 10.71.238.0/24
     "tw_305044",  # stapp iptables peers on 192.168.20.0/24
 )
 

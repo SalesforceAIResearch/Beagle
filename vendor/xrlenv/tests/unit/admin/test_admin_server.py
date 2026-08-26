@@ -1242,7 +1242,7 @@ def test_registry_agnostic_ref_strips_registry_host_only() -> None:
 
     # host:port private registry → stripped (the webarena incident).
     assert norm(
-        "node-host:5011/xrlenv-webarena-infinity/substrate:1ca77813",
+        "ip-10-0-5-6:5011/xrlenv-webarena-infinity/substrate:1ca77813",
     ) == "xrlenv-webarena-infinity/substrate:1ca77813"
     # localhost + dotted-host registries → stripped.
     assert norm("localhost:5000/foo/bar:0.1") == "foo/bar:0.1"
@@ -1279,7 +1279,7 @@ def test_api_build_calibrate_matches_registry_qualified_node_tag(
     state.close()
 
     bare = "xrlenv-webarena-infinity/substrate:1ca77813"
-    qualified = "node-host:5011/" + bare
+    qualified = "ip-10-0-5-6:5011/" + bare
 
     class _Transport:
         async def report_images(
@@ -1293,7 +1293,7 @@ def test_api_build_calibrate_matches_registry_qualified_node_tag(
                 # An unrelated registry-qualified image must NOT match
                 # the plan ref just because both are registry-stripped.
                 ImageStateRecord(
-                    name="node-host:5011/some/other:9", tier="cold",
+                    name="ip-10-0-5-6:5011/some/other:9", tier="cold",
                     size_bytes=42, in_use_count=0, last_used_at=None,
                     pinned=False,
                 ),
@@ -1345,7 +1345,7 @@ def test_api_build_calibrate_matches_digest_pulled_image_by_repo(
 
     plan_ref = "terminalworld-verified/tw_99185:main"
     node_digest = (
-        "node-host:5011/terminalworld-verified/tw_99185@sha256:7cd3964f"
+        "ip-10-0-5-6:5011/terminalworld-verified/tw_99185@sha256:7cd3964f"
     )
 
     class _Transport:
@@ -2947,16 +2947,16 @@ def test_overview_shows_cluster_info_when_configured(
     state.db (the values come from config, not the store)."""
     cfg = AdminServerConfig(
         state_db=state_db, runs_root=runs_root, port=0,
-        control_plane_endpoint="internal-ip:50051",
-        registry_mirror="http://internal-ip:5010",
-        private_registry="internal-ip:5011",
+        control_plane_endpoint="10.0.1.5:50051",
+        registry_mirror="http://10.0.1.5:5010",
+        private_registry="10.0.1.5:5011",
     )
     client = TestClient(build_admin_app(cfg))
     body = client.get("/").text
     assert "<h2>Cluster</h2>" in body
-    assert "internal-ip:50051" in body
-    assert "http://internal-ip:5010" in body
-    assert "internal-ip:5011" in body
+    assert "10.0.1.5:50051" in body
+    assert "http://10.0.1.5:5010" in body
+    assert "10.0.1.5:5011" in body
 
 
 def test_overview_hides_cluster_info_when_unset(cfg: AdminServerConfig) -> None:
@@ -2973,12 +2973,12 @@ def test_overview_cluster_info_is_partial(
     blank row."""
     cfg = AdminServerConfig(
         state_db=state_db, runs_root=runs_root, port=0,
-        control_plane_endpoint="internal-ip:50051",  # only this one set
+        control_plane_endpoint="10.0.1.5:50051",  # only this one set
     )
     client = TestClient(build_admin_app(cfg))
     body = client.get("/").text
     assert "<h2>Cluster</h2>" in body
-    assert "internal-ip:50051" in body
+    assert "10.0.1.5:50051" in body
     assert "registry mirror" not in body
     assert "private registry" not in body
 
@@ -3408,8 +3408,8 @@ def test_nodes_renders_rostered_plus_active(
     nodes_yaml = tmp_path / "nodes.yaml"
     nodes_yaml.write_text(yaml.safe_dump({
         "nodes": [
-            {"id": "node-A", "cloud": "gcp", "expected_address": "internal-ip"},
-            {"id": "node-X", "cloud": "aws", "address": "internal-ip"},  # legacy key
+            {"id": "node-A", "cloud": "gcp", "expected_address": "10.0.0.1"},
+            {"id": "node-X", "cloud": "aws", "address": "10.0.0.2"},  # legacy key
         ]
     }))
     store = SqliteStateStore(state_db)
@@ -3428,7 +3428,7 @@ def test_nodes_renders_rostered_plus_active(
     # All three nodes (rostered + active) render.
     assert "node-A" in body and "node-X" in body and "node-only-active" in body
     # Legacy `address` key surfaces under the same column.
-    assert "internal-ip" in body
+    assert "10.0.0.2" in body
     # node-A has 2 active sandboxes.
     assert "2" in body
 
@@ -4955,7 +4955,7 @@ def test_images_filters_out_lost_and_rostered_nodes(
     nodes_yaml = tmp_path / "nodes.yaml"
     nodes_yaml.write_text(yaml.safe_dump({
         "nodes": [
-            {"id": "rostered-only", "cloud": "gcp", "expected_address": "internal-ip"},
+            {"id": "rostered-only", "cloud": "gcp", "expected_address": "10.0.0.9"},
         ],
     }))
 
@@ -7649,3 +7649,34 @@ def test_node_distribution_no_roster_shows_every_node(
     assert {e["node"] for e in dist["entries"]} == {"node-x", "node-y"}
     assert all(e["rostered"] for e in dist["entries"])
     assert dist["off_roster"] == 0
+
+
+def test_scratch_active_digests_endpoint(
+    client: TestClient, state_db: Path,
+) -> None:
+    """GET /api/scratch/active-digests returns the scratch repos referenced by
+    running sandboxes (the GC's active-run exemption set); non-scratch images
+    are excluded."""
+    from xrlenv.control.state import SqliteStateStore
+
+    store = SqliteStateStore(state_db)
+    _seed_sandbox(store, sandbox_id="s1", node_id="n1", image="cp:5012/scratch/aaa:latest")
+    _seed_sandbox(store, sandbox_id="s2", node_id="n1", image="docker.io/library/busybox:latest")
+    store.close()
+
+    resp = client.get("/api/scratch/active-digests")
+    assert resp.status_code == 200
+    assert resp.json() == {"repos": ["scratch/aaa"]}
+
+
+def test_scratch_active_digests_empty_when_no_scratch_sandboxes(
+    client: TestClient, state_db: Path,
+) -> None:
+    from xrlenv.control.state import SqliteStateStore
+
+    store = SqliteStateStore(state_db)
+    _seed_sandbox(store, sandbox_id="s1", node_id="n1", image="busybox:latest")
+    store.close()
+    resp = client.get("/api/scratch/active-digests")
+    assert resp.status_code == 200
+    assert resp.json() == {"repos": []}

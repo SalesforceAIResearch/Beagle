@@ -69,7 +69,7 @@ To update the substrate image to a new WAI commit or fix a bug:
 ```bash
 # 1. Edit the Dockerfile's WEBARENA_REF to the new WAI commit.
 #    Build and push under the same channel tag.
-.venv/bin/python scripts/build_and_push_images.py \
+.venv/bin/python deploy/registry/build_and_push_images.py \
     --plan xrlenv_plugins/benchmarks/webarena_infinity/build_plan.yaml \
     --registry <REGISTRY_HOST>:5011 \
     --registry-scheme http \
@@ -85,7 +85,7 @@ xrlenv images evict xrlenv-webarena-infinity/substrate:dev \
 #    The next acquire dispatches the new digest automatically.
 ```
 
-`--force` is needed because `scripts/build_and_push_images.py` skips
+`--force` is needed because `deploy/registry/build_and_push_images.py` skips
 the build when the tag already exists on the registry by default (the
 idempotent re-run behavior for immutable tags). For a mutable channel
 tag, `--force` overrides this check.
@@ -174,15 +174,15 @@ cp xrlenv_plugins/benchmarks/webarena_infinity/copy_to_call_site/* <wai-checkout
   above).
 - `xrlenv` importable in the WAI venv — `pip install` it, or set
   `XRLENV_REPO=/path/to/xrlenv` (defaults to
-  `/path/to/xrlenv`).
+  `/path/to/xrlenv-dev`).
 - A `.env` at the WAI repo root, read once (with `override=True`) by
   `xrlenv_config.py`:
 
 ```bash
-XRLENV_GRPC_HOST=node-host          # control-plane host (dev shown)
+XRLENV_GRPC_HOST=<control-plane-host>    # control-plane host
 XRLENV_GRPC_PORT=50051
 XRLENV_CONSUMER_TOKEN=<consumer-token>   # xrlenv tokens issue consumer
-XRLENV_PRIVATE_REGISTRY_HOST=node-host
+XRLENV_PRIVATE_REGISTRY_HOST=<private-registry-host>
 XRLENV_PRIVATE_REGISTRY_PORT=5011
 OPENAI_API_KEY=...                       # plus GOOGLE_API_KEY / ANTHROPIC_API_KEY —
                                          # forwarded into each container
@@ -200,8 +200,8 @@ python evaluation/run_eval_parallel_xrlenv.py --model gemini-pro --workers 8 \
 # one task, explicit image + control plane (overrides .env / defaults)
 python evaluation/run_eval_parallel_xrlenv.py --model gpt --task-id task_e1 \
     --workers 1 --web-app apps/gmail \
-    --image node-host:5011/xrlenv-webarena-infinity/substrate:dev \
-    --xrlenv-host node-host --xrlenv-port 50051
+    --image <registry-host>:5011/xrlenv-webarena-infinity/substrate:dev \
+    --xrlenv-host <control-plane-host> --xrlenv-port 50051
 ```
 
 `--workers N` is N containers in flight cluster-wide; the output
@@ -232,7 +232,7 @@ channel tag.
 - {doc}`../technical_details/images/cache_eviction` — operator-driven
   `xrlenv images evict` for proactive cleanup after a rebuild.
 - {doc}`../technical_details/images/build_plan` — full build-plan
-  schema, `xrlenv build calibrate`, and the `scripts/build_and_push_images.py`
+  schema, `xrlenv build calibrate`, and the `deploy/registry/build_and_push_images.py`
   rebuild workflow.
 - {doc}`../deploy/multi_node_deployment/private_registry` — setting up
   the private registry that hosts the substrate image.

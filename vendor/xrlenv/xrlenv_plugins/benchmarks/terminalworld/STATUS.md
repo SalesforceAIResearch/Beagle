@@ -33,8 +33,8 @@ the full walkthrough. Launch via the [Reproduce](#reproduce) command.
 > compose tasks pass (validated in a targeted 6-task smoke AND the full sweep):
 > - **Recovered** (were ❌ Failed "needs cluster-compose", each a 2-4 service stack on
 >   a private network): `tw_522753` (postgres), `tw_188260` (solr + ambari, with
->   `solr-node`/`ambari-server` sub-builds + subnet `internal-ip/24`), `tw_304270`
->   (`172.16.70.0/24`), `tw_304271` (`internal-ip/24`), `tw_305044` (`192.168.20.0/24`;
+>   `solr-node`/`ambari-server` sub-builds + subnet `10.188.74.0/24`), `tw_304270`
+>   (`172.16.70.0/24`), `tw_304271` (`10.71.238.0/24`), `tw_305044` (`192.168.20.0/24`;
 >   the old "multi-host" label was really 4 services on one private net). These +5
 >   took green 187 → 192. `tw_488034` stays ❌ (macOS-hardcoded paths + ~10-service Harbor).
 > - **Now faithful** — `tw_299387` was already ✅ via an in-container sidecar-bootstrap
@@ -43,7 +43,6 @@ the full walkthrough. Launch via the [Reproduce](#reproduce) command.
 > - The 3 privileged stacks (`tw_304270/271/305044`) run under runc **without**
 >   `allow_privileged`: `build_cache.py`'s `COMPOSE_DROP_PRIVILEGED` strips their
 >   redundant `privileged: true` (they only need `NET_ADMIN`/`NET_RAW`, already allowed).
-> Design: `notes/multi-service-compose-plan.md`; runbook: `…-step5-runbook.md`.
 
 > **🎲 Flakes seen 2026-07-17 — investigated, not reproducible, retry-recovered:**
 > - **`tw_11696`** (sysbox CLI-only DinD, MariaDB): once failed `docker run -d -p
@@ -165,7 +164,7 @@ wheels": the fix is usually a solve/dep pin, not an xrlenv change.
 
 | task | signature (verified) | candidate path |
 |---|---|---|
-| tw_222108 | verifier can't resolve DNS (`apt`/`curl`/`uvx` fail) — but only AFTER the netns solve | **DEFERRED (deep).** NOT an allow_internet gap (harbor defaults it True; other sysbox tasks resolve fine). The netns/veth solve breaks the *sysbox* container's DNS in-place, and this verifier uniquely needs internet (bootstraps `uv`+`curl` at verify time — the standard TW verifier pattern). Confirmed offline: `solve.sh` adds a veth internal-ip/24 to the MAIN ns; the resolver breakage is a sysbox+nested-netns interaction (127.0.0.11 embedded-DNS should be unaffected by a 10.x route, so the mechanism is sysbox-fs-level, not routing). Needs live in-container repro; the only real fixes are restoring DNS in the solve or a hermetic verifier (upstream contract). |
+| tw_222108 | verifier can't resolve DNS (`apt`/`curl`/`uvx` fail) — but only AFTER the netns solve | **DEFERRED (deep).** NOT an allow_internet gap (harbor defaults it True; other sysbox tasks resolve fine). The netns/veth solve breaks the *sysbox* container's DNS in-place, and this verifier uniquely needs internet (bootstraps `uv`+`curl` at verify time — the standard TW verifier pattern). Confirmed offline: `solve.sh` adds a veth 10.0.0.2/24 to the MAIN ns; the resolver breakage is a sysbox+nested-netns interaction (127.0.0.11 embedded-DNS should be unaffected by a 10.x route, so the mechanism is sysbox-fs-level, not routing). Needs live in-container repro; the only real fixes are restoring DNS in the solve or a hermetic verifier (upstream contract). |
 | tw_245032 | verifier wants `libopenal.so.1.25.1`; Dockerfile `git clone --depth 1` of master builds `1.25.2` | **✅ FIXED + validated 1.0 (2026-07-08).** Two coupled root causes: (1) the Dockerfile clones master (drifted to 1.25.2) `--depth 1` (no tags); (2) openal 1.25.1's `alformat.hpp` uses C++20 `#include <format>`, absent from ubuntu:22.04's g++-12 (`fatal error: format`), so master only builds via its fmt fallback. Fix = `patches/tw_245032/environment/Dockerfile` overlay: pin `--branch 1.25.1` AND base **ubuntu:24.04** (default g++-13 ships `<format>`). Rebuilt+repushed via `benchmarks/terminalworld/build_plan_gen.py` → `build_and_push_images.py --force`. Re-verified 1.0 on the fresh image (the CP registry digest-resolve served the re-pushed `:main` automatically — no node eviction needed). Removed from `run_full_sweep.sh` EXCLUDE → green set 187→188. cpu-pin (OOM fix) retained. |
 
 > **2026-07-08 — infra-fix validation (fresh cluster, cap=8 + re-admit + teardown
@@ -216,7 +215,7 @@ wheels": the fix is usually a solve/dep pin, not an xrlenv change.
 
 ```bash
 set -a; source ./.env; set +a            # XRLENV_GRPC_HOST + XRLENV_CONSUMER_TOKEN + registry
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 
 # THE GATE — (re)builds the cache, computes the green set (present − EXCLUDE, asserts 192),
 # runs it, then content-retries reward-0 flakes:

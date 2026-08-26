@@ -83,7 +83,7 @@ html_css_files = ["custom.css"]
 # "Edit on GitHub" link in the sphinx_rtd_theme header.
 html_context = {
     "display_github": True,
-    "github_user": "<your-org>",
+    "github_user": "Yutong-Dai",
     "github_repo": "xrlenv",
     "github_version": "main",
     "conf_py_path": "/docs/",

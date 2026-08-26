@@ -3,7 +3,7 @@
 Shared by two consumers so the ``build:`` → ``image:`` mapping and the
 ``<task_id>-<service>`` naming live in **one** place (no build-vs-run drift):
 
-- ``xrlenv_plugins.images_build.<benchmark>.build_plan_gen`` — enumerates the
+- ``xrlenv_plugins.benchmarks.<benchmark>.build_plan_gen`` — enumerates the
   services that ship a ``build:`` context and names the image each becomes, so
   the build+push step produces exactly the refs the eval will resolve.
 - ``xrlenv_plugins.pier.environment.XrlenvPierEnvironmentCluster`` — at

@@ -23,13 +23,13 @@ Operator setup (cluster mode), once at bring-up::
 
     xrlenv up                                          # control plane
     python xrlenv_plugins/benchmarks/seta/build_cache.py --stage populate
-    export XRLENV_GRPC_HOST=node-host             # dev control plane
+    export XRLENV_GRPC_HOST=<control-plane-host>             # dev control plane
     export XRLENV_GRPC_PORT=50051
     export XRLENV_CONSUMER_TOKEN=$(cat ~/.xrlenv/secrets/consumer.token)
 
 Then::
 
-    # Cluster 8-task oracle smoke (default registry node-host:5011):
+    # Cluster 8-task oracle smoke (default registry <registry-host>:5011):
     .venv/bin/python xrlenv_plugins/benchmarks/seta/run_oracle_sweep.py
 
     # Local baseline (harbor builds the Dockerfile on this host):
@@ -37,7 +37,7 @@ Then::
 
     # Specific tasks / concurrency / a different registry:
     .venv/bin/python xrlenv_plugins/benchmarks/seta/run_oracle_sweep.py \\
-        --tasks 0,42,100 --max-workers 4 --registry internal-ip:5011
+        --tasks 0,42,100 --max-workers 4 --registry <registry-host>:5011
 
     # Sweep every cached task (skips the known-unbuildable blacklist):
     .venv/bin/python xrlenv_plugins/benchmarks/seta/run_oracle_sweep.py --all --max-workers 8
@@ -84,6 +84,11 @@ _INFRA_RETRY_EXCEPTIONS = frozenset({
     "ControlPlaneLost",    # CP restarted under the run
     "NodeLost",            # node dropped its stream mid-acquire
     "NodeCommandTimeout",  # a node RPC deadline (teardown / exec) tripped
+    # The control plane destroyed the session out from under us — a stalled
+    # consumer past the quarantine horizon, a lost node, a deadline. The
+    # rollout's work never failed; the platform reclaimed it, so a fresh
+    # acquire is the correct response, not a content result.
+    "SessionReaped",
 })
 
 # Image-ref pieces. The registry host:port comes from
@@ -175,7 +180,7 @@ def _configure_cluster_from_env(args: argparse.Namespace) -> str:
 
     missing = []
     if not grpc_host:
-        missing.append("XRLENV_GRPC_HOST  — dev control plane (e.g. node-host)")
+        missing.append("XRLENV_GRPC_HOST  — dev control plane (e.g. <control-plane-host>)")
     if not token:
         missing.append("XRLENV_CONSUMER_TOKEN  — a valid dev consumer token")
     if not template:

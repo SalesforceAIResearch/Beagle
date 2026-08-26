@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from xrlenv_plugins.benchmarks.lhtb import run_oracle_sweep as s
+from xrlenv_plugins.benchmarks.lhtb.run_oracle_sweep import _INFRA_RETRY_EXCEPTIONS
 
 
 def _tr(rewards, *, exc=None, name="t"):
@@ -99,3 +100,30 @@ def test_resolve_tasks_empty_selector_raises(tmp_path: object) -> None:
     for empty in ("", ",", " , "):
         with _pytest.raises(SystemExit, match="selected no tasks"):
             _s._resolve_tasks(tmp_path, empty)  # type: ignore[arg-type]
+
+
+# ── the retry gate names real exceptions ──────────────────────────────────────
+
+
+def test_infra_retry_exception_names_all_resolve() -> None:
+    """Every name in the retry gate must be a real ``xrlenv.errors`` class.
+
+    The gate matches on ``type(exc).__name__``, so a typo'd string is not an
+    error — it is a silent no-op: the exception simply never matches and the
+    trial is scored as a content failure instead of retried. That is exactly how
+    ``SessionReaped`` sat inert after being declared ``retryable = True``, and
+    this plug-in has no other test asserting the gate's contents, so a future
+    typo here would reach production unnoticed.
+    """
+    import xrlenv.errors as errors
+
+    assert _INFRA_RETRY_EXCEPTIONS, "the retry gate is empty"
+    for name in _INFRA_RETRY_EXCEPTIONS:
+        cls = getattr(errors, name, None)
+        assert cls is not None, f"{name!r} names no exception in xrlenv.errors"
+        assert cls.__name__ == name
+        assert issubclass(cls, errors.XRLEnvError)
+
+    # A platform teardown is infra, not a content result — the reason this gate
+    # was touched at all.
+    assert "SessionReaped" in _INFRA_RETRY_EXCEPTIONS

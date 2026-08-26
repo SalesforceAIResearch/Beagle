@@ -147,7 +147,7 @@ def test_capabilities_disable_native_seam_when_not_enforceable() -> None:
     [
         ("public", [], ["0.0.0.0/0"]),          # allow-all (metadata still DROP'd)
         ("no-network", [], []),                 # block-all
-        ("allowlist", ["internal-ip/32", "internal-ip/24"], ["internal-ip/32", "internal-ip/24"]),
+        ("allowlist", ["10.0.1.5/32", "10.0.2.0/24"], ["10.0.1.5/32", "10.0.2.0/24"]),
     ],
 )
 async def test_apply_network_policy_maps_mode_to_egress(

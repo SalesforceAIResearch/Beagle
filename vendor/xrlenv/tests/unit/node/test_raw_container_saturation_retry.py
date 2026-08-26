@@ -97,6 +97,22 @@ class _FakeContainer:
     labels: dict[str, str]
     removed: bool = False
     raise_on_remove: BaseException | None = None
+    # Post-start inspect payload. Defaults to a healthy running container so the
+    # pre-existing tests keep exercising the success path unchanged.
+    state: dict[str, Any] = field(
+        default_factory=lambda: {"Running": True, "Status": "running"},
+    )
+    raise_on_reload: BaseException | None = None
+    reload_calls: int = 0
+
+    @property
+    def attrs(self) -> dict[str, Any]:
+        return {"State": dict(self.state)}
+
+    def reload(self) -> None:
+        self.reload_calls += 1
+        if self.raise_on_reload is not None:
+            raise self.raise_on_reload
 
     def remove(self, *, force: bool = False) -> None:
         if self.raise_on_remove is not None:
@@ -127,10 +143,13 @@ class _ScriptedContainers:
         self._by_id[c.id] = c
         self._name_to_id[c.name] = c.id
 
-    def _make(self, name: str | None, labels: dict[str, str]) -> _FakeContainer:
+    def _make(self, name: str | None, labels: dict[str, str],
+              state: dict[str, Any] | None = None) -> _FakeContainer:
         self._next += 1
         cid = f"c-{self._next:04d}"
         c = _FakeContainer(id=cid, name=name or cid, labels=dict(labels))
+        if state is not None:
+            c.state = dict(state)
         self._register(c)
         return c
 
@@ -155,6 +174,23 @@ class _ScriptedContainers:
             orphan = self._make(name, labels)
             orphan.raise_on_remove = _api_error(500, "remove failed")
             raise _api_error(500, "pre-register with sysbox-fs: DeadlineExceeded")
+        if action == "unstarted":
+            # `run` returns 2xx but the container never left `created` — the
+            # RWLayer-nil shape observed on a cold-cache node under snapshotter
+            # strain (see ContainerNotStartedError).
+            return self._make(name, labels, {
+                "Running": False, "Status": "created", "ExitCode": 0, "Error": "",
+            })
+        if action == "start_error":
+            return self._make(name, labels, {
+                "Running": False, "Status": "exited", "ExitCode": 128,
+                "Error": "RWLayer of container abc is unexpectedly nil",
+            })
+        if action == "exited_clean":
+            # A legitimately short-lived one-shot container: NOT a fault.
+            return self._make(name, labels, {
+                "Running": False, "Status": "exited", "ExitCode": 0, "Error": "",
+            })
         return self._make(name, labels)
 
     def get(self, key: str) -> _FakeContainer:
@@ -272,6 +308,125 @@ async def test_clean_connection_error_not_retried_but_feeds_aimd() -> None:
 
     assert containers.run_calls == 1                       # dead daemon → no retry
     assert mgr._health.snapshot().docker_error_count == 1  # but throttle admits
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Post-start liveness — `run` returned 2xx but the container is not running
+#
+# Observed on a cold-cache cn node pulling 25 images at once into the containerd
+# snapshotter: create+start reported success, then every call on the container
+# failed with `500 … RWLayer of container <id> is unexpectedly nil`. Nothing
+# raised at create time, so the acquire returned a corpse and the consumer died
+# on its first exec with `409 … is not running`.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_running_container_is_not_a_fault() -> None:
+    c = _FakeContainer(id="c1", name="c1", labels={})
+    assert rc._container_start_fault(c) is None
+    assert c.reload_calls == 1  # state is re-read, not trusted from create
+
+
+def test_never_started_container_is_a_fault() -> None:
+    c = _FakeContainer(id="c1", name="c1", labels={},
+                       state={"Running": False, "Status": "created"})
+    fault = rc._container_start_fault(c)
+    assert fault is not None
+    assert "created" in fault
+
+
+def test_recorded_start_error_is_a_fault() -> None:
+    c = _FakeContainer(id="c1", name="c1", labels={}, state={
+        "Running": False, "Status": "exited", "ExitCode": 128,
+        "Error": "RWLayer of container abc is unexpectedly nil",
+    })
+    fault = rc._container_start_fault(c)
+    assert fault is not None
+    assert "RWLayer" in fault
+
+
+def test_clean_exit_is_not_a_fault() -> None:
+    """A one-shot container that ran and exited 0 must NOT be retried — acquire
+    has never required a long-lived process."""
+    c = _FakeContainer(id="c1", name="c1", labels={}, state={
+        "Running": False, "Status": "exited", "ExitCode": 0, "Error": "",
+    })
+    assert rc._container_start_fault(c) is None
+
+
+def test_uninspectable_container_fails_open() -> None:
+    """No `reload` → we cannot establish a fault, so don't invent one. A false
+    positive would burn all retries on a healthy acquire."""
+    assert rc._container_start_fault(object()) is None
+
+
+def test_inspect_failure_right_after_create_is_a_fault() -> None:
+    c = _FakeContainer(id="c1", name="c1", labels={},
+                       raise_on_reload=_api_error(500, "RWLayer is nil"))
+    fault = rc._container_start_fault(c)
+    assert fault is not None
+    assert "inspect failed" in fault
+
+
+def test_not_started_error_is_retryable_and_a_health_signal() -> None:
+    exc = rc.ContainerNotStartedError("not running")
+    assert _is_retryable_create_error(exc) is True
+    # Saturation symptom, so it must also throttle future admits.
+    assert rc._is_node_health_error(exc) is True
+
+
+@pytest.mark.asyncio
+async def test_unstarted_container_is_retried_and_recovers() -> None:
+    containers = _ScriptedContainers(["unstarted", "ok"])
+    mgr = RawContainerManager(docker_client=_FakeClient(containers))
+
+    rec = await mgr.acquire(rollout_id="r-ns1", image="busybox:1")
+
+    assert containers.run_calls == 2
+    # The returned record is the HEALTHY second container, not the corpse.
+    returned = containers.get(rec.container_id)
+    assert returned.state["Running"] is True
+    # The broken first container was reaped by its rollout_id label before the
+    # retry, so no duplicate is left behind.
+    assert containers._by_id["c-0001"].removed is True
+    assert mgr._health.snapshot().docker_error_count == 1
+
+
+@pytest.mark.asyncio
+async def test_start_error_container_is_retried_and_recovers() -> None:
+    containers = _ScriptedContainers(["start_error", "ok"])
+    mgr = RawContainerManager(docker_client=_FakeClient(containers))
+
+    rec = await mgr.acquire(rollout_id="r-ns2", image="busybox:1")
+
+    assert containers.run_calls == 2
+    assert containers.get(rec.container_id).state["Running"] is True
+
+
+@pytest.mark.asyncio
+async def test_persistently_unstarted_gives_up_with_one_aimd_error() -> None:
+    containers = _ScriptedContainers(["unstarted"] * 20)
+    mgr = RawContainerManager(docker_client=_FakeClient(containers))
+
+    with pytest.raises(XRLEnvError):
+        await mgr.acquire(rollout_id="r-ns3", image="busybox:1")
+
+    assert containers.run_calls == rc._HEALTH_RETRY_MAX + 1
+    assert mgr._health.snapshot().docker_error_count == 1
+
+
+@pytest.mark.asyncio
+async def test_clean_exit_acquire_is_not_retried() -> None:
+    """The regression guard for the fail-open contract: a short-lived container
+    must be handed back on the FIRST attempt, with no retry and no AIMD signal."""
+    containers = _ScriptedContainers(["exited_clean"])
+    mgr = RawContainerManager(docker_client=_FakeClient(containers))
+
+    rec = await mgr.acquire(rollout_id="r-ns4", image="busybox:1")
+
+    assert containers.run_calls == 1
+    assert rec.container_id == "c-0001"
+    assert mgr._health.snapshot().docker_error_count == 0
 
 
 # ──────────────────────────────────────────────────────────────────────────────

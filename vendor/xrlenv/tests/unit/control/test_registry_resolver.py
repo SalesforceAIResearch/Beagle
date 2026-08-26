@@ -23,8 +23,8 @@ from xrlenv.control.registry_resolver import (
 
 DIGEST = "sha256:" + "a" * 64
 DIGEST2 = "sha256:" + "b" * 64
-REF = "node-host:5011/wai/substrate:1ca77813"
-PINNED = f"node-host:5011/wai/substrate@{DIGEST}"
+REF = "ip-10-0-5-6:5011/wai/substrate:1ca77813"
+PINNED = f"ip-10-0-5-6:5011/wai/substrate@{DIGEST}"
 
 
 class _Clock:
@@ -52,7 +52,7 @@ def _resolver(*, fetch, clock=None, fresh_ttl_s=60.0, max_stale_s=900.0):
 
 def test_parse_registry_qualified_tag() -> None:
     assert parse_registry_tag_ref(REF) == (
-        "node-host:5011", "wai/substrate", "1ca77813",
+        "ip-10-0-5-6:5011", "wai/substrate", "1ca77813",
     )
 
 
@@ -205,8 +205,8 @@ def test_resolver_from_env_overrides() -> None:
 
 def test_parse_host_map() -> None:
     assert _parse_host_map("") == {}
-    assert _parse_host_map("node-host:5011=127.0.0.1:5011") == {
-        "node-host:5011": "127.0.0.1:5011",
+    assert _parse_host_map("ip-10-0-5-6:5011=127.0.0.1:5011") == {
+        "ip-10-0-5-6:5011": "127.0.0.1:5011",
     }
     # multiple entries + surrounding whitespace tolerated
     assert _parse_host_map(" a:1=b:2 , c:3=d:4 ") == {"a:1": "b:2", "c:3": "d:4"}
@@ -217,12 +217,12 @@ def test_parse_host_map() -> None:
 def test_resolver_from_env_host_map() -> None:
     r = resolver_from_env({
         "XRLENV_REGISTRY_RESOLVE_HOST_MAP":
-            "node-host:5011=127.0.0.1:5011,node-host:5010=127.0.0.1:5010",
+            "ip-10-0-5-6:5011=127.0.0.1:5011,ip-10-0-5-6:5010=127.0.0.1:5010",
     })
     assert isinstance(r, RegistryDigestResolver)
     assert r._resolve_host_map == {
-        "node-host:5011": "127.0.0.1:5011",
-        "node-host:5010": "127.0.0.1:5010",
+        "ip-10-0-5-6:5011": "127.0.0.1:5011",
+        "ip-10-0-5-6:5010": "127.0.0.1:5010",
     }
 
 
@@ -277,7 +277,7 @@ async def test_dial_host_map_probes_loopback_but_pins_external_host(
     ref keeps the externally-routable host the remote nodes pull from."""
     probed = _install_recording_httpx(monkeypatch)
     r = RegistryDigestResolver(
-        resolve_host_map={"node-host:5011": "127.0.0.1:5011"},
+        resolve_host_map={"ip-10-0-5-6:5011": "127.0.0.1:5011"},
     )
     out = await r.resolve(REF)
     # probe dialed loopback…
@@ -296,7 +296,7 @@ async def test_no_host_map_dials_ref_host(
     r = RegistryDigestResolver()  # empty map
     out = await r.resolve(REF)
     assert probed["url"] == (
-        "http://node-host:5011/v2/wai/substrate/manifests/1ca77813"
+        "http://ip-10-0-5-6:5011/v2/wai/substrate/manifests/1ca77813"
     )
     assert out == PINNED
 
@@ -383,7 +383,7 @@ async def test_private_http_registry_needs_no_token(
     r = RegistryDigestResolver()
     out = await r.resolve(REF)
     assert out == PINNED
-    assert recorded == ["http://node-host:5011/v2/wai/substrate/manifests/1ca77813"]
+    assert recorded == ["http://ip-10-0-5-6:5011/v2/wai/substrate/manifests/1ca77813"]
     assert not any("/token" in x for x in recorded)
 
 

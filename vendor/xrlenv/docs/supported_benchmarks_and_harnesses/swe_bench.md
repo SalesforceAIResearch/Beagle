@@ -72,7 +72,7 @@ plumbing or content bug, not a model-eval signal.
 ## Operator setup
 
 ```bash
-export XRLENV_BENCHMARK_CACHE=/path/to/shared/cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 
 # 1. Materialize the Verified corpus locally.
 .venv/bin/python xrlenv_plugins/benchmarks/swebench_verified/build_cache.py \

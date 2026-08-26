@@ -118,6 +118,41 @@ class NodeLost(XRLEnvError):
     retryable: ClassVar[bool] = True
 
 
+class SessionReaped(XRLEnvError):
+    """The control plane force-destroyed a raw-container session.
+
+    Raised for ANY session whose row was sealed ``reaped`` — that is, any
+    platform-initiated teardown that recorded a reason. The consumer-liveness
+    quarantine is the usual cause, but the wall-clock ``session_deadline_s``
+    sweep and node-side orphan seals reach the same state, so read ``reason``
+    for what actually happened rather than assuming liveness.
+
+    Distinct from "rollout not found", which means a stale/unknown handle. This
+    says the platform tore the session down *on purpose* and names why, so a
+    harness can classify it as infra-transient and re-run the trial instead of
+    reporting a workload failure. ``reason`` is the teardown reason recorded on
+    the ``raw_rollouts`` row; ``reaped_at`` is its ``finished_at`` epoch seconds
+    (``None`` when the row didn't carry one, and always ``None`` on the client
+    side — it has no error-metadata key, so it does not survive gRPC).
+
+    Retryable: a fresh ``acquire`` succeeds — nothing about the workload failed.
+    The consumer usually learns of this long after the fact, at its next session
+    RPC, because a reap is silent until something touches the session.
+    """
+
+    retryable: ClassVar[bool] = True
+
+    def __init__(
+        self,
+        message: str,
+        reason: str,
+        reaped_at: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.reaped_at = reaped_at
+
+
 class ManagedInventoryUnsupported(XRLEnvError):
     """A node agent could not return the BROAD managed-container inventory (it ignored
     ``include_all_managed`` — an older agent). audit H11: reconnect readoption fails CLOSED on
@@ -233,6 +268,7 @@ __all__ = [
     "RolloutTruncated",
     "SessionDegraded",
     "SessionExpired",
+    "SessionReaped",
     "TemplateUnknown",
     "XRLEnvError",
 ]

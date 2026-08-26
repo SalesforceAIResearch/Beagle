@@ -19,7 +19,8 @@ import os
 from pathlib import Path
 
 #: Prefixes that name run knobs (bucket 2). Present in ``.env`` → warn: they belong in config.
-_KNOB_PREFIXES = ("SELF_EVOLVE_", "ATELIER_", "TRACE_ANALYZER_", "MONET_META_")
+_KNOB_PREFIXES = ("DARWINX_EVAL_", "DARWINX_EVOLVE_", "DARWINX_GATE_", "DARWINX_TRACE_",
+                  "MONET_META_")
 
 
 def find_dotenv(start: str | Path | None = None) -> Path | None:

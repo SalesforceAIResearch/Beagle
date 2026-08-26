@@ -13,9 +13,11 @@
 #   bash xrlenv_plugins/sysbox/deploy_sysbox_pool.sh [nodes.yaml] [VENDOR_DIR]
 #
 # Prereqs:
-#   - build_sysbox.sh has produced VENDOR_DIR (default: vendor/<pinned-commit>).
+#   - build_sysbox.sh has produced VENDOR_DIR (default:
+#     ${SYSBOX_VENDOR_ROOT}/<pinned-commit>, resolved per cluster by pin.env).
+#     The vendor root is per-cluster storage, so run the build once per cluster.
 #   - passwordless ssh + sudo to each pool node's address.
-#   - /shared-fs (or wherever this repo lives) is reachable on the nodes, OR the vendor
+#   - /fsx (or wherever this repo lives) is reachable on the nodes, OR the vendor
 #     dir is copied to each node (this script scp's it when the repo path differs).
 
 set -euo pipefail

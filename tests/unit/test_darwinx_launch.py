@@ -76,7 +76,7 @@ def test_prepare_import_path_makes_driver_and_shim_importable() -> None:
     assert sum(p.endswith("/darwinx/vendor") for p in sys.path) == 1
 
     import runner.run as runner_run          # seam-A shim resolves (this process)
-    import self_evolve.pipeline as pipe       # vendored driver resolves
+    import evolve.pipeline as pipe       # vendored driver resolves
     assert hasattr(pipe, "SelfEvolvePipeline") and hasattr(runner_run, "main")
 
     # PYTHONPATH carries both so the eval *subprocess* (`python -m runner.run`) resolves the
@@ -113,20 +113,20 @@ def test_ensure_canonical_clone_requires_a_source(tmp_path) -> None:
 
 
 def test_prepare_worktree_env_pins_vendored_overrides(tmp_path, monkeypatch) -> None:
-    monkeypatch.delenv("MONET_EVAL_REPO_ROOT", raising=False)
-    monkeypatch.delenv("MONET_EVAL_WORKTREE_PARENT", raising=False)
-    monkeypatch.delenv("MONET_EVAL_RESULTS_ROOT", raising=False)
+    monkeypatch.delenv("DARWINX_EVAL_REPO_ROOT", raising=False)
+    monkeypatch.delenv("DARWINX_EVAL_WORKTREE_PARENT", raising=False)
+    monkeypatch.delenv("DARWINX_EVAL_RESULTS_ROOT", raising=False)
     _launch.prepare_worktree_env(tmp_path / "repo", tmp_path / "wt")
     import os
-    assert os.environ["MONET_EVAL_REPO_ROOT"] == str((tmp_path / "repo").resolve())
-    assert os.environ["MONET_EVAL_WORKTREE_PARENT"] == str((tmp_path / "wt").resolve())
+    assert os.environ["DARWINX_EVAL_REPO_ROOT"] == str((tmp_path / "repo").resolve())
+    assert os.environ["DARWINX_EVAL_WORKTREE_PARENT"] == str((tmp_path / "wt").resolve())
     # eval scratch lands UNDER the run dir (_evals/), not the vendored tree's DEFAULT_RESULTS_ROOT
-    assert os.environ["MONET_EVAL_RESULTS_ROOT"] == str((tmp_path / "repo").resolve() / "_evals")
+    assert os.environ["DARWINX_EVAL_RESULTS_ROOT"] == str((tmp_path / "repo").resolve() / "_evals")
     assert (tmp_path / "wt").is_dir()   # created so the driver can drop worktrees under it
 
 
-_RUNTIME_ENV_KEYS = ("SELF_EVOLVE_EVAL_RUNTIME", "SELF_EVOLVE_ROOT_COMMIT",
-                     "SELF_EVOLVE_ROOT_FETCH_REF", "MONET_EVAL_HARBOR_N_CONCURRENT")
+_RUNTIME_ENV_KEYS = ("DARWINX_EVOLVE_EVAL_RUNTIME", "DARWINX_EVOLVE_ROOT_COMMIT",
+                     "DARWINX_EVOLVE_ROOT_FETCH_REF", "DARWINX_EVAL_HARBOR_N_CONCURRENT")
 
 
 def test_prepare_runtime_env_translates_config_with_sha_seed(monkeypatch) -> None:
@@ -136,10 +136,10 @@ def test_prepare_runtime_env_translates_config_with_sha_seed(monkeypatch) -> Non
         monkeypatch.delenv(k, raising=False)
     src = AgentSource(repo="r", ref="1261608f6530908e3a03218d8f4671b8c7b5b346")  # a bare sha
     _launch.prepare_runtime_env(_run_config(), src)   # _run_config: runtime local, parallelism 1
-    assert os.environ["SELF_EVOLVE_EVAL_RUNTIME"] == "local"   # not the driver's cluster default
-    assert os.environ["SELF_EVOLVE_ROOT_COMMIT"] == "1261608f6530908e3a03218d8f4671b8c7b5b346"
-    assert "SELF_EVOLVE_ROOT_FETCH_REF" not in os.environ      # a bare sha isn't a fetch ref
-    assert os.environ["MONET_EVAL_HARBOR_N_CONCURRENT"] == "1"
+    assert os.environ["DARWINX_EVOLVE_EVAL_RUNTIME"] == "local"   # not the driver's cluster default
+    assert os.environ["DARWINX_EVOLVE_ROOT_COMMIT"] == "1261608f6530908e3a03218d8f4671b8c7b5b346"
+    assert "DARWINX_EVOLVE_ROOT_FETCH_REF" not in os.environ      # a bare sha isn't a fetch ref
+    assert os.environ["DARWINX_EVAL_HARBOR_N_CONCURRENT"] == "1"
 
 
 def test_prepare_runtime_env_branch_ref_is_fetchable(monkeypatch) -> None:
@@ -148,12 +148,12 @@ def test_prepare_runtime_env_branch_ref_is_fetchable(monkeypatch) -> None:
     for k in _RUNTIME_ENV_KEYS:
         monkeypatch.delenv(k, raising=False)
     _launch.prepare_runtime_env(_run_config(), AgentSource(repo="r", ref="develop"))
-    assert os.environ["SELF_EVOLVE_ROOT_COMMIT"] == "develop"
-    assert os.environ["SELF_EVOLVE_ROOT_FETCH_REF"] == "develop"   # a branch → fetchable
+    assert os.environ["DARWINX_EVOLVE_ROOT_COMMIT"] == "develop"
+    assert os.environ["DARWINX_EVOLVE_ROOT_FETCH_REF"] == "develop"   # a branch → fetchable
 
 
-_SUBSET_ENV_KEYS = ("MONET_EVAL_EXCLUDE_TASKS", "MONET_EVAL_PRIORITY_TASKS",
-                    "MONET_EVAL_VARIANCE_TASKS", "MONET_EVAL_FULLSET_TASKS")
+_SUBSET_ENV_KEYS = ("DARWINX_EVAL_EXCLUDE_TASKS", "DARWINX_EVAL_PRIORITY_TASKS",
+                    "DARWINX_EVAL_VARIANCE_TASKS", "DARWINX_EVAL_FULLSET_TASKS")
 
 
 def test_prepare_task_subset_env_translates_selectors(monkeypatch) -> None:
@@ -170,12 +170,12 @@ def test_prepare_task_subset_env_translates_selectors(monkeypatch) -> None:
     })
     out = _launch.prepare_task_subset_env(cfg)
     assert out == {
-        "MONET_EVAL_EXCLUDE_TASKS": "flaky-a,flaky-b",   # from benchmark.exclude_task_ids
-        "MONET_EVAL_PRIORITY_TASKS": "hard-1",           # from benchmark.options
-        "MONET_EVAL_VARIANCE_TASKS": "noisy",
-        "MONET_EVAL_FULLSET_TASKS": "t1,t2,t3",
+        "DARWINX_EVAL_EXCLUDE_TASKS": "flaky-a,flaky-b",   # from benchmark.exclude_task_ids
+        "DARWINX_EVAL_PRIORITY_TASKS": "hard-1",           # from benchmark.options
+        "DARWINX_EVAL_VARIANCE_TASKS": "noisy",
+        "DARWINX_EVAL_FULLSET_TASKS": "t1,t2,t3",
     }
-    assert os.environ["MONET_EVAL_EXCLUDE_TASKS"] == "flaky-a,flaky-b"   # set on env for the driver
+    assert os.environ["DARWINX_EVAL_EXCLUDE_TASKS"] == "flaky-a,flaky-b"   # set on env for the driver
 
 
 def test_prepare_task_subset_env_empty_when_unset(monkeypatch) -> None:
@@ -244,8 +244,10 @@ def test_emit_campaign_config_shape_and_evolver_roundtrip(tmp_path) -> None:
     doc = yaml.safe_load(dest.read_text())
 
     assert doc["cursor_agent"]["model"] == "auto"                 # evolver proposer model
-    # evolvee turn-budget + per-rollout timeout ride the monet block → build_codingbench_config
-    assert doc["monet"] == {"model": "target-model", "max_turns": 40, "timeout": 9000}
+    # evolvee registry NAME + turn-budget + per-rollout timeout ride the benchmarked-agent block →
+    # the eval resolves the evolvee via ``beagle.agents.build(name)`` (evolvee-agnostic selection).
+    assert doc["monet"] == {"name": "target", "model": "target-model",
+                            "max_turns": 40, "timeout": 9000}
     assert doc["benchmark"]["name"] == "terminal-bench-2-1"
     assert doc["benchmark"]["dataset"] == "tb2"
     assert doc["benchmark"]["repo_url"] == "https://example.test/exp-copy"  # evolvee θ
@@ -262,6 +264,30 @@ def test_emit_campaign_config_shape_and_evolver_roundtrip(tmp_path) -> None:
         meta_agent.set_editor(None)
 
 
+def test_evolvee_block_passes_registry_name_and_extra_knobs_through() -> None:
+    # A non-monet evolvee (e.g. mini-swe): its registry name selects the agent, its budgets ride
+    # top-level (where the eval reads them), and every OTHER adapter knob rides a nested ``config``
+    # so the eval can configure it generically — WITHOUT a monet-shaped block. ``agent_source`` is
+    # dropped from the passthrough (the eval threads code version from the benchmark block instead).
+    evolvee = SimpleNamespace(spec=AgentSpec(
+        name="mini-swe", model=ModelSpec(name="gpt-5.5"),
+        config={"max_turns": 30, "timeout": 1800, "provider": "sfr-gateway",
+                "effort": "high", "config_path": "src/minisweagent/config/benchmarks/swebench.yaml",
+                "agent_source": {"repo": "x"}}))
+    block = _launch._evolvee_block(evolvee)
+    assert block["name"] == "mini-swe" and block["model"] == "gpt-5.5"
+    assert block["max_turns"] == 30 and block["timeout"] == 1800     # budgets stay top-level
+    assert block["config"] == {"provider": "sfr-gateway", "effort": "high",
+                               "config_path": "src/minisweagent/config/benchmarks/swebench.yaml"}
+
+
+def test_evolvee_block_omits_config_when_no_extra_knobs() -> None:
+    # The monet path is unchanged: only name/model/budgets, no empty ``config`` key.
+    block = _launch._evolvee_block(_FakeEvolvee())
+    assert "config" not in block
+    assert block == {"name": "target", "model": "target-model", "max_turns": 40, "timeout": 9000}
+
+
 def test_emit_requires_models(tmp_path) -> None:
     ev = _FakeEvolver()
     ev.spec = AgentSpec(name="cursor", model=None)   # no model
@@ -274,7 +300,7 @@ def test_emit_requires_models(tmp_path) -> None:
 
 def test_build_pipeline_config_is_drift_proof(tmp_path) -> None:
     _launch.prepare_import_path()
-    from self_evolve.pipeline import PipelineConfig
+    from evolve.pipeline import PipelineConfig
 
     cfg = _launch.build_pipeline_config(
         PipelineConfig, campaign="camp", reports_root=tmp_path, repo_root=tmp_path,
@@ -294,8 +320,8 @@ def test_build_pipeline_config_defaults_parent_strategy_to_a_registered_one(tmp_
     # the driver's PipelineConfig default is a retired strategy — we fall back to its own canonical
     # DEFAULT_STRATEGY_NAME so `parent_selection.get_strategy` accepts it (the stale default raises).
     _launch.prepare_import_path()
-    from self_evolve import parent_selection
-    from self_evolve.pipeline import PipelineConfig
+    from evolve import parent_selection
+    from evolve.pipeline import PipelineConfig
 
     cfg = _launch.build_pipeline_config(
         PipelineConfig, campaign="c", reports_root=tmp_path, repo_root=tmp_path,
@@ -399,7 +425,7 @@ def test_read_best_returns_none_without_db(tmp_path) -> None:
 def _connect_seams(monkeypatch):
     """Monkeypatch the vendored pipeline to a no-op that captures its config."""
     _launch.prepare_import_path()
-    import self_evolve.pipeline as pipe
+    import evolve.pipeline as pipe
 
     captured: dict = {}
 
@@ -419,7 +445,7 @@ def test_evolve_launch_smoke_wires_all_seams(monkeypatch, tmp_path) -> None:
     captured = _connect_seams(monkeypatch)
     repo_root = tmp_path / "repo"
     (repo_root / "monet_code" / ".git").mkdir(parents=True)   # canonical evolvee clone present
-    for k in ("MONET_EVAL_REPO_ROOT", "MONET_EVAL_WORKTREE_PARENT", "ATELIER_CROSS_BENCH_GATE",
+    for k in ("DARWINX_EVAL_REPO_ROOT", "DARWINX_EVAL_WORKTREE_PARENT", "DARWINX_GATE_CROSS_BENCH_GATE",
               *_RUNTIME_ENV_KEYS):
         monkeypatch.delenv(k, raising=False)
     algo = dx.DarwinX(repo_root=str(repo_root), reports_root=str(tmp_path / "reports"),
@@ -434,13 +460,13 @@ def test_evolve_launch_smoke_wires_all_seams(monkeypatch, tmp_path) -> None:
     meta_agent.set_editor(None)
     # worktree paths pinned to our run via the driver's own overrides (set before import)
     import os
-    assert os.environ["MONET_EVAL_REPO_ROOT"] == str(repo_root.resolve())
+    assert os.environ["DARWINX_EVAL_REPO_ROOT"] == str(repo_root.resolve())
     # runtime/seed translated from config (evolvee ref "baseline" is branch-like → also a fetch ref)
-    assert os.environ["SELF_EVOLVE_EVAL_RUNTIME"] == "local"
-    assert os.environ["SELF_EVOLVE_ROOT_COMMIT"] == "baseline"
-    assert os.environ["SELF_EVOLVE_ROOT_FETCH_REF"] == "baseline"
-    # this algorithm's own gate knob (typed DarwinXConfig) → its ATELIER_* env
-    assert os.environ["ATELIER_CROSS_BENCH_GATE"] == "1"
+    assert os.environ["DARWINX_EVOLVE_EVAL_RUNTIME"] == "local"
+    assert os.environ["DARWINX_EVOLVE_ROOT_COMMIT"] == "baseline"
+    assert os.environ["DARWINX_EVOLVE_ROOT_FETCH_REF"] == "baseline"
+    # this algorithm's own gate knob (typed DarwinXConfig) → its DARWINX_GATE_* env
+    assert os.environ["DARWINX_GATE_CROSS_BENCH_GATE"] == "1"
     # seam C — the campaign config was emitted under reports_root
     cfg = captured["cfg"]
     assert captured["ran"] is True

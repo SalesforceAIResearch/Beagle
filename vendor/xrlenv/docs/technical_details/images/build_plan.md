@@ -42,9 +42,7 @@ section.
 
 > **SWE-bench Verified:** the examples below use the **canonical** benchmark-local
 > generator `xrlenv_plugins.benchmarks.swebench_verified.build_plan_gen`, which gates
-> `--all` on exact membership against the vendored 500-ID manifest. A legacy
-> `xrlenv_plugins.images_build.swebench_verified.build_plan_gen` still exists (same manifest
-> gate now) but is deprecated for new work.
+> `--all` on exact membership against the vendored 500-ID manifest.
 
 ```bash
 # 1. Generate the plan from a benchmark generator (one-off).
@@ -258,12 +256,12 @@ Required fields:
 ManifestInvalid: build plan rejected: 'local' context sources are
 build-host-only and aren't supported on the cluster build-apply path
 (it ships sources to nodes that may not share the path). Build them with
-scripts/build_and_push_images.py on a shared-fs build host (directly or
+deploy/registry/build_and_push_images.py on a shared-fs build host (directly or
 Slurm-sharded), then apply a registry-source plan. Offending entries: ...
 ```
 
 The intended flow for `local`-source entries is:
-1. Run `scripts/build_and_push_images.py` on the shared-fs build host (directly or Slurm-sharded). That script reads `local` entries from the plan, builds and pushes each image to the cluster registry.
+1. Run `deploy/registry/build_and_push_images.py` on the shared-fs build host (directly or Slurm-sharded). That script reads `local` entries from the plan, builds and pushes each image to the cluster registry.
 2. Apply a registry-source plan (re-emit with `type: registry`) against the live cluster to distribute the pushed images.
 
 For a worked example of a `local`-source plan entry see {doc}`/deploy/multi_node_deployment/private_registry` (WebArena substrate).
@@ -278,7 +276,7 @@ it for you.
 
 ### Per-benchmark plan generators
 
-Generators under `xrlenv_plugins/images_build/` translate a
+Per-benchmark generators under `xrlenv_plugins/benchmarks/<name>/` translate a
 benchmark's task catalog into the generic plan schema. They live
 alongside the benchmark adapters but are decoupled from rollout-time
 code — their only job is to translate a benchmark's task catalog
@@ -286,16 +284,16 @@ into the generic plan schema.
 
 | Generator | Module | Default context source |
 |---|---|---|
-| `terminal-bench-2` | `xrlenv_plugins.images_build.terminal_bench_2.build_plan_gen` | `registry` (`alexgshaw/<task>:20251031`) |
+| `terminal-bench-2-1` | `xrlenv_plugins.benchmarks.terminal_bench_2_1.build_plan_gen` | `registry` (per-task `docker_image` from `task.toml`) |
 | `swebench-verified` | `xrlenv_plugins.benchmarks.swebench_verified.build_plan_gen` | `registry` (`swebench/sweb.eval.x86_64.<key>:latest`) |
 | `seta-env` | `xrlenv_plugins.benchmarks.seta.build_plan_gen` | `git` (camel-ai/seta-env, per-task `Harbor-Dataset/<id>/environment`) |
 
 Sample invocations:
 
 ```bash
-# terminal-bench-2: 8-task smoke set, sizes probed live from Docker Hub
-.venv/bin/python -m xrlenv_plugins.images_build.terminal_bench_2.build_plan_gen \
-    --smoke --output build_plan.yaml
+# terminal-bench-2-1: a few tasks, sizes probed live from Docker Hub
+.venv/bin/python -m xrlenv_plugins.benchmarks.terminal_bench_2_1.build_plan_gen \
+    --tasks fix-git,build-pov-ray,overfull-hbox --output build_plan.yaml
 
 # swebench-verified: full 500-instance sweep. --max-workers 8 runs
 # Docker Hub probes 8-way concurrent; cuts a 500-entry --all sweep
@@ -699,8 +697,7 @@ operator stays in the driver's seat.
 
 If your plans have hundreds of entries and the sub-second-per-
 entry RTT becomes material, surface it — that's the case
-that would justify revisiting automatic delta dispatch. Tracked
-in `notes/phase-2-todo.md` § "Deferred-by-design".
+that would justify revisiting automatic delta dispatch.
 
 ### Targeted retry: `--fill-missing`
 
@@ -830,7 +827,7 @@ runtime path's `ensure_present`.
 
 **Worked examples**
 
-Two real cluster convergences observed during phase-1 validation —
+Two real cluster convergences we've observed —
 both fit their entire plan onto **two nodes with ~60 GB free disk
 each (~120 GB cluster cache budget after reservations)**:
 
@@ -860,7 +857,7 @@ smaller plans (single-digit deferreds), one pass typically suffices.
 The manual iteration loop is fine for the dozens-to-hundreds-of-
 images plans we've validated. For order-of-thousands plans where
 4-6 passes might be needed and the operator just wants a single
-"converge" verb, a future slice can add `xrlenv build apply
+"converge" verb, a future release can add `xrlenv build apply
 --converge`: an admin-side loop that auto-runs `--fill-missing`
 until the deferred count stabilizes or hits zero, returning only
 when terminal. Worth shipping when the manual loop becomes a
@@ -923,7 +920,7 @@ materialized cache.
 on both sides before matching. A plan entry with a bare `repo:tag`
 (`image_ref: xrlenv-webarena-infinity/substrate:dev`) correctly matches
 the registry-qualified tag a node holds after a pull
-(`node-host:5011/xrlenv-webarena-infinity/substrate:dev`). Before
+(`<registry-host>:5011/xrlenv-webarena-infinity/substrate:dev`). Before
 this fix, calibrate reported "0 measured" for such entries while the
 admin `/images` page correctly listed the image.
 
@@ -991,8 +988,7 @@ heuristic.
 The output goes to a separate file so the operator can `diff`
 against the input + decide before promoting (typical flow:
 calibrate → review → `mv plan.calibrated.yaml plan.yaml ; git
-commit`). The flow is intentionally operator-driven (locked F5
-in `notes/source-build-dispatch.md`): the calibrated sizes feed
+commit`). The flow is intentionally operator-driven: the calibrated sizes feed
 FFD placement, which directly affects which nodes get which
 images on the next apply, and auto-on-apply would silently
 reshape the cluster between unrelated runs.

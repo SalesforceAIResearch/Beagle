@@ -181,7 +181,7 @@ reference genuinely maxes below 0.95 (verified from each grader); the rest are s
 | nbody-accel-iterative | 0.16 | dense (green) | speedup / 20× cap; oracle hits a real 5×, correct |
 | tabular-data-feature-covshift | 0.05 | dense (green) | back-weighted² reward + anti-leak guard zeroes high scores |
 | sudoku-recovery | 0.00 | unrecovered | upstream ref/harness-model conflict (needs root; harbor runs oracle as `agent`) |
-| chess-mate | — | build+push route | multi-service compose; `game` sidecar built + pushed to the private registry via `build_plan_gen --all` → `scripts/build_and_push_images.py` (README §2). Runs in the ordinary sweep after the rebuild — the sidecar namespace is derived from the repinned main ref (no `IMAGE_TEMPLATE`); excluded only from the out-of-box docker.io gate |
+| chess-mate | — | build+push route | multi-service compose; `game` sidecar built + pushed to the private registry via `build_plan_gen --all` → `deploy/registry/build_and_push_images.py` (README §2). Runs in the ordinary sweep after the rebuild — the sidecar namespace is derived from the repinned main ref (no `IMAGE_TEMPLATE`); excluded only from the out-of-box docker.io gate |
 | unknown-config-semantics | 0.00 | stale image | pinned `:20260615` bakes an old daemon w/o `nonce` → rebuild+repin |
 | apex-openroad-ibex-signoff | 0.00 | upstream ref | reference `solve.sh` never applies the `config.mk` fixes it documents |
 
@@ -191,7 +191,7 @@ Baked into the prebuilt images, so a `solve.sh` workaround only greens the *orac
 **real agent** hits them. `build_cache --stage patch` now writes the fix into the
 **build context** (Dockerfile / harness), so §2's rebuild bakes it — persistent for
 the oracle AND a real agent. Flow: `build_cache --stage patch` (bakes the fix) →
-`build_plan_gen --all` → `scripts/build_and_push_images.py` → `build_cache --stage
+`build_plan_gen --all` → `deploy/registry/build_and_push_images.py` → `build_cache --stage
 repin` (README §2). All are in `REBUILD_TASKS`.
 
 | Image | Task(s) | Defect | Build-context fix (`build_cache`) |
@@ -211,7 +211,7 @@ change helps.
 
 ```bash
 set -a; . ./.env; set +a
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 python xrlenv_plugins/benchmarks/lhtb/build_cache.py --stage all --registry "$XRLENV_PRIVATE_REGISTRY_HOST"  # clone + LFS + fixes + repin the 6 REBUILD tasks (§2 path; --use-upstream-image instead for the out-of-box gate)
 # the gate — DEFAULT §2 mode runs GREEN + TBD = 43 (drops only the 3 BLACKLIST); add
 # --use-upstream-image for the docker.io gate (37: drops the 6 rebuilds too). Shouts the excluded set:

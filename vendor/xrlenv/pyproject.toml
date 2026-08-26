@@ -50,11 +50,10 @@ observability = [
     "opentelemetry-exporter-otlp-proto-grpc>=1.27",
 ]
 
-# Per-benchmark extras. Each benchmark's onboarding example (under
-# ``examples/benchmarks-onboarding/<name>/``) declares its
+# Per-benchmark extras. Each onboarded benchmark declares its
 # framework dep here so ``pip install -e .[terminal-bench-2]`` /
 # ``pip install -e .[swebench-verified]`` pulls in everything the
-# smoke needs. Under the slim pivot the extras name the *benchmark*,
+# plug-in + oracle sweep needs. Under the slim pivot the extras name the *benchmark*,
 # not an in-tree plug-in package — the integration shape lives in
 # ``xrlenv_plugins.harbor`` (case-3) or ``xrlenv.compat.docker_client``
 # (case-2 drop-in), not in a per-benchmark plug-in dir.
@@ -79,8 +78,8 @@ swebench-verified = [
     # so the swebench version contract carries over verbatim.
     "swebench>=4.1.0",
     # ``datasets`` powers the HF-cache-first dataset loader the
-    # onboarding smoke uses (``HF_DATASETS_OFFLINE`` toggle in
-    # examples/benchmarks-onboarding/swebench-verified/smoke.py).
+    # swebench-verified drop-in uses (``HF_DATASETS_OFFLINE`` toggle in
+    # tests/smoke/benchmark_integration/test_swebench_drop_in.py).
     "datasets>=4.8.5",
 ]
 deep-swe = [

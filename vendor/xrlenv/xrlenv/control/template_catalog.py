@@ -31,6 +31,7 @@ from xrlenv.control.image_builder import ImageBuilderDecl
 from xrlenv.control.instance_resolver import InstanceResolverDecl
 from xrlenv.envs.base import REWARD_MODES
 from xrlenv.errors import ManifestInvalid
+from xrlenv.image_build import ImageBuildSpec
 
 #: A1 / D20 (P1.2) — how the platform identifies the image's bytes.
 #:
@@ -50,7 +51,17 @@ from xrlenv.errors import ManifestInvalid
 #:   layer's content hash, not via a registry. Reserved for phase-2
 #:   deployments — accepted by the schema today but treated like
 #:   ``per_node_local`` (no central pinning) in P1.2.
-ImagePinMode = Literal["registry_digest", "per_node_local", "shared_storage"]
+#: - ``"scratch_build"``: image is built on demand from the template's
+#:   ``image_build:`` Dockerfile into the content-addressed scratch
+#:   registry (``notes/scratch-registry-build-on-demand.md``). Like the
+#:   registry-backed default a cold-cache miss is fine — the node
+#:   builds-and-pushes on first use — so D19 does NOT fail-fast on
+#:   absence. But the catalog skips register-time central pinning: the
+#:   manifest digest isn't known until the first build, so it is
+#:   resolved and pinned lazily then.
+ImagePinMode = Literal[
+    "registry_digest", "per_node_local", "shared_storage", "scratch_build",
+]
 
 LOGGER = logging.getLogger(__name__)
 
@@ -256,7 +267,17 @@ class TemplateManifest(BaseModel):
     digest: str
     image: str | None = None
     """Outer image. Required for Pattern B / Simple templates; may be
-    omitted for Pattern A (the resolver supplies the per-task image)."""
+    omitted for Pattern A (the resolver supplies the per-task image) and
+    for ``scratch_build`` templates (the content-addressed scratch ref is
+    derived from ``image_build`` at first build)."""
+    image_build: ImageBuildSpec | None = None
+    """Spec 06 §"Build-from-source variant": a bring-your-own-Dockerfile
+    build-on-demand declaration (a local ``context:`` dir or a ``git:``
+    context). When set, ``image_pin_mode`` is ``scratch_build``: the
+    platform builds the image once for the fleet into the content-addressed
+    scratch registry and distributes it by pull. Distinct from
+    ``image_builder`` (a plug-in ``BenchmarkImageBuilder`` class). See
+    ``notes/scratch-registry-build-on-demand.md``."""
     resources: ResourceSpec
     """Resource budget envelope. For Pattern A this is a placeholder —
     the resolver returns per-task resources that override this at
@@ -308,7 +329,9 @@ class TemplateManifest(BaseModel):
     identified across the cluster. ``registry_digest`` is the default
     (catalog pins centrally at register time); ``per_node_local`` skips
     central pinning for benchmarks built per-host (terminal-bench-2
-    today); ``shared_storage`` is reserved for phase-2 NFS/S3 mounts.
+    today); ``shared_storage`` is reserved for phase-2 NFS/S3 mounts;
+    ``scratch_build`` (implied by an ``image_build`` block) builds on
+    demand into the scratch registry with lazy digest pinning.
     See :data:`ImagePinMode` for the full contract."""
     raw: dict[str, Any] = Field(default_factory=dict)
 
@@ -541,6 +564,7 @@ class TemplateCatalog:
                         "image_pin_mode": manifest.image_pin_mode,
                         "digest_source": (
                             "per_node" if manifest.image_pin_mode == "per_node_local"
+                            else "scratch" if manifest.image_pin_mode == "scratch_build"
                             else "shared_storage"
                         ),
                     },
@@ -667,17 +691,21 @@ def _manifest_from_raw(
     version = str(raw.get("version") or "0.1")
 
     has_instances = bool(raw.get("instances"))
+    has_image_build = raw.get("image_build") is not None
     image: str | None
     if "image" in raw and raw["image"] is not None:
         image = _require_str(raw, "image")
-    elif has_instances:
-        # Pattern A: per-task image from the resolver.
+    elif has_instances or has_image_build:
+        # Pattern A (resolver supplies per-task image) or scratch_build
+        # (image_build — the content-addressed scratch ref is derived from
+        # the build spec at first use). Image is legitimately unset here.
         image = None
     else:
         raise ManifestInvalid(
             f"template {name!r}: 'image' is required for templates without an "
-            "'instances:' block (Pattern A plug-ins source images per-task "
-            "via the resolver instead)"
+            "'instances:' or 'image_build:' block (Pattern A plug-ins source "
+            "images per-task via the resolver; scratch_build derives the ref "
+            "from the Dockerfile build)"
         )
 
     # Per-experiment policy (resources / deadlines) is no longer part
@@ -762,22 +790,70 @@ def _manifest_from_raw(
 
     digest = _compute_digest(raw)
 
-    image_pin_mode_raw = raw.get("image_pin_mode") or "registry_digest"
+    image_build: ImageBuildSpec | None = None
+    raw_image_build = raw.get("image_build")
+    if raw_image_build is not None:
+        if not isinstance(raw_image_build, dict):
+            raise ManifestInvalid(
+                "manifest field 'image_build' must be a mapping "
+                "(context/git + optional dockerfile/build_args/durable_to)"
+            )
+        try:
+            image_build = ImageBuildSpec.model_validate(raw_image_build)
+        except Exception as exc:
+            raise ManifestInvalid(
+                f"manifest field 'image_build' is malformed: {exc}"
+            ) from exc
+        # Anchor a relative ``context`` dir to the manifest dir so the scratch
+        # build resolves it regardless of the process CWD at build time.
+        if (
+            image_build.context is not None
+            and manifest_dir is not None
+            and not Path(image_build.context).is_absolute()
+        ):
+            resolved = (manifest_dir / image_build.context).resolve()
+            image_build = image_build.model_copy(
+                update={"context": str(resolved)},
+            )
+
+    # An ``image_build`` block implies ``scratch_build`` — the user does not
+    # hand-edit image_pin_mode (notes/scratch-registry-build-on-demand.md).
+    explicit_pin_mode = raw.get("image_pin_mode")
+    if explicit_pin_mode:
+        image_pin_mode_raw = explicit_pin_mode
+    elif image_build is not None:
+        image_pin_mode_raw = "scratch_build"
+    else:
+        image_pin_mode_raw = "registry_digest"
     if image_pin_mode_raw not in (
-        "registry_digest", "per_node_local", "shared_storage",
+        "registry_digest", "per_node_local", "shared_storage", "scratch_build",
     ):
         raise ManifestInvalid(
             f"manifest field 'image_pin_mode' must be one of "
-            f"'registry_digest', 'per_node_local', 'shared_storage'; "
-            f"got {image_pin_mode_raw!r}"
+            f"'registry_digest', 'per_node_local', 'shared_storage', "
+            f"'scratch_build'; got {image_pin_mode_raw!r}"
         )
     image_pin_mode = cast(ImagePinMode, image_pin_mode_raw)
+    if image_build is not None and image_pin_mode != "scratch_build":
+        raise ManifestInvalid(
+            "manifest declares an 'image_build' block but "
+            f"image_pin_mode={image_pin_mode!r}; a build-on-demand template "
+            "must use image_pin_mode 'scratch_build' (or omit image_pin_mode "
+            "to default it)"
+        )
+    if image_pin_mode == "scratch_build" and image_build is None:
+        raise ManifestInvalid(
+            "manifest declares image_pin_mode 'scratch_build' but has no "
+            "'image_build' block; scratch_build builds the image on demand "
+            "from an image_build Dockerfile spec"
+        )
 
     return TemplateManifest(
         name=name,
         version=version,
         digest=digest,
         image=image,
+        image_build=image_build,
         resources=resources,
         env_adapter=env_adapter,
         reward=reward,

@@ -9,8 +9,8 @@ from xrlenv_plugins.benchmarks._benchmark_cache import (
     guard_legacy_cache_env,
 )
 
-_NEW = "/path/to/benchmark-cache"
-_OLD = "/path/to/data/xrlenv_harbor_cache"
+_NEW = "/path/to/xrlenv_benchmark_cache"
+_OLD = "/path/to/xrlenv_harbor_cache"
 
 
 def _clear(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -41,11 +41,11 @@ cache in two idempotent stages:
 `--dest` is the shared harbor cache **root** and defaults to
 `$XRLENV_BENCHMARK_CACHE`; the dataset lands under `<dest>/terminal-bench-2-1/` so
 future datasets sit beside it under the same root. The shared patched cache
-lives at `/path/to/benchmark-cache` — point every xrlenv
+lives at `<shared-cache-root>` — point every xrlenv
 consumer's `XRLENV_BENCHMARK_CACHE` at it.
 
 ```bash
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 
 # populate (if missing) + patch. Idempotent; safe to re-run.
 .venv/bin/python xrlenv_plugins/benchmarks/terminal_bench_2_1/build_cache.py --stage all
@@ -123,7 +123,7 @@ once over that set, trusting its exit code.
 
 ```bash
 set -a; source ./.env; set +a                      # XRLENV_GRPC_HOST + token
-export XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache
+# XRLENV_BENCHMARK_CACHE (the shared cache ROOT) is read from .env — see .env.example
 
 bash xrlenv_plugins/benchmarks/terminal_bench_2_1/run_full_sweep.sh   # 88 green tasks
 # override concurrency: ... run_full_sweep.sh --max-workers 64
@@ -175,7 +175,7 @@ plan for the whole populated shard, then eager-warm every image across the fleet
 
 ```bash
 # regenerate the committed plan (registry-probed sizes) whenever the shard's tags change:
-XRLENV_BENCHMARK_CACHE=/path/to/benchmark-cache \
+# XRLENV_BENCHMARK_CACHE is read from .env
 .venv/bin/python -m xrlenv_plugins.benchmarks.terminal_bench_2_1.build_plan_gen \
     --all --output ./xrlenv_plugins/benchmarks/terminal_bench_2_1/build_plan_89_full.yaml
 

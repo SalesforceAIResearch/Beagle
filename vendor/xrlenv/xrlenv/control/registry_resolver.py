@@ -80,11 +80,11 @@ def resolver_from_env(
       pull from). The case this exists for: a control plane **co-located
       with the registry**. There, the box can reach the registry over
       loopback (``127.0.0.1:5011``) but often *not* via its own external
-      name (``node-host:5011``) — host→own-published-port hairpin
+      name (``<registry-host>:5011``) — host→own-published-port hairpin
       NAT is unreliable (notably under docker 29), while remote nodes
       reach the external name fine. Set e.g.
-      ``node-host:5011=127.0.0.1:5011`` so the CP probes loopback
-      while nodes still pull ``node-host:5011/...@sha256:…``. Empty /
+      ``<registry-host>:5011=127.0.0.1:5011`` so the CP probes loopback
+      while nodes still pull ``<registry-host>:5011/...@sha256:…``. Empty /
       unset → dial the ref host verbatim (the default).
     """
     import os

@@ -178,6 +178,7 @@ class NodeGrpcLink:
         backends: list[str] | None = None,
         reconnect_max_s: float = 600.0,
         heartbeat_interval_s: float = 5.0,
+        server_silence_deadline_s: float = 30.0,
         bearer_token: str | None = None,
     ) -> None:
         self._agent = agent
@@ -185,6 +186,14 @@ class NodeGrpcLink:
         self._backends = backends or agent.supported_backends()
         self._reconnect_max_s = reconnect_max_s
         self._heartbeat_interval_s = heartbeat_interval_s
+        # Defense-in-depth (2026-08-21): the control plane beats every connected
+        # node with a periodic keepalive ControlMsg. If we go this long without
+        # ANY message from the CP (command OR keepalive), the stream is
+        # effectively dead to the CP — it deregistered us, or the stream went
+        # half-open while HTTP/2 keepalive still answers — so proactively redial
+        # and re-register instead of lingering ``lost`` forever. Must exceed the
+        # CP keepalive cadence (5s) with margin; 30s ≈ 6 missed beats.
+        self._server_silence_deadline_s = server_silence_deadline_s
         # Spec 19 §"API authz scopes": passed verbatim as
         # ``Authorization: Bearer <token>`` on every NodeControlStream
         # call. The control-plane interceptor verifies it against the
@@ -285,6 +294,14 @@ class NodeGrpcLink:
         sweep_task: asyncio.Task[None] | None = None
         aimd_task: asyncio.Task[None] | None = None
         guard_task: asyncio.Task[None] | None = None
+        silence_task: asyncio.Task[None] | None = None
+        # Server-liveness (2026-08-21): last time ANY message (command or
+        # keepalive) arrived from the control plane; the silence watchdog redials
+        # if this goes stale. ``redial`` records that WE initiated the
+        # disconnect (via ``call.cancel()``) so the reconnect isn't mistaken for
+        # a fatal error or a shutdown.
+        last_ctrl_at = [time.monotonic()]
+        redial = [False]
 
         # Send NodeHello as the first NodeMsg.
         hello = pb.NodeHello(
@@ -335,7 +352,9 @@ class NodeGrpcLink:
                     msg, guard_bytes=MAX_OUTBOUND_MESSAGE_GUARD_BYTES,
                 )
 
-        # Audit M1: match the control-plane server's GRPC_CHANNEL_OPTIONS
+        # Audit M1: match the control-plane server's message-size caps. This is the
+        # CLIENT list, so it also carries keepalive pings; the server permits them
+        # via GRPC_SERVER_OPTIONS.
         # so verifier-asset tarballs above gRPC's 4 MB default still flow.
         async with grpc.aio.insecure_channel(
             self._control_addr, options=GRPC_CHANNEL_OPTIONS,
@@ -354,6 +373,9 @@ class NodeGrpcLink:
             try:
                 first_seen = False
                 async for ctrl in call:
+                    # Any message (command OR keepalive) proves the CP still
+                    # holds this stream — refresh the silence watchdog's clock.
+                    last_ctrl_at[0] = time.monotonic()
                     if not first_seen:
                         # First ControlMsg in every new epoch is ControlHello.
                         # Once we know the control plane is ready, start the
@@ -412,6 +434,19 @@ class NodeGrpcLink:
                                 guard.run_loop(),
                                 name=f"disk-guard-{self._agent.node_id}",
                             )
+                        # Server-liveness watchdog: redial if the CP goes silent
+                        # past the deadline (it beats every connected node with
+                        # keepalives, so prolonged silence means it dropped us or
+                        # the stream is half-open). Cancelled in the finally.
+                        silence_task = asyncio.create_task(
+                            self._server_liveness_loop(call, last_ctrl_at, redial),
+                            name=f"server-liveness-{self._agent.node_id}",
+                        )
+                        continue
+                    if ctrl.WhichOneof("body") is None:
+                        # Empty-body keepalive — liveness only (already refreshed
+                        # ``last_ctrl_at`` above). Do NOT advance replay
+                        # coordinates or dispatch it as a command.
                         continue
                     self._last_command_seq_seen = max(
                         self._last_command_seq_seen, ctrl.seq
@@ -422,9 +457,26 @@ class NodeGrpcLink:
                     )
                     in_flight.add(task)
                     task.add_done_callback(in_flight.discard)
+            except (asyncio.CancelledError, grpc.aio.AioRpcError):
+                # If WE triggered the disconnect via the server-liveness watchdog
+                # (``call.cancel()`` on keepalive silence), swallow it so
+                # ``run_forever`` treats this as a normal reconnect. Anything else
+                # — a real shutdown task-cancel, or a genuine RPC error —
+                # propagates unchanged (run_forever re-raises CancelledError and
+                # reconnects on other errors, exactly as before).
+                if not (redial[0] and not self._stop.is_set()):
+                    raise
+                LOGGER.info(
+                    "node=%s redialing control_plane=%s after keepalive silence",
+                    self._agent.node_id, self._control_addr,
+                )
             finally:
                 # Remember epoch so the next NodeHello can carry replay coords.
                 self._prior_epoch = stream_epoch
+                if silence_task is not None and not silence_task.done():
+                    silence_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await silence_task
                 if heartbeat_task is not None and not heartbeat_task.done():
                     heartbeat_task.cancel()
                     with suppress(asyncio.CancelledError):
@@ -445,6 +497,43 @@ class NodeGrpcLink:
                     guard_task.cancel()
                     with suppress(asyncio.CancelledError):
                         await guard_task
+
+    async def _server_liveness_loop(
+        self,
+        call: Any,
+        last_ctrl_at: list[float],
+        redial: list[bool],
+    ) -> None:
+        """Redial if the control plane goes silent past the deadline.
+
+        The CP beats every connected node with a periodic keepalive ControlMsg,
+        so a prolonged gap in ANY inbound message (command or keepalive) means
+        the CP no longer holds this stream — it deregistered us (the heartbeat
+        watchdog), or the stream went half-open while HTTP/2 keepalive is still
+        answered. Cancelling ``call`` breaks the reader's ``async for``;
+        ``redial`` records that this was our own doing so ``run_forever``
+        reconnects (fresh NodeHello → re-register) instead of erroring out.
+        """
+        check_interval = max(1.0, self._server_silence_deadline_s / 3.0)
+        try:
+            while not self._stop.is_set():
+                await asyncio.sleep(check_interval)
+                silent_for = time.monotonic() - last_ctrl_at[0]
+                if silent_for > self._server_silence_deadline_s:
+                    LOGGER.warning(
+                        "node=%s: no message from control_plane=%s for %.0fs "
+                        "(> %.0fs deadline) — stream looks dead to the CP; "
+                        "redialing to re-register.",
+                        self._agent.node_id,
+                        self._control_addr,
+                        silent_for,
+                        self._server_silence_deadline_s,
+                    )
+                    redial[0] = True
+                    call.cancel()
+                    return
+        except asyncio.CancelledError:
+            return
 
     # ── Heartbeat ────────────────────────────────────────────────────────────
 
@@ -954,6 +1043,8 @@ class NodeGrpcLink:
             return await self._exec_apply_egress(ctrl.apply_egress)
         if kind == "evict_image":
             return await self._exec_evict_image(ctrl.evict_image)
+        if kind == "register_scratch_source":
+            return await self._exec_register_scratch_source(ctrl.register_scratch_source)
         raise XRLEnvError(f"node link: unknown command kind {kind!r}")
 
     async def _exec_create(self, cmd: pb.CreateSandboxCommand) -> pb.CommandReply:
@@ -1515,12 +1606,27 @@ class NodeGrpcLink:
                 ),
             )
         timeout_s = cmd.timeout_s if cmd.timeout_s > 0 else 1800.0
+        repo_digest: str | None = None
         try:
-            status, error = await builder.build(
-                image_ref=cmd.image_ref, source=source,
-                timeout_s=timeout_s, labels=dict(cmd.labels),
-                skip_if_present=bool(cmd.skip_if_present),
-            )
+            if cmd.push:
+                # ``xrlenv build push`` — build AND push image_ref to the
+                # registry it encodes, resolving the pushed digest. Registry-HEAD
+                # skip (check_registry_first) makes a re-run cheap and keeps
+                # overlapping dispatch from double-pushing (build-once fleet-wide).
+                result = await builder.build_and_push(
+                    image_ref=cmd.image_ref, source=source,
+                    timeout_s=timeout_s, labels=dict(cmd.labels),
+                    check_registry_first=True,
+                )
+                status, error, repo_digest = (
+                    result.status, result.error, result.repo_digest,
+                )
+            else:
+                status, error = await builder.build(
+                    image_ref=cmd.image_ref, source=source,
+                    timeout_s=timeout_s, labels=dict(cmd.labels),
+                    skip_if_present=bool(cmd.skip_if_present),
+                )
         except Exception as exc:
             LOGGER.exception(
                 "build_image dispatch raised for %s", cmd.image_ref,
@@ -1540,8 +1646,68 @@ class NodeGrpcLink:
                 image_ref=cmd.image_ref,
                 status=status,
                 error=error or "",
+                repo_digest=repo_digest or "",
             ),
         )
+
+    async def _exec_register_scratch_source(
+        self, cmd: pb.RegisterScratchSourceCommand,
+    ) -> pb.CommandReply:
+        """Register a content-addressed scratch ref → build source on this
+        node (scratch build-on-demand). No build happens here — the later
+        ``ensure_present`` builds + pushes to the scratch registry lazily."""
+        from xrlenv.control.build_plan import GitSource, TarballSource
+        from xrlenv.node.source_builder import GitSourceBuilder
+
+        get_sb = getattr(self._agent, "source_builder", None)
+        if get_sb is not None:
+            builder = get_sb()
+        else:
+            builder = getattr(self, "_source_builder", None)
+            if builder is None:
+                builder = GitSourceBuilder()
+                self._source_builder = builder
+
+        def _reply(status: str, error: str = "") -> pb.CommandReply:
+            return pb.CommandReply(
+                command_id=cmd.header.command_id,
+                status=pb.ReplyStatus.OK,
+                register_scratch_source=pb.RegisterScratchSourceReply(
+                    image_ref=cmd.image_ref, status=status, error=error,
+                ),
+            )
+
+        kind = cmd.WhichOneof("source")
+        source: GitSource | TarballSource
+        if kind == "git":
+            source = GitSource(
+                repo=cmd.git.repo, ref=cmd.git.ref,
+                subdir=cmd.git.subdir or ".",
+                dockerfile=cmd.git.dockerfile or "Dockerfile",
+            )
+        elif kind == "tarball":
+            import base64
+            source = TarballSource(
+                path="<wire>",
+                dockerfile=cmd.tarball.dockerfile or "Dockerfile",
+                content_b64=base64.b64encode(cmd.tarball.content).decode("ascii"),
+            )
+        else:
+            return _reply(
+                "failed",
+                f"RegisterScratchSourceCommand carried no recognized "
+                f"source ({kind!r})",
+            )
+        try:
+            builder.register_scratch_source(
+                cmd.image_ref, source, durable_to=cmd.durable_to or None,
+            )
+        except Exception as exc:
+            LOGGER.exception(
+                "register_scratch_source dispatch raised for %s", cmd.image_ref,
+            )
+            return _reply("failed", f"{type(exc).__name__}: {exc}")
+        return _reply("ok")
 
     async def _exec_cancel_build_image(
         self, cmd: pb.CancelBuildImageCommand,

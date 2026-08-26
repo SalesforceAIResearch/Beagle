@@ -38,9 +38,9 @@ higher-tier smoke fails, the wire layer is the suspect.
 **Invocation.**
 
 ```bash
-uv run python tests/smoke/single_rollout.py
+uv run python tests/smoke/cluster_bringup/single_rollout.py
 # or:
-.venv/bin/python tests/smoke/single_rollout.py
+.venv/bin/python tests/smoke/cluster_bringup/single_rollout.py
 ```
 
 **Output.** A sequence of step results from `echo` commands inside
@@ -78,11 +78,11 @@ upgrading the control plane / node binary.
 
 ```bash
 # Embedded mode (replaces xrlenv up for the duration of the run):
-python tests/smoke/cluster_smoke.py \
+python tests/smoke/cluster_bringup/cluster_smoke.py \
     --grpc-port 50051 --min-nodes 2 --rollouts 4 --spread
 
 # Connect mode (leaves xrlenv up running, dials it):
-python tests/smoke/cluster_smoke.py \
+python tests/smoke/cluster_bringup/cluster_smoke.py \
     --connect-host 127.0.0.1 --connect-port 50051 \
     --consumer-token "$XRLENV_CONSUMER_TOKEN" \
     --min-nodes 2 --rollouts 4 --spread

@@ -160,13 +160,24 @@ When a harness process is hard-killed (SIGKILL, OOM, EC2 spot
 preemption), it leaves its containers running and its capacity reserved
 until `session_deadline_s` expires — historically up to 4 hours. The
 consumer-liveness reaper closes this gap: it reclaims those sessions in
-roughly **2 minutes** (the liveness TTL), while never touching a
-healthy long-running job.
+roughly **15 minutes** (the quarantine horizon), while never touching a
+healthy long-running job — or a merely *stalled* one.
+
+**Two phases, because silence is not death.** Crossing the liveness TTL
+(120 s) marks a session `suspect`: a warning and a metric, nothing else.
+Only continued silence through the quarantine horizon (900 s) destroys
+it. The distinction matters because a consumer whose *host* stalls — a
+memory-reclaim stall, a frozen VM — is alive and will come back, but at
+the TTL it is indistinguishable from one that exited. Destroying it
+throws away real work; waiting costs only that a genuinely dead
+consumer holds its slot longer, which the 4 h deadline bounds anyway.
+The liveness reaper is a reclamation *latency optimization*, not the
+leak backstop, so it is tuned to favour waiting.
 
 **How it works.** The SDK automatically beats each live raw-container
 session on a background interval. The control plane tracks these
 heartbeats. A session is eligible for liveness reaping only when all
-three hold:
+four hold:
 
 1. The consumer has sent at least one heartbeat (opt-in signal — sessions
    from older SDK versions that never heartbeat fall back to the
@@ -174,8 +185,16 @@ three hold:
 2. No session-scoped RPC is in flight — an open `exec`, `put_archive`,
    or `get_archive` means the consumer is still connected and waiting.
    A 30-minute blocking exec is never reaped mid-command.
-3. The liveness clock is staler than the liveness TTL (default 120 s).
-   Every RPC and every explicit heartbeat resets the clock.
+3. The session is not already being torn down — a destroy in flight for
+   any other reason (a slow consumer `destroy`, the wall-clock deadline
+   sweep) takes it out of both liveness phases, so it is never marked
+   `suspect` mid-teardown.
+4. The liveness clock is staler than the relevant threshold — the TTL
+   (default 120 s) to be marked `suspect`, the quarantine horizon
+   (default 900 s) to actually be destroyed. Both are measured from the
+   same clock, so a single signal retires both at once; every RPC and
+   every explicit heartbeat resets it, and a suspect session that
+   signals again is restored with no work lost.
 
 The liveness clock is reset by every session-scoped RPC (implicit
 heartbeat) and by every explicit keepalive beat. The raw-GC reconciler
@@ -196,30 +215,62 @@ consumer processes, not the number of sessions.
 
 | Scenario | Time to reap | Terminal status |
 |---|---|---|
-| Hard-killed harness (SIGKILL, OOM) | ~TTL (≈ 2 min by default) | `reaped` |
+| Hard-killed harness (SIGKILL, OOM) | ~quarantine horizon (≈ 15 min by default; `suspect` at ≈ 2 min) | `reaped` |
 | Consumer alive and mid-exec | Never — in-flight RPC blocks reap | — |
 | Consumer alive and idle (heartbeats flowing) | Never | — |
 | Session past wall-clock deadline | Reaps at `session_deadline_s` regardless | `reaped` |
-| Reap whose teardown raises | Immediate on exception | `failed` |
+| Reap whose teardown is not node-confirmed (raises or times out) | Re-attempted on the next sweep | Not sealed yet — the row stays `running` |
 
-`reaped` is distinct from `failed`. It means the GC reclaimed the session
-because its wall-clock deadline or liveness TTL expired and teardown
-completed cleanly. It does **not** indicate an error in the rollout's work
-and is excluded from the admin panel's high-failure-rate alert. Only a reap
-whose teardown itself raises seals `failed`.
+`reaped` is distinct from `failed`. It means the platform tore the session down
+on purpose and teardown completed cleanly. Every teardown carrying a reason
+seals `reaped` — the wall-clock deadline sweep and the liveness quarantine sweep
+above, but also a group teardown (`terminate_raw_group`) and the orphan sweep
+sealing a container the node reaped on its own (disk guard, OOM); the row's
+`error` column carries the specific cause. It does **not** indicate an error in
+the rollout's work and is excluded from the admin panel's high-failure-rate
+alert.
+
+A reap whose teardown is *not* node-confirmed — the node raised or the destroy
+timed out — seals **nothing**. Capacity is released only on a node-confirmed
+destroy, so the session stays charged, the row stays `running`, and the
+reconciler re-attempts the teardown on its next sweep (or the orphan sweep
+seals it once the container is confirmed gone).
 
 **Env knobs (set on the control-plane host or consumer host before
 process start):**
 
 | Variable | Side | Default | Meaning |
 |---|---|---|---|
-| `XRLENV_RAW_LIVENESS_TTL_S` | Server | `120` | How long a raw session may go with no liveness signal (RPC or heartbeat) before the reaper acts. Lower values reclaim capacity faster; too low risks false-reaping a briefly stalled consumer. |
-| `XRLENV_RAW_HEARTBEAT_INTERVAL_S` | SDK (consumer) | `30` | Keepalive beat cadence — roughly 1/4 of the TTL, so a couple of dropped beats don't false-reap. Set to `0` to disable the keepalive (sessions then rely on the wall-clock deadline only). |
+| `XRLENV_RAW_LIVENESS_TTL_S` | Server | `120` | How long a raw session may go with no liveness signal (RPC or heartbeat) before it is marked `suspect`. This no longer destroys anything — it is the warning threshold. Setting it to **7200 s or more** silently disables liveness reaping entirely — see the warning below. |
+| `XRLENV_RAW_LIVENESS_QUARANTINE_S` | Server | `900` | How long a suspect session may stay silent before it is actually destroyed. Must be **strictly greater** than the TTL: both phases read the same clock, so a value at or below it (including `0`) makes a session crossing the TTL a suspect *and* a reap candidate in the same sweep — i.e. destroy-on-TTL again. Such a value is not honoured, and it is **not** clamped to the TTL (equality is just as broken); the control plane logs a WARNING and uses `2 x TTL` instead — 240 s at the default 120 s TTL. Sized from measured consumer stalls. |
+| `XRLENV_RAW_HEARTBEAT_INTERVAL_S` | SDK (consumer) | `30` | Keepalive beat cadence — roughly 1/4 of the TTL, so a couple of dropped beats don't flag a healthy session `suspect`. Set to `0` to disable the keepalive (sessions then rely on the wall-clock deadline only). Validated on read: unparseable, negative, non-finite, or `>= 86400` falls back to `30` with a WARNING; `>= 120` (the control plane's default liveness TTL) is honoured but warned about, since it cannot keep an idle session alive against a default-TTL server. |
 | `XRLENV_RAW_LIVENESS_REAP_BATCH` | Server | `50` | Maximum liveness reaps per GC reconciler sweep, so a mass die-off does not fire thousands of destroys at once. The remainder reap on the next sweep (60 s later by default). |
 
 The 4 h wall-clock deadline (`session_deadline_s`) is unchanged. It
 remains the absolute cap for genuinely long-running jobs and for
 sessions from consumers that never heartbeat.
+
+**Tuning footgun: a quarantine horizon at or beyond the deadline turns the
+feature off.** The liveness reaper only earns its keep by reclaiming *sooner*
+than the wall-clock deadline. Both sweeps run in the same GC pass, deadline
+first, so if the horizon lands at or past the deadline the deadline sweep
+destroys the session every time and the quarantine branch is unreachable —
+liveness reaping is silently disabled for every session using the default
+deadline.
+
+The easy way to hit this is **indirect**: raise `XRLENV_RAW_LIVENESS_TTL_S`
+without touching `XRLENV_RAW_LIVENESS_QUARANTINE_S`. The quarantine then fails
+the "strictly greater than the TTL" check, is replaced with `2 x TTL` (see the
+table above), and any TTL of **7200 s or more** puts that synthesized horizon at
+or beyond the 4 h default deadline. Setting `XRLENV_RAW_LIVENESS_QUARANTINE_S`
+directly to `14400` or more does the same thing.
+
+The control plane logs a WARNING at startup naming both values when this
+holds. It **warns rather than clamps**, because `session_deadline_s` is
+overridable per acquire — a long horizon can be deliberate for a fleet whose
+consumers all raise their own deadline. If you did not intend it, lower the
+quarantine (or the TTL it is derived from), or raise `session_deadline_s` on
+the acquires that need it.
 
 ## System defaults
 
@@ -231,7 +282,8 @@ fixed; the few an operator can tune are noted.
 | Acquire round-trip | Control-plane wait for a container acquire to complete. Matches the node-side pull timeout below. | 600 s |
 | Admission-queue wait | Default `queue_timeout_s` — the backstop wait for a slot in the admission queue, for both container acquires and template rollouts. Long by design: queue-wait is not a failure. A small consumer-set value opts into fail-fast. | 24 h |
 | Session lifetime cap | Default `session_deadline_s` — the abandoned-container reap deadline. Operator-tunable per node-cluster build. | 4 h |
-| Consumer-liveness TTL | How long a raw-container session may go with no liveness signal (RPC or heartbeat) before the liveness reaper acts. Only sessions that have heartbeated at least once and have no RPC in flight are eligible. Tunable via `XRLENV_RAW_LIVENESS_TTL_S` on the control-plane host. | 120 s |
+| Consumer-liveness TTL | How long a raw-container session may go with no liveness signal (RPC or heartbeat) before it is marked `suspect` (warning + metric, no teardown). Only sessions that have heartbeated at least once, have no RPC in flight, and are not already being torn down are eligible. Tunable via `XRLENV_RAW_LIVENESS_TTL_S` on the control-plane host. | 120 s |
+| Consumer-liveness quarantine | How long a suspect session may stay silent before it is force-destroyed. A consumer that signals during quarantine keeps its session. Tunable via `XRLENV_RAW_LIVENESS_QUARANTINE_S`. | 900 s |
 | SDK keepalive interval | Cadence at which the SDK beats live raw-container sessions to the control plane. Batched per process. Tunable via `XRLENV_RAW_HEARTBEAT_INTERVAL_S` on the consumer host; `0` disables. | 30 s |
 | Destroy round-trip | Control-plane wait for a container teardown. Sized for multi-GB overlay teardown under load. | 300 s |
 | Archive round-trip | Control-plane wait for a file put/get into a container. Sized so a node busy with cold image pulls can still service it. | 300 s |

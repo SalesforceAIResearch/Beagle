@@ -57,10 +57,10 @@ algorithm:
 data:
   - benchmark: terminal_bench_2_1
     tasks: [bn-fit-modify]                                 # the primary set to evolve on (→ subset_tasks)
-    # exclude_task_ids: [flaky-task]                       # → MONET_EVAL_EXCLUDE_TASKS (denylist)
+    # exclude_task_ids: [flaky-task]                       # → DARWINX_EVAL_EXCLUDE_TASKS (denylist)
     # options:
     #   instruction_template: prompts/my_tb_framing.j2      # override this benchmark's default prompt
     #   # DarwinX task-subset stratification (all optional; omit → the driver's own defaults):
-    #   priority_tasks: [hard-1, hard-2]                    # → MONET_EVAL_PRIORITY_TASKS (front-loaded)
-    #   variance_tasks: [noisy-1]                           # → MONET_EVAL_VARIANCE_TASKS  (avg@k probe set)
-    #   fullset_tasks:  [t1, t2, t3]                        # → MONET_EVAL_FULLSET_TASKS   (the scoring set)
+    #   priority_tasks: [hard-1, hard-2]                    # → DARWINX_EVAL_PRIORITY_TASKS (front-loaded)
+    #   variance_tasks: [noisy-1]                           # → DARWINX_EVAL_VARIANCE_TASKS  (avg@k probe set)
+    #   fullset_tasks:  [t1, t2, t3]                        # → DARWINX_EVAL_FULLSET_TASKS   (the scoring set)

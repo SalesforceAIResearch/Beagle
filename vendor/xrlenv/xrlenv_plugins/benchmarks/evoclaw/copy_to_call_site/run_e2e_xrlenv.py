@@ -30,9 +30,10 @@ from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
 # The EvoClaw checkout root (parent of xrlenv_onboard/) — same robust derivation
-# scripts/run_all.py uses (Path(__file__).resolve().parent.parent). The onboarding
-# writes its per-user workspaces + golden cache under here by default, so a fresh
-# checkout works with no config; both paths are overridable via CLI flags.
+# scripts/run_all.py uses (Path(__file__).resolve().parent.parent). Per-user
+# workspaces land under here by default; the golden cache does so only as a last
+# resort, when no shared /fsx cache root is present (see
+# _default_golden_cache_root). Both paths are overridable via CLI flags.
 _PROJECT_ROOT = _HERE.parent
 
 
@@ -47,15 +48,38 @@ def _default_workspace_root_base() -> str:
 # allowlist (policy.allowed_host_paths) can point at a stable SHARED path rather
 # than a personal home dir (which others can't read). The oracle mounts the
 # per-task golden tars (a subdir under this root) read-only into the container.
-_SHARED_GOLDEN_CACHE_ROOT = Path("/path/to/host-cache")
+#
+# There is no default shared path — the shared filesystem is laid out differently
+# per cluster — so set ``EVOCLAW_GOLDEN_CACHE_ROOT`` (below) to your shared cache
+# root. With it unset the cache falls back to ``<project-root>/golden_cache``.
+# Operators wanting auto-probed cluster-specific candidates can populate this
+# tuple (probed in order; the first whose PARENT dir exists wins).
+_SHARED_GOLDEN_CACHE_ROOTS: tuple[Path, ...] = ()
+_GOLDEN_CACHE_ROOT_ENV = "EVOCLAW_GOLDEN_CACHE_ROOT"
 
 
 def _default_golden_cache_root() -> Path:
-    """Default golden-tar cache root: the shared
-    ``/path/to/host-cache``. Overridden by
-    ``--golden-cache-root`` (e.g. a private cache on a box without the shared
-    mount)."""
-    return _SHARED_GOLDEN_CACHE_ROOT
+    """Default golden-tar cache root, resolved in this order:
+
+    1. ``$EVOCLAW_GOLDEN_CACHE_ROOT`` — an explicit answer always wins.
+    2. the first shared root in ``_SHARED_GOLDEN_CACHE_ROOTS`` whose PARENT
+       directory exists on this box. The parent, not the root itself: the cache
+       directory is created on first use, so probing it would never match on a
+       cluster that has not run EvoClaw yet.
+    3. ``<project-root>/golden_cache`` — a private per-checkout cache, for a box
+       with no shared mount at all (a laptop, or a new cluster).
+
+    Whatever this resolves to must ALSO be allowlisted in the cluster's
+    ``policy.allowed_host_paths`` (``slurm_scripts/clusters.yaml``) or the
+    oracle's read-only bind of the golden dir is denied at sandbox create.
+    Overridden per-run by ``--golden-cache-root``.
+    """
+    if override := os.environ.get(_GOLDEN_CACHE_ROOT_ENV):
+        return Path(override).expanduser()
+    for root in _SHARED_GOLDEN_CACHE_ROOTS:
+        if root.parent.is_dir():
+            return root
+    return _PROJECT_ROOT / "golden_cache"
 
 
 def _ensure_imports() -> None:
@@ -65,8 +89,8 @@ def _ensure_imports() -> None:
     try:
         import xrlenv  # noqa: F401
     except ImportError:
-        repo = os.environ.get("XRLENV_REPO", "/path/to/xrlenv")
-        if os.path.isdir(repo):
+        repo = os.environ.get("XRLENV_REPO", "")
+        if repo and os.path.isdir(repo):
             sys.path.insert(0, repo)
     # EvoClaw's harness is importable because we run from its checkout (cwd) or
     # EVOCLAW_SOURCE_ROOT points at it.
@@ -330,7 +354,9 @@ def _prepare_oracle_golden(prefix: str) -> None:
 
     # Stable content cache keyed by (repo, data-version tag): a cached <mid>.tar
     # is reused across runs — the milestone image is only acquired on a miss.
-    # Root + tag are explicit flags (--golden-cache-root / --image-tag), not env.
+    # Root + tag are explicit flags (--golden-cache-root / --image-tag); only the
+    # root's DEFAULT consults $EVOCLAW_GOLDEN_CACHE_ROOT, since the shared cache
+    # lives at a different path per cluster.
     tag = _CFG.image_tag if _CFG else "v0.9"
     cache_root = Path(_CFG.golden_cache_root).expanduser() if _CFG else _default_golden_cache_root()
     golden_dir = (cache_root / f"{ws.name}__{tag}").resolve()
@@ -490,9 +516,13 @@ def _parse_wrapper_flags() -> argparse.Namespace:
                         "(default: $EVOCLAW_WORKSPACE_ROOT if set, else <project-root>/results)")
     p.add_argument("--golden-cache-root", default=str(_default_golden_cache_root()), metavar="DIR",
                    help="content cache root for the extracted golden tars "
-                        "(default: <project-root>/golden_cache)")
+                        "(default: $EVOCLAW_GOLDEN_CACHE_ROOT if set, else the "
+                        "first shared /fsx cache root present on this box, else "
+                        "<project-root>/golden_cache; here: "
+                        f"{_default_golden_cache_root()}). Must be covered by the "
+                        "cluster's policy.allowed_host_paths")
     # Image config: tag + registry are flags (not env). The one image knob kept as
-    # env is EVOCLAW_GOZERO_BASE_IMAGE (defaults to the corrected image; read
+    # env is EVOCLAW_GOZERO_BASE_IMAGE (required, no default; read
     # inside image_resolution). image_resolution owns the tag default; imported
     # here (its dir is on sys.path by the time main() calls this).
     import image_resolution

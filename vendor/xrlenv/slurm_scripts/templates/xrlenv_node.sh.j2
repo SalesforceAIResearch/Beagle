@@ -1,0 +1,101 @@
+#!/bin/bash
+#
+#SBATCH --job-name=@{ node_job }@                # Job name
+#SBATCH --nodes=@{ node_count }@                            # Number of nodes
+#SBATCH --nodelist=@{ nodelist }@
+#SBATCH --output=@{ checkout }@/slurm_logs/%x_%j.out         # Standard output log
+#SBATCH --error=@{ checkout }@/slurm_logs/%x_%j.err          # Standard error log
+#SBATCH --partition=@{ partition }@
+#SBATCH --account=@{ account }@
+
+echo "Batch host: $(hostname)"
+echo "Batch host IPs: $(hostname -I)"
+
+# Node count + nodelist come from the SBATCH header above, which is GENERATED
+# from clusters.yaml — add a worker there and regenerate, never by hand here.
+# srun derives its task count from the allocation so it never drifts out of
+# sync with --nodes.
+#
+# The remote script is fed via a QUOTED heredoc (<<'REMOTE_SCRIPT') captured
+# into the bash -lc argument, NOT inlined as bash -lc '...'. This is
+# load-bearing: the body below contains single quotes (the `docker ps
+# --format '{{.ID}} {{.Names}}'` and `awk '...'` filter). Inside a
+# bash -lc '...' single-quoted string those inner quotes terminate the
+# string early, and the unquoted space in `{{.ID}} {{.Names}}` then splits
+# the argument — silently truncating the remote command to `docker ps
+# --format {{.ID}}` and dropping the entire bootstrap (cd/source/sudo) into
+# unused positional params (this is exactly what happened on the 2026-06-29
+# run: nodes kept stale /opt/xrlenv code). The quoted heredoc keeps all inner
+# quotes literal, and the quoted delimiter defers $(hostname)/$XRLENV_*
+# expansion to the REMOTE shell — same semantics as the old single-quoted form.
+srun --nodes="${SLURM_NNODES}" --ntasks="${SLURM_NNODES}" --ntasks-per-node=1 bash -lc "$(cat <<'REMOTE_SCRIPT'
+    echo "Bootstrapping on $(hostname), IPs: $(hostname -I)"
+    echo "removing stale containers"
+    docker ps --format '{{.ID}} {{.Names}}' | awk '$2 != "efa-node-exporter" {print $1}' | xargs -r docker kill
+    echo "done"
+    cd @{ checkout }@
+
+    # Load the gitignored project-root .env. It carries SECRETS
+    # (XRLENV_NODE_TOKEN / DOCKERHUB_USER / DOCKERHUB_TOKEN) AND the topology
+    # host/port values (XRLENV_GRPC_HOST + registry hosts/ports) — but the
+    # topology values are GENERATED from clusters.yaml by
+    # `generate_deployment_script.py --env-cluster`, so do NOT hand-edit them
+    # (edit clusters.yaml + regenerate). The `:=` defaults below are only a
+    # fallback for a .env that predates a key.
+    set -a; source ./.env; set +a
+
+    # Runtime topology — the control-plane address + the three registry
+    # endpoints — comes ENTIRELY from .env, which the deploy orchestrator keeps
+    # in lock-step with clusters.yaml (its `--env-cluster --check` gate aborts a
+    # drifted deploy; clusters.yaml is the single source of truth). NO silent
+    # fallbacks, on purpose: an unset/empty topology var FAILS this bootstrap
+    # rather than defaulting to a wrong host — a stale value silently defaulting
+    # to (say) the control-plane host is exactly the reboot-.env-drift trap where
+    # the fleet dials a dead CP / registry. This require_env is the last-line
+    # defense; the deploy gate should have already caught any gap.
+    require_env() {
+        local _miss=0 _v
+        for _v in "$@"; do
+            if [ -z "${!_v:-}" ]; then
+                echo "ERROR: required topology env $_v is unset/empty in ./.env" >&2
+                _miss=1
+            fi
+        done
+        [ "$_miss" = 0 ] || {
+            echo "  clusters.yaml is authoritative — sync .env from it, then re-deploy:" >&2
+            echo "    python slurm_scripts/generate_deployment_script.py --env-cluster @{ name }@" >&2
+            exit 1
+        }
+    }
+    require_env \
+        XRLENV_GRPC_HOST XRLENV_GRPC_PORT \
+        XRLENV_MIRROR_REGISTRY_HOST XRLENV_MIRROR_REGISTRY_PORT \
+        XRLENV_PRIVATE_REGISTRY_HOST XRLENV_PRIVATE_REGISTRY_PORT \
+        XRLENV_SCRATCH_REGISTRY_HOST XRLENV_SCRATCH_REGISTRY_PORT
+
+    source .venv/bin/activate
+    which python
+
+    # XRLENV_REGISTRY_MIRROR routes docker.io pulls on this node through the
+    # pull-through mirror; XRLENV_PRIVATE_REGISTRY + XRLENV_SCRATCH_REGISTRY add
+    # the private + scratch (build-on-demand) registries to insecure-registries
+    # so the node can push/pull our built images over plain HTTP. All three are
+    # merged into /etc/docker/daemon.json by the bootstrap, so a freshly
+    # provisioned worker gets them automatically — not just nodes configured by
+    # hand. The final positional arg is the stable XRLENV_NODE_ID. Keep it in
+    # lock-step with ``xrlenv nodes-from-slurm`` default id template so the
+    # generated roster matches the node-agent IDs shown by admin/CLI.
+    sudo \
+        XRLENV_NODE_TOKEN="$XRLENV_NODE_TOKEN" \
+        DOCKERHUB_USER="$DOCKERHUB_USER" \
+        DOCKERHUB_TOKEN="$DOCKERHUB_TOKEN" \
+        XRLENV_REGISTRY_MIRROR="http://${XRLENV_MIRROR_REGISTRY_HOST}:${XRLENV_MIRROR_REGISTRY_PORT}" \
+        XRLENV_PRIVATE_REGISTRY="${XRLENV_PRIVATE_REGISTRY_HOST}:${XRLENV_PRIVATE_REGISTRY_PORT}" \
+        XRLENV_SCRATCH_REGISTRY="${XRLENV_SCRATCH_REGISTRY_HOST}:${XRLENV_SCRATCH_REGISTRY_PORT}" \
+@{ node_env_lines }@        bash deploy/bootstrap-aws.sh @{ hyperpod_flag }@"${XRLENV_GRPC_HOST}:${XRLENV_GRPC_PORT}" "aws-$(hostname -s)"
+REMOTE_SCRIPT
+)"
+
+sleep 26280h
+
+# scancel --name=@{ node_job }@ && sbatch @{ node_script }@

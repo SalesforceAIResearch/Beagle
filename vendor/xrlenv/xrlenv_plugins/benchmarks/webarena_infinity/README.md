@@ -25,7 +25,7 @@ phases anyway, with a `copy_to_call_site/` payload for the call-site half:
 | File | Runs on | Canonical phase / role |
 |---|---|---|
 | `Dockerfile` | build host | **build the cache** — multi-stage build of the ONE answer-free substrate image (WAI has no per-task cache). |
-| `build_plan.yaml` | build host | **image plan** — one-entry `type: local` plan for `scripts/build_and_push_images.py` (hand-written; `build_plan.calibrated.yaml` carries the cluster-measured size). |
+| `build_plan.yaml` | build host | **image plan** — one-entry `type: local` plan for `deploy/registry/build_and_push_images.py` (hand-written; `build_plan.calibrated.yaml` carries the cluster-measured size). |
 | `README.md` · `STATUS.md` | — | canonical docs. |
 | `copy_to_call_site/run_full_sweep.sh` | host (call site) | **the sweep entrypoint** — runs the **official 10-app real-tasks set** (`--model oracle`; `APPS=all` for the full 13) from the WAI checkout, looping the per-app runner (build+push is the separate prep step 1). |
 | `copy_to_call_site/run_eval_parallel_xrlenv.py` | host (call site) | **run the oracle sweep** — orchestrator, same CLI + output as WAI's `run_eval_parallel.py`; each worker drives an xrlenv container. |
@@ -59,7 +59,7 @@ verifier step, so the substrate stays answer-free at runtime (audit H1/D6). See
   XRLENV_GRPC_HOST=<control-plane-host>      # your control-plane host (see slurm_scripts/clusters.yaml)
   XRLENV_GRPC_PORT=50051
   XRLENV_CONSUMER_TOKEN=<consumer-token>     # issue with: xrlenv tokens issue consumer
-  XRLENV_PRIVATE_REGISTRY_HOST=node-host
+  XRLENV_PRIVATE_REGISTRY_HOST=<private-registry-host>
   XRLENV_PRIVATE_REGISTRY_PORT=5011
   # LLM keys — forwarded into each container
   OPENAI_API_KEY=...
@@ -78,7 +78,7 @@ verifier step, so the substrate stays answer-free at runtime (audit H1/D6). See
 
 ```bash
 source .env
-.venv/bin/python scripts/build_and_push_images.py \
+.venv/bin/python deploy/registry/build_and_push_images.py \
     --plan xrlenv_plugins/benchmarks/webarena_infinity/build_plan.yaml \
     --registry "${XRLENV_PRIVATE_REGISTRY_HOST}:${XRLENV_PRIVATE_REGISTRY_PORT}" \
     --force
@@ -99,7 +99,7 @@ WAI checkout's `evaluation/` directory (where the scripts can import `agents` /
 `run_eval_parallel` / `tasks`):
 
 ```bash
-cp /path/to/xrlenv/xrlenv_plugins/benchmarks/webarena_infinity/copy_to_call_site/* \
+cp /path/to/xrlenv-dev/xrlenv_plugins/benchmarks/webarena_infinity/copy_to_call_site/* \
    <path-to-webarena-infinity>/evaluation/
 ```
 

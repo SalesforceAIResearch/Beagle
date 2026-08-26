@@ -179,7 +179,7 @@ def test_constants_relocate_with_xrlenv_home_env(tmp_path: Path) -> None:
 def test_constants_relocate_from_dotenv_in_cwd(tmp_path: Path) -> None:
     """The operator's ask: ``XRLENV_HOME`` is picked up from the checkout's
     ``.env`` (auto-loaded at ``import xrlenv``), no shell export needed."""
-    checkout = tmp_path / "xrlenv"
+    checkout = tmp_path / "xrlenv-dev"
     checkout.mkdir()
     cluster = tmp_path / "dev-state"
     (checkout / ".env").write_text(f"XRLENV_HOME={cluster}\n", encoding="utf-8")
@@ -195,7 +195,7 @@ def test_constants_relocate_from_dotenv_in_cwd(tmp_path: Path) -> None:
 def test_shell_env_wins_over_dotenv(tmp_path: Path) -> None:
     """Precedence: an exported ``XRLENV_HOME`` overrides the ``.env`` value
     (``.env`` is the fallback layer, per the auto-loader contract)."""
-    checkout = tmp_path / "xrlenv"
+    checkout = tmp_path / "xrlenv-dev"
     checkout.mkdir()
     (checkout / ".env").write_text(
         f"XRLENV_HOME={tmp_path / 'from-dotenv'}\n", encoding="utf-8"

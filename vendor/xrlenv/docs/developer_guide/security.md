@@ -88,7 +88,7 @@ running. Build the allowlist from `EgressRule` objects:
 from xrlenv.backends.egress import EgressAllowlist, EgressRule
 
 allowlist = EgressAllowlist(rules=(
-    EgressRule(cidr="internal-ip/8"),           # all internal traffic
+    EgressRule(cidr="10.0.0.0/8"),           # all internal traffic
     EgressRule(cidr="93.184.216.34/32", ports=(443,)),  # one external host, HTTPS only
 ))
 await session.apply_egress(allowlist)
@@ -142,7 +142,7 @@ Two event kinds exist:
 - **`auth.token_used`** — off by default. Per-RPC successful-authentication
   records. At scale these were ~99.9% of the audit table, churning the SQLite
   WAL on every call. Set `XRLENV_AUDIT_AUTH_SUCCESS=1` in the control-plane
-  environment to restore the full spec-19 success trail.
+  environment to restore the full per-RPC success trail.
 
 Query the audit log:
 

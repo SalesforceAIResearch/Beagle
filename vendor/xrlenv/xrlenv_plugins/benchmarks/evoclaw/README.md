@@ -85,7 +85,7 @@ docker push "$XRLENV_PRIVATE_REGISTRY_HOST:$XRLENV_PRIVATE_REGISTRY_PORT/go-zero
 
 Then set `EVOCLAW_GOZERO_BASE_IMAGE` to that ref (§1); `image_resolution.py` redirects
 **only** go-zero's `base` ref. Build details: `go-zero-gitfix.Dockerfile`. (Known drift:
-that redirect still *defaults* to a baked host `node-host:5011/…` — set the var.)
+that redirect still *defaults* to a baked host `<registry-host>:5011/…` — set the var.)
 
 ## 3. Run the oracle sweep
 

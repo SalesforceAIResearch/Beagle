@@ -14,8 +14,6 @@ Concrete case-1 adapters live elsewhere:
 
 - Spine smoke: :mod:`xrlenv.templates.hello_shell.adapter`.
 - Case-1 plug-ins: ``xrlenv_plugins/benchmarks/<name>/adapter.py``.
-  Worked external pip-package example at
-  ``examples/pip_new_datasets_or_benchmark/echo_bench/``.
 """
 
 from xrlenv.envs.base import (

@@ -2,8 +2,8 @@
 #
 # Copy and edit. Point the client at it via
 # ``Client.in_process(service, run_config="/path/to/your-copy.yaml")``.
-# The smoke example (``examples/single_rollout.py``) loads this file
-# directly — see that script for a usage reference.
+# The smoke example (``tests/smoke/cluster_bringup/single_rollout.py``) loads
+# this file directly — see that script for a usage reference.
 
 version: 1
 manifests:

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from xrlenv.api._pb2 import rollout_control_pb2 as rpb
@@ -438,3 +438,84 @@ async def test_grpc_destroy_builds_request_with_deadline() -> None:
     assert stub.destroy_req.project_name == "p"
     # teardown carries a bounded backstop deadline (never blocks forever)
     assert stub.destroy_timeout is not None and stub.destroy_timeout > 0
+
+
+async def test_compose_session_also_exposes_liveness_at_risk() -> None:
+    """ClusterComposeSession must mirror base-class fields it does not inherit.
+
+    It deliberately does NOT route through ``super().__init__`` — the compose
+    acquire result has a different shape — so any field added to the base class
+    silently goes missing here unless mirrored. Adding ``liveness_probe`` to the
+    base broke every compose acquire with a TypeError until this class took it
+    too; a compose consumer must be able to read the same signal.
+    """
+    from xrlenv.client.container_session import ClusterComposeSession
+
+    class _R:
+        rollout_id = "r1"
+        main_container_id = "c1"
+        main_container_name = "n1"
+        node_id = "node-A"
+        queue_wait_s = 0.0
+        project_name = "proj"
+        service_container_ids: ClassVar[dict[str, str]] = {}
+
+    at_risk = False
+    session = ClusterComposeSession(
+        object(), _R(), liveness_probe=lambda: at_risk,  # type: ignore[arg-type]
+    )
+    assert session.liveness_at_risk is False
+    at_risk = True
+    assert session.liveness_at_risk is True
+
+    assert ClusterComposeSession(object(), _R()).liveness_at_risk is False  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_liveness_at_risk_reflects_real_keepalive_state_via_acquire_compose_project() -> None:
+    """Same real-path regression as the container-session test, for compose.
+
+    ``ClusterComposeSession`` deliberately does not call
+    ``ClusterContainerSession.__init__`` (see ``test_compose_session_also_...``
+    above), which is exactly the kind of seam where a session-handle field can
+    be wired correctly on paper and still not reach the object a harness
+    actually holds. This drives the real ``Client.acquire_compose_project``
+    call -- not a hand-built ``ClusterComposeSession(..., liveness_probe=...)``
+    -- and checks the returned session reports the real keepalive state.
+    """
+    import asyncio
+
+    class _FailableTransport(_FakeTransport):
+        fail: bool = True
+
+        async def heartbeat_many(self, rollout_ids: list[str]) -> None:
+            if self.fail:
+                raise RuntimeError("control plane unreachable")
+
+    transport = _FailableTransport()
+    client = Client(transport)  # type: ignore[arg-type]
+    client._keepalive._interval_s = 0.02
+    client._keepalive._beat_budget_s = 0.01
+
+    session = await client.acquire_compose_project(
+        compose_yaml="services:\n  main: {}\n",
+        images=["ns/app@sha256:abc"],
+        footprint_cpu=1.0,
+        footprint_mem_bytes=1024,
+    )
+    assert session.liveness_at_risk is False  # nothing has failed yet
+
+    await asyncio.sleep(0.3)
+    assert session.liveness_at_risk is True, (
+        "compose session.liveness_at_risk did not go True on the real "
+        "acquire_compose_project() path despite sustained heartbeat failure"
+    )
+
+    transport.fail = False
+    await asyncio.sleep(0.2)
+    assert session.liveness_at_risk is False, (
+        "compose session.liveness_at_risk did not clear on the real "
+        "acquire_compose_project() path after the keepalive recovered"
+    )
+
+    await session.destroy()

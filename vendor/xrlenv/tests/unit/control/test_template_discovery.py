@@ -312,65 +312,6 @@ def test_template_dirs_env_var_constant_is_xrlenv_template_dirs() -> None:
     assert TEMPLATE_DIRS_ENV_VAR == "XRLENV_TEMPLATE_DIRS"
 
 
-# ── B11.4: external-package skeleton self-validates ──────────────────────────
-
-
-def test_external_package_skeleton_manifest_is_readable() -> None:
-    """The shipped skeleton at ``templates/external_benchmark_package/``
-    is a copy-paste source for plug-in authors. If the skeleton's
-    own ``manifest.yaml`` ever drifts out of valid spec-06 shape,
-    every plug-in author who copies it inherits the bug. Pin the
-    skeleton's manifest as YAML-valid + carrying the documented
-    fields.
-    """
-    import yaml
-
-    repo_root = Path(__file__).resolve().parents[3]
-    manifest_path = (
-        repo_root
-        / "templates"
-        / "external_benchmark_package"
-        / "xrlenv_plugins"
-        / "benchmarks"
-        / "example_bench"
-        / "manifest.yaml"
-    )
-    assert manifest_path.is_file(), (
-        f"external-package skeleton missing its manifest at {manifest_path}"
-    )
-    data = yaml.safe_load(manifest_path.read_text())
-    # Spec-06 required fields. Only assert presence — values are
-    # placeholders the plug-in author replaces.
-    for key in ("name", "version", "image", "resources", "env_adapter", "reward"):
-        assert key in data, (
-            f"skeleton manifest missing required spec-06 field {key!r}: {data}"
-        )
-
-
-def test_external_package_skeleton_pyproject_declares_entry_point() -> None:
-    """The skeleton's ``pyproject.toml`` must declare the
-    ``xrlenv.benchmarks`` entry-point group — that's the whole point
-    of the skeleton. A missing / renamed group would silently produce
-    a plug-in that never registers."""
-    repo_root = Path(__file__).resolve().parents[3]
-    pyproject = (
-        repo_root
-        / "templates"
-        / "external_benchmark_package"
-        / "pyproject.toml"
-    )
-    body = pyproject.read_text()
-    assert '[project.entry-points."xrlenv.benchmarks"]' in body, (
-        "skeleton pyproject.toml is missing the xrlenv.benchmarks entry-point group"
-    )
-    # And the entry-point must point at the plugin.py callable shape
-    # the docs describe.
-    assert "plugin:plugin_manifests" in body, (
-        "skeleton pyproject.toml entry-point should target the "
-        "plugin_manifests callable in plugin.py"
-    )
-
-
 # ── D22: plug-in root resolution + system-path guard ────────────────────────
 
 

@@ -2244,7 +2244,7 @@ async def test_coordinator_rejects_local_source_with_clear_message() -> None:
     plan = BuildPlan(entries=(BuildEntry(
         image_ref="turing-tb2/abs-mex-service:main",
         context_source=LocalSource(
-            path="/path/to/data",
+            path="/fsx/cache/turing-tb2/abs-mex-service/environment",
             shared_fs="hyperpod",
         ),
         placement=EntryPlacement(size_hint_bytes=1, size_hint_source="heuristic"),
@@ -2252,3 +2252,272 @@ async def test_coordinator_rejects_local_source_with_clear_message() -> None:
     # Raises before any dispatch — _never (ensure_present_fn) is never awaited.
     with pytest.raises(ManifestInvalid, match="build-host-only"):
         await coordinator.apply(plan)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# apply(push=True) — coordinator build+push mode (c1fb9e9)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _make_push_coordinator(
+    *,
+    build_push_fn: Any = None,
+    build_image_fn: Any = None,
+    ensure_present_fn: Any = None,
+    nodes: list[NodeBudget] | None = None,
+) -> tuple[BuildCoordinator, InMemoryStateStore]:
+    """Factory for push-mode coordinator tests.  Mirrors ``_make_coordinator``
+    but wires ``build_push_fn`` as the primary hook; callers may also supply
+    ``build_image_fn`` to verify isolation between the two hooks."""
+    state = InMemoryStateStore()
+
+    async def _dummy_ensure(*_a: Any) -> tuple[str, str | None]:
+        return ("ok", None)
+
+    coordinator = BuildCoordinator(
+        catalog=TemplateCatalog(),
+        state=state,
+        node_builder=InProcessNodeBuilder(),
+        budget_provider=_StaticBudgetProvider(
+            nodes or [NodeBudget(  # type: ignore[arg-type]
+                node_id="n1", available_bytes=100 * 1024**3,
+            )],
+        ),
+        ensure_present_fn=ensure_present_fn or _dummy_ensure,
+        build_image_fn=build_image_fn,
+        build_push_fn=build_push_fn,
+    )
+    return coordinator, state
+
+
+def _git_source_plan(
+    *,
+    image_refs: list[str] | None = None,
+) -> BuildPlan:
+    """A BuildPlan whose entries all have GitSource context (dispatches via
+    build_image_fn / build_push_fn, NOT ensure_present_fn)."""
+    from xrlenv.control.build_plan import (
+        BuildEntry,
+        EntryPlacement,
+        GitSource,
+    )
+
+    refs = image_refs or ["reg.internal/team/env:v1"]
+    return BuildPlan(entries=tuple(
+        BuildEntry(
+            image_ref=ref,
+            context_source=GitSource(
+                repo="https://github.com/example/repo",
+                ref="main", subdir=".", dockerfile="Dockerfile",
+            ),
+            placement=EntryPlacement(size_hint_bytes=1 * 1024**3),
+        )
+        for ref in refs
+    ))
+
+
+@pytest.mark.asyncio
+async def test_push_mode_dispatches_via_build_push_fn_and_records_digest() -> None:
+    """``apply(push=True)`` with a git-source entry calls ``build_push_fn``
+    and records the returned digest in ``BuildOutcome.digests``."""
+    push_calls: list[tuple[str, str]] = []
+    DIGEST = "reg.internal/team/env@sha256:cafecafe"
+
+    async def fake_push(
+        node_id: str, image_ref: str, source: Any,
+        timeout_s: float, labels: dict[str, str],
+    ) -> tuple[str, str | None, str | None]:
+        push_calls.append((node_id, image_ref))
+        return ("ok", None, DIGEST)
+
+    coordinator, state = _make_push_coordinator(build_push_fn=fake_push)
+    plan = _git_source_plan(image_refs=["reg.internal/team/env:v1"])
+    outcome = await coordinator.apply(plan, push=True)
+
+    assert outcome.status == "completed"
+    assert outcome.successes == 1
+    assert outcome.failures == 0
+    assert outcome.digests == {"reg.internal/team/env:v1": DIGEST}
+    assert push_calls == [("n1", "reg.internal/team/env:v1")]
+
+
+@pytest.mark.asyncio
+async def test_push_mode_failure_recorded_no_digest() -> None:
+    """A push that returns status='failed' increments failures and records
+    no digest for that image_ref in ``BuildOutcome.digests``."""
+
+    async def failing_push(
+        node_id: str, image_ref: str, source: Any,
+        timeout_s: float, labels: dict[str, str],
+    ) -> tuple[str, str | None, str | None]:
+        return ("failed", "push rejected: unauthorized", None)
+
+    coordinator, _state = _make_push_coordinator(build_push_fn=failing_push)
+    plan = _git_source_plan(image_refs=["reg.internal/team/env:v1"])
+    outcome = await coordinator.apply(plan, push=True)
+
+    assert outcome.status == "partial_failure"
+    assert outcome.failures == 1
+    assert outcome.successes == 0
+    # No digest must be recorded for the failed image.
+    assert "reg.internal/team/env:v1" not in outcome.digests
+    assert any("unauthorized" in line for line in outcome.error_summary)
+
+
+@pytest.mark.asyncio
+async def test_push_mode_does_not_call_build_image_fn() -> None:
+    """``apply(push=True)`` must route git/tarball entries through
+    ``build_push_fn`` exclusively; ``build_image_fn`` must NOT be called."""
+    build_fn_called: list[str] = []
+
+    async def should_not_be_called(
+        node_id: str, image_ref: str, source: Any,
+        timeout_s: float, labels: dict[str, str],
+        skip_if_present: bool = False,
+    ) -> tuple[str, str | None]:
+        build_fn_called.append(image_ref)
+        return ("ok", None)
+
+    async def fake_push(
+        node_id: str, image_ref: str, source: Any,
+        timeout_s: float, labels: dict[str, str],
+    ) -> tuple[str, str | None, str | None]:
+        return ("ok", None, "reg@sha256:aaa")
+
+    coordinator, _ = _make_push_coordinator(
+        build_push_fn=fake_push,
+        build_image_fn=should_not_be_called,
+    )
+    plan = _git_source_plan()
+    await coordinator.apply(plan, push=True)
+
+    assert build_fn_called == [], (
+        "build_image_fn must not be called when push=True; "
+        f"was called for: {build_fn_called}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_non_push_mode_does_not_call_build_push_fn() -> None:
+    """``apply(push=False)`` (the default) routes git/tarball entries through
+    ``build_image_fn``; ``build_push_fn`` must NOT be called."""
+    push_fn_called: list[str] = []
+
+    async def should_not_be_called(
+        node_id: str, image_ref: str, source: Any,
+        timeout_s: float, labels: dict[str, str],
+    ) -> tuple[str, str | None, str | None]:
+        push_fn_called.append(image_ref)
+        return ("ok", None, "reg@sha256:aaa")
+
+    build_fn_called: list[str] = []
+
+    async def fake_build(
+        node_id: str, image_ref: str, source: Any,
+        timeout_s: float, labels: dict[str, str],
+        skip_if_present: bool = False,
+    ) -> tuple[str, str | None]:
+        build_fn_called.append(image_ref)
+        return ("ok", None)
+
+    coordinator, _ = _make_push_coordinator(
+        build_push_fn=should_not_be_called,
+        build_image_fn=fake_build,
+    )
+    plan = _git_source_plan()
+    outcome = await coordinator.apply(plan, push=False)
+
+    assert outcome.status == "completed"
+    assert push_fn_called == [], (
+        "build_push_fn must not be called when push=False; "
+        f"was called for: {push_fn_called}"
+    )
+    assert build_fn_called, "build_image_fn must have been called"
+
+
+@pytest.mark.asyncio
+async def test_push_mode_no_build_push_fn_raises_manifest_invalid() -> None:
+    """``apply(push=True)`` with a git-source plan and no ``build_push_fn``
+    wired raises ``ManifestInvalid`` immediately (before any dispatch)."""
+    from xrlenv.errors import ManifestInvalid
+
+    coordinator, _ = _make_push_coordinator(build_push_fn=None)
+    plan = _git_source_plan()
+    with pytest.raises(ManifestInvalid) as excinfo:
+        await coordinator.apply(plan, push=True)
+    msg = str(excinfo.value)
+    assert "build_push_fn" in msg
+    assert "push=True" in msg
+
+
+@pytest.mark.asyncio
+async def test_push_mode_plus_fill_missing_raises_manifest_invalid() -> None:
+    """``push=True + fill_missing=True`` is rejected — the push path already
+    registry-HEAD-skips built refs (build-once fleet-wide), making
+    fill_missing's inventory optimization redundant and confusing."""
+    from xrlenv.errors import ManifestInvalid
+
+    async def fake_push(
+        node_id: str, image_ref: str, source: Any,
+        timeout_s: float, labels: dict[str, str],
+    ) -> tuple[str, str | None, str | None]:
+        return ("ok", None, "reg@sha256:aaa")
+
+    coordinator, _ = _make_push_coordinator(build_push_fn=fake_push)
+    plan = _git_source_plan()
+    with pytest.raises(ManifestInvalid) as excinfo:
+        await coordinator.apply(plan, push=True, fill_missing=True)
+    msg = str(excinfo.value)
+    assert "fill" in msg.lower() or "fill_missing" in msg
+
+
+@pytest.mark.asyncio
+async def test_push_mode_digests_empty_for_non_push_apply() -> None:
+    """``apply(push=False)`` (the default) leaves ``BuildOutcome.digests``
+    empty — digests are only populated in push mode."""
+
+    async def fake_ensure(
+        node_id: str, image_ref: str, timeout_s: float,
+    ) -> tuple[str, str | None]:
+        return ("ok", None)
+
+    coordinator, _ = _make_coordinator(ensure_present_fn=fake_ensure)
+    plan = _entries_plan(image_refs=["a:1", "b:1"])
+    outcome = await coordinator.apply(plan)
+
+    assert outcome.status == "completed"
+    assert outcome.digests == {}, (
+        "digests must be empty for a non-push apply; "
+        f"got: {outcome.digests!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_push_mode_multiple_refs_all_digests_recorded() -> None:
+    """Push mode with multiple git-source entries records every digest
+    in ``BuildOutcome.digests`` indexed by image_ref."""
+    REFS = [
+        "reg.internal/team/env-a:v1",
+        "reg.internal/team/env-b:v1",
+    ]
+    DIGESTS = {
+        "reg.internal/team/env-a:v1": "reg.internal/team/env-a@sha256:aaaa",
+        "reg.internal/team/env-b:v1": "reg.internal/team/env-b@sha256:bbbb",
+    }
+
+    async def fake_push(
+        node_id: str, image_ref: str, source: Any,
+        timeout_s: float, labels: dict[str, str],
+    ) -> tuple[str, str | None, str | None]:
+        return ("ok", None, DIGESTS[image_ref])
+
+    coordinator, _ = _make_push_coordinator(
+        build_push_fn=fake_push,
+        nodes=[NodeBudget(node_id="n1", available_bytes=100 * 1024**3)],  # type: ignore[arg-type]
+    )
+    plan = _git_source_plan(image_refs=REFS)
+    outcome = await coordinator.apply(plan, push=True)
+
+    assert outcome.status == "completed"
+    assert outcome.successes == 2
+    assert outcome.digests == DIGESTS

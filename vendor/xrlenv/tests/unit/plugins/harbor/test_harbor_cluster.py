@@ -380,7 +380,7 @@ def test_client_from_env_constructs_grpc_client(
 ) -> None:
     from xrlenv_plugins.harbor import environment as env_mod
 
-    monkeypatch.setenv("XRLENV_GRPC_HOST", "internal-ip")
+    monkeypatch.setenv("XRLENV_GRPC_HOST", "10.0.0.5")
     monkeypatch.setenv("XRLENV_GRPC_PORT", "50061")
     monkeypatch.setenv("XRLENV_CONSUMER_TOKEN", "tok-123")
     monkeypatch.setenv("XRLENV_GRPC_SECURE", "true")
@@ -403,7 +403,7 @@ def test_client_from_env_constructs_grpc_client(
     result = env_mod._client_from_env()
     assert result == "stub-client"
     assert captured == {
-        "host": "internal-ip", "port": 50061,
+        "host": "10.0.0.5", "port": 50061,
         "token": "tok-123", "secure": True,
     }
 
@@ -517,13 +517,13 @@ def test_resolve_image_ref_expands_registry_placeholder(
 ) -> None:
     """A host-agnostic private-registry placeholder in docker_image (lhtb's repin output)
     is expanded from .env at acquire — so the cache never bakes a host (GUIDELINE §5.3.1)."""
-    monkeypatch.setenv("XRLENV_PRIVATE_REGISTRY_HOST", "node-host")
+    monkeypatch.setenv("XRLENV_PRIVATE_REGISTRY_HOST", "ip-10-0-9-10")
     monkeypatch.setenv("XRLENV_PRIVATE_REGISTRY_PORT", "5011")
     inst = _make_inst(
         docker_image="${XRLENV_PRIVATE_REGISTRY_HOST}:${XRLENV_PRIVATE_REGISTRY_PORT}"
         "/lhtb/chess-mate:main",
     )
-    assert inst._resolve_image_ref() == "node-host:5011/lhtb/chess-mate:main"
+    assert inst._resolve_image_ref() == "ip-10-0-9-10:5011/lhtb/chess-mate:main"
 
 
 def test_resolve_image_ref_fails_loud_on_unresolved_placeholder(
@@ -551,9 +551,9 @@ def test_resolve_image_ref_template_uses_task_id() -> None:
     # the task id from the task directory name (environment_dir.parent.name).
     inst = _make_inst(
         docker_image=None, environment_dir=Path("/cache/88/environment"),
-        xrlenv_kwargs={"xrlenv_image_template": "internal-ip:5011/seta-env/{task_id}:main"},
+        xrlenv_kwargs={"xrlenv_image_template": "10.0.0.1:5011/seta-env/{task_id}:main"},
     )
-    assert inst._resolve_image_ref() == "internal-ip:5011/seta-env/88:main"
+    assert inst._resolve_image_ref() == "10.0.0.1:5011/seta-env/88:main"
 
 
 def test_resolve_image_ref_template_takes_precedence_over_docker_image() -> None:
@@ -578,8 +578,8 @@ def test_image_namespace_tag_derives_from_repinned_main_ref() -> None:
     # No template set: the namespace falls out of the repinned main ref, so the
     # sidecar (chess-mate-game) resolves under the same private registry/namespace.
     inst = _make_inst(environment_dir=Path("/cache/chess-mate/environment"))
-    ns, tag = inst._image_namespace_tag("node-host:5011/lhtb/chess-mate:main")
-    assert ns == "node-host:5011/lhtb"
+    ns, tag = inst._image_namespace_tag("ip-10-0-5-6:5011/lhtb/chess-mate:main")
+    assert ns == "ip-10-0-5-6:5011/lhtb"
     assert tag == "main"
 
 
@@ -598,7 +598,7 @@ def test_image_namespace_tag_template_kwarg_wins_over_main_ref() -> None:
     inst = _make_inst(
         xrlenv_kwargs={"xrlenv_image_template": "reg:5011/seta-env/{task_id}:main"},
     )
-    ns, tag = inst._image_namespace_tag("node-host:5011/lhtb/chess-mate:main")
+    ns, tag = inst._image_namespace_tag("ip-10-0-5-6:5011/lhtb/chess-mate:main")
     # template namespace (split on {task_id}), NOT the main-ref-derived one
     assert ns == "reg:5011/seta-env"
     assert tag == "main"

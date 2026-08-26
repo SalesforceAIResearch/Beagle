@@ -49,7 +49,7 @@ def test_fix_status_classifies_repinned_vs_upstream(tmp_path: Path) -> None:
     shard = tmp_path / "lhtb"
     (shard / "chess-mate").mkdir(parents=True)
     (shard / "chess-mate" / "task.toml").write_text(
-        '[environment]\ndocker_image = "node-host:5011/lhtb/chess-mate:main"\n',
+        '[environment]\ndocker_image = "ip-10-0-5-6:5011/lhtb/chess-mate:main"\n',
     )
     (shard / "duckdb-optimizer-closure").mkdir(parents=True)
     (shard / "duckdb-optimizer-closure" / "task.toml").write_text(
@@ -383,7 +383,7 @@ def test_regenerate_snake_maze_reference_absent(tmp_path: Path) -> None:
 
 # ── --stage repin (point REBUILD tasks at the private registry) ───────────────
 
-_REG = "node-host:5011"
+_REG = "ip-10-0-5-6:5011"
 
 
 def test_repin_docker_image_text_rewrites_value() -> None:

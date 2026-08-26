@@ -30,24 +30,34 @@ LOGGER = logging.getLogger("xrlenv.evoclaw.image_resolution")
 _DEFAULT_TAG = "v0.9"
 _DEFAULT_ORG = "hyd2apse"
 
-# Default corrected go-zero **base** image. Upstream's published
+# Corrected go-zero **base** image. Upstream's published
 # ``hyd2apse/go-zero:base-v0.9`` ships WITHOUT ``.git`` (go-zero's
 # ``.dockerignore`` excludes ``.git`` and — unlike the milestone Dockerfiles,
 # which ``COPY .git`` back — the base build didn't), so no agent can git-tag a
-# submission and the run stalls. We default the base ref to a corrected image so a
-# fresh run needs NO config. It is the ONE image knob kept as an environment
-# variable (``EVOCLAW_GOZERO_BASE_IMAGE``), mirroring EvoClaw's own image config.
-_DEFAULT_GOZERO_BASE_IMAGE = "node-host:5011/go-zero:base-v0.9-gitfix"
+# submission and the run stalls. The corrected base image is the ONE image knob
+# kept as an environment variable (``EVOCLAW_GOZERO_BASE_IMAGE``), mirroring
+# EvoClaw's own image config. It is REQUIRED (no default): build the gitfixed base
+# from ``go-zero-gitfix.Dockerfile``, push it to your private registry, and point
+# the env var at it (see the evoclaw README).
 
 
 def _gozero_base_ref() -> str | None:
     """Corrected go-zero **base** image ref, or None to fall through to the normal
-    milestone-style ref. Reads env ``EVOCLAW_GOZERO_BASE_IMAGE`` and DEFAULTS to
-    the corrected image, so a fresh run needs no config; point it at your own
-    registry to override, or set it to the upstream ref (or empty) to disable the
-    redirect once upstream republishes ``base-v0.9`` with ``.git``.
+    milestone-style ref. Read from env ``EVOCLAW_GOZERO_BASE_IMAGE`` — REQUIRED,
+    no default: point it at the gitfixed go-zero base image in your private
+    registry, or set it EMPTY to disable the redirect and use the upstream
+    ``base-v0.9`` directly (e.g. once upstream republishes it with ``.git``).
     """
-    ref = os.environ.get("EVOCLAW_GOZERO_BASE_IMAGE", _DEFAULT_GOZERO_BASE_IMAGE).strip()
+    if "EVOCLAW_GOZERO_BASE_IMAGE" not in os.environ:
+        raise SystemExit(
+            "ERROR: EVOCLAW_GOZERO_BASE_IMAGE is not set. Set it (in .env) to the "
+            "gitfixed go-zero base image ref in your private registry, e.g. "
+            "<registry-host>:5011/go-zero:base-v0.9-gitfix (build it with "
+            "xrlenv_plugins/benchmarks/evoclaw/go-zero-gitfix.Dockerfile), or set "
+            "it empty to use the upstream base. See "
+            "xrlenv_plugins/benchmarks/evoclaw/README.md.",
+        )
+    ref = os.environ["EVOCLAW_GOZERO_BASE_IMAGE"].strip()
     return ref or None
 
 

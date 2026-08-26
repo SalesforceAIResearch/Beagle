@@ -118,6 +118,20 @@ class MetricsRegistry:
             labelnames=("node",),
             registry=self._registry,
         )
+        # Consumer-liveness quarantine (see
+        # notes/design-consumer-liveness-contract.md). The suspect/recovered
+        # RATIO is the operational signal: many suspects that recover means
+        # consumers are stalling and the quarantine is saving live work; suspects
+        # that mostly end in reaps means consumers really are dying.
+        self.raw_sessions_suspect = Gauge(
+            "xrlenv_raw_sessions_suspect",
+            "Raw sessions currently marked suspect: past the liveness TTL, "
+            "consumer silent, not yet destroyed. Normally that means inside "
+            "the quarantine horizon; during a mass die-off it also counts "
+            "sessions already past the horizon but queued behind "
+            "XRLENV_RAW_LIVENESS_REAP_BATCH.",
+            registry=self._registry,
+        )
 
         # Failure / rejection counters
         self.sandbox_create_failed_total = Counter(
@@ -128,8 +142,52 @@ class MetricsRegistry:
         )
         self.admission_total = Counter(
             "xrlenv_admission_total",
-            "Admission outcomes (admitted / queued / queue_timeout / cancelled_in_queue).",
+            "Admission outcomes (admitted / queued / queue_timeout / "
+            "cancelled_in_queue / rejected_full).",
             labelnames=("result",),
+            registry=self._registry,
+        )
+        self.raw_liveness_suspect_total = Counter(
+            "xrlenv_raw_liveness_suspect_total",
+            "Raw sessions marked suspect after going silent past the liveness TTL.",
+            registry=self._registry,
+        )
+        self.raw_liveness_recovered_total = Counter(
+            "xrlenv_raw_liveness_recovered_total",
+            "Suspect raw sessions whose consumer signalled again before the reap "
+            "fired — usually inside the quarantine horizon, but also a session "
+            "past the horizon that recovered while the sweep was destroying its "
+            "siblings. Work the pre-quarantine reaper would have destroyed.",
+            registry=self._registry,
+        )
+        self.raw_liveness_reaped_total = Counter(
+            "xrlenv_raw_liveness_reaped_total",
+            "Raw sessions force-destroyed after staying silent for the full "
+            "quarantine horizon.",
+            registry=self._registry,
+        )
+        # Control-plane liveness (2026-08-21). A stall on the event-loop thread
+        # (synchronous I/O, GC, CPU-bound section) freezes heartbeat processing
+        # and can trip the node watchdog; a mass-loss deferral is the watchdog
+        # refusing to evict the fleet on the first sweep after such a stall.
+        # Both are near-zero on a healthy control plane — any nonzero rate is a
+        # real signal, so alert on it.
+        self.control_loop_stalls_total = Counter(
+            "xrlenv_control_loop_stalls_total",
+            "Event-loop stalls observed by the loop-lag monitor (loop blocked "
+            "past the warn threshold).",
+            registry=self._registry,
+        )
+        self.control_loop_lag_seconds = Gauge(
+            "xrlenv_control_loop_lag_seconds",
+            "Largest event-loop stall observed so far (seconds); a health proxy "
+            "for loop-thread blocking.",
+            registry=self._registry,
+        )
+        self.nodes_mass_loss_deferred_total = Counter(
+            "xrlenv_nodes_mass_loss_deferred_total",
+            "Times the node watchdog deferred a would-be mass eviction "
+            "(suspected control-plane-side stall, not fleet death).",
             registry=self._registry,
         )
 

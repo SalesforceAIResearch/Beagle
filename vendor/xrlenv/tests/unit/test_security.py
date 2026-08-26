@@ -1153,13 +1153,13 @@ def test_legacy_shared_token_coexists_with_per_user_tokens(tmp_path: Path) -> No
 def test_colliding_env_and_per_user_token_resolves_to_per_user(
     tmp_path: Path, caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """yutong's exact case: the same secret is both XRLENV_CONSUMER_TOKEN (which
+    """carol's exact case: the same secret is both XRLENV_CONSUMER_TOKEN (which
     would otherwise register as the shared owner_id='default' role-token) and a
-    per-user token for owner='yutong'. Per-user wins → owner='yutong', and the
+    per-user token for owner='carol'. Per-user wins → owner='carol', and the
     operator is warned about the leaked client bearer."""
     write_user_record(
         tmp_path / "users.json", token="dual-purpose-tok",
-        role="consumer", owner_id="yutong",
+        role="consumer", owner_id="carol",
     )
     with caplog.at_level("WARNING"):
         s = TokenStore.load(
@@ -1168,11 +1168,11 @@ def test_colliding_env_and_per_user_token_resolves_to_per_user(
         )
     identity = s.verify("dual-purpose-tok")
     assert identity is not None
-    assert identity.owner_id == "yutong"  # per-user wins, NOT "default"
+    assert identity.owner_id == "carol"  # per-user wins, NOT "default"
     assert identity.role == "consumer"
     warned = [r.message for r in caplog.records if "per-user identity" in r.message]
     assert warned, "expected a collision warning"
-    assert "yutong" in warned[0]
+    assert "carol" in warned[0]
     assert "XRLENV_CONSUMER_TOKEN" in warned[0]
 
 
@@ -1210,7 +1210,7 @@ def test_no_collision_leaves_shared_token_intact(
     assert not [r for r in caplog.records if "per-user identity" in r.message]
 
 
-# 2d — regression (yutong's prod crash): `tokens list` must not KeyError when a
+# 2d — regression (carol's prod crash): `tokens list` must not KeyError when a
 #      role's active token was reconciled away by the collision above. Step 5
 #      drops the colliding token from ``_by_token`` but leaves ``_by_role`` still
 #      pointing at it; the CLI has to resolve the shadowing per-user identity
@@ -1226,11 +1226,11 @@ def test_cmd_tokens_list_survives_shared_per_user_collision(
         "XRLENV_OPERATOR_TOKEN", "XRLENV_VIEWER_TOKEN",
     ):
         monkeypatch.delenv(var, raising=False)
-    # The shared consumer role-token value collides with yutong's per-user token.
+    # The shared consumer role-token value collides with carol's per-user token.
     write_secret_file(tmp_path / "consumer.token", "dual-purpose-tok")
     write_user_record(
         tmp_path / "users.json", token="dual-purpose-tok",
-        role="consumer", owner_id="yutong", display_name="Yutong",
+        role="consumer", owner_id="carol", display_name="Carol",
     )
     out = io.StringIO()
     rc = cmd_tokens_list(secrets_root=tmp_path, out=out)  # must NOT KeyError
@@ -1239,7 +1239,7 @@ def test_cmd_tokens_list_survives_shared_per_user_collision(
     # The consumer role row is shown as shadowed by the per-user identity — not
     # crashed on, and not silently mislabelled as the shared owner=default.
     assert "consumer  shadowed" in body
-    assert "owner=yutong" in body
+    assert "owner=carol" in body
     assert "consumer  active" not in body
     # The raw bearer is never printed.
     assert "dual-purpose-tok" not in body

@@ -43,7 +43,7 @@ registry on a worker; don't.
 | What it does | Runs the `registry:3` proxy; caches layers on the shared store. | Points its Docker daemon's pulls at the mirror URL. |
 | Where it runs | The **control-plane host** or a **dedicated registry VM** — **never a worker**. | **Every** worker node. |
 | What it touches | Starts one container; writes blobs to the shared store. | Edits `/etc/docker/daemon.json` only. Runs **no** registry. |
-| Script | `deploy/registry/run-registry-proxy.sh` | `scripts/configure_docker_registry.sh` |
+| Script | `deploy/registry/run-registry-mirror.sh` | `deploy/registry/configure_docker_registry.sh` |
 
 The client side is pure daemon config — it adds one `registry-mirrors`
 URL. **No registry process ever runs on a worker.**
@@ -54,11 +54,11 @@ Run on the control-plane host (or a dedicated registry VM that all
 workers and the shared store can reach):
 
 ```bash
-bash deploy/registry/run-registry-proxy.sh
+bash deploy/registry/run-registry-mirror.sh
 ```
 
 In the bundled Slurm scripts this runs from
-`slurm_scripts/prod_xrlenv_control.sh` (alongside `run-registry-private.sh`), so
+`slurm_scripts/generated/prod_xrlenv_control.sh` (alongside `run-registry-private.sh`), so
 the designated registry box brings up both registries when the prod control plane
 starts. Other clusters point at it via `.env` and don't start their own.
 
@@ -68,8 +68,8 @@ by default; override with `REGISTRY_ENV_FILE`). All keys are optional:
 | Key | Default | Purpose |
 |---|---|---|
 | `DOCKERHUB_USER` / `DOCKERHUB_TOKEN` | unset (anonymous) | Upstream Docker Hub auth for the proxy. **The same two keys the node bootstrap and `refresh.sh` already use** — no separate secrets file. Anonymous works but Docker Hub rate-limits it, and the mirror funnels the whole cluster through one identity, so set a Pro/Team [Personal Access Token](https://docs.docker.com/security/for-developers/access-tokens/) here **before** warming the full image set. |
-| `XRLENV_REGISTRY_STORAGE` | `/path/to/data$USER/xrlenv-registry/proxy` | Blob-store path. **Must be a shared mount** (NFS / FSx / Lustre) reachable cluster-wide. This is the registry blob store only — never point it at the Docker data-root. |
-| `XRLENV_REGISTRY_PORT` | `5010` | Host port the mirror listens on. |
+| `XRLENV_MIRROR_REGISTRY_STORAGE` | `/fsx/home/$USER/xrlenv-registry/proxy` | Blob-store path. **Must be a shared mount** (NFS / FSx / Lustre) reachable cluster-wide. This is the registry blob store only — never point it at the Docker data-root. *(Deprecated alias: `XRLENV_REGISTRY_STORAGE` — still accepted with a warning.)* |
+| `XRLENV_MIRROR_REGISTRY_PORT` | `5010` | Host port the mirror listens on. *(Deprecated alias: `XRLENV_REGISTRY_PORT`.)* |
 
 Re-running the script any time re-applies changed `.env` values: it
 recreates the container, and the shared blob store persists across
@@ -77,10 +77,10 @@ restarts.
 
 :::{note}
 **Cache retention** is config-driven via `proxy.ttl` in
-`deploy/registry/config.yml` (default 90 days). A clean redeploy keeps
+`deploy/registry/config-mirror.yml` (default 90 days). A clean redeploy keeps
 cached content for that long with no manual steps. Changing the TTL only
 affects *future* pulls — to re-stamp content already cached, run
-`scripts/restamp_registry_ttl.sh`.
+`deploy/registry/restamp_registry_ttl.sh`.
 :::
 
 Verify the mirror is up from the control-plane host:
@@ -97,7 +97,7 @@ Run once per worker, via `sudo`:
 
 ```bash
 sudo MIRROR_URL=http://<control-plane-ip>:5010 \
-    bash scripts/configure_docker_registry.sh --restart
+    bash deploy/registry/configure_docker_registry.sh --restart
 ```
 
 This merges a `registry-mirrors` entry into `/etc/docker/daemon.json`
@@ -163,7 +163,7 @@ To pre-fill it before a sweep — so the first rollouts don't pay the
 upstream-fetch latency — warm it from a build plan:
 
 ```bash
-.venv/bin/python scripts/warm_images.py <build_plan.yaml> --concurrency 16
+.venv/bin/python deploy/registry/warm_images.py <build_plan.yaml> --concurrency 16
 ```
 
 This pulls each image's manifest and blobs **through the mirror's
@@ -183,7 +183,7 @@ interruption only fetches what's missing.
 |---|---|---|
 | `--concurrency N` | `8` | Parallel image streams. Raise for faster warming on a fast shared store; lower if the store is the bottleneck. |
 | `--mirror <url>` | `http://127.0.0.1:5010` | Override the mirror URL. Useful when warming from a box that isn't the control-plane host. |
-| `--store-path <path>` | `$XRLENV_REGISTRY_STORAGE` or `/path/to/data$USER/xrlenv-registry/proxy` | Override the blob-store root used for the skip-existing check. Set this when the env var is absent or you want to target a non-default store. |
+| `--store-path <path>` | `$XRLENV_MIRROR_REGISTRY_STORAGE` or `/fsx/home/$USER/xrlenv-registry/proxy` | Override the blob-store root used for the skip-existing check. Set this when the env var is absent or you want to target a non-default store. |
 | `--no-skip` | off | Re-stream every blob even if it is already present on the store. **Cache repair path** — use together with `--store-path` when blobs on the store are known to be corrupt or incomplete. |
 | `--limit N` | `0` (no limit) | Warm only the first N images from the plan. Useful for spot-checks or phased warming. |
 
@@ -194,10 +194,10 @@ regardless of whether the file already exists on disk.
 
 ## `restamp_registry_ttl.sh` — re-stamp TTL on existing cached content
 
-`scripts/restamp_registry_ttl.sh` rewrites the retention expiry on all
+`deploy/registry/restamp_registry_ttl.sh` rewrites the retention expiry on all
 content already cached in the mirror's scheduler state, in place. Normally
 you don't need this: the mirror's `proxy.ttl` setting (in
-`deploy/registry/config.yml`, default 90 days) governs the retention of
+`deploy/registry/config-mirror.yml`, default 90 days) governs the retention of
 *new* pulls, and a clean redeploy retains existing content for the configured
 period. This script is for the niche case where you want to change the
 policy for **content already cached** — for example, bumping 90d to 180d
@@ -207,8 +207,8 @@ config.
 **Usage** (run on the registry host, as the user who owns the repo):
 
 ```bash
-bash scripts/restamp_registry_ttl.sh          # re-stamp to now + 90d (default)
-bash scripts/restamp_registry_ttl.sh 180      # re-stamp to now + 180d
+bash deploy/registry/restamp_registry_ttl.sh          # re-stamp to now + 90d (default)
+bash deploy/registry/restamp_registry_ttl.sh 180      # re-stamp to now + 180d
 ```
 
 **What it does:**
@@ -218,7 +218,7 @@ bash scripts/restamp_registry_ttl.sh 180      # re-stamp to now + 180d
 2. Backs up `<store>/scheduler-state.json`.
 3. Rewrites every `ExpiryData` field to `now + N days` via an inline Python
    script (requires `sudo` for the root-owned state file).
-4. Restarts the mirror by re-running `deploy/registry/run-registry-proxy.sh`.
+4. Restarts the mirror by re-running `deploy/registry/run-registry-mirror.sh`.
 
 The restart incurs a brief (~10 s) pull-through outage; workers fall back to
 Docker Hub automatically during this window.
@@ -227,7 +227,7 @@ Docker Hub automatically during this window.
 
 ```bash
 0 4 1 * *  cd /path/to/xrlenv && \
-    bash scripts/restamp_registry_ttl.sh 90 >> /var/log/xrlenv-restamp.log 2>&1
+    bash deploy/registry/restamp_registry_ttl.sh 90 >> /var/log/xrlenv-restamp.log 2>&1
 ```
 
 ## Operational notes
