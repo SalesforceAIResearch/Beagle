@@ -107,3 +107,29 @@ def test_rollout_progress_helper_tty() -> None:
     assert "\r" in out                                          # in-place update on a TTY
     assert "[swe-bench-verified] rollout 2/2" in out
     assert out.endswith("\n")                                   # closed with a fresh line
+
+
+def test_harbor_harness_env_import_path_is_overridable() -> None:
+    # #12/5: a local (non-cluster) harbor run can point the harness at a different Environment class
+    # via the constructor — no monkeypatching the class attribute, no env var.
+    from beagle.benchmarks.harness.drivers import HarborHarness, PierHarness
+
+    assert HarborHarness().ENV_IMPORT_PATH == "xrlenv_plugins.harbor:XrlenvHarborEnvironmentCluster"
+    assert PierHarness().ENV_IMPORT_PATH == "xrlenv_plugins.pier:XrlenvPierEnvironmentCluster"
+    over = HarborHarness(env_import_path="my.mod:LocalEnv")
+    assert over.ENV_IMPORT_PATH == "my.mod:LocalEnv"                    # instance override applied
+    assert HarborHarness().ENV_IMPORT_PATH != "my.mod:LocalEnv"        # class default not mutated
+
+
+def test_benchmark_harness_threads_env_import_path() -> None:
+    # #20 item 1: a benchmark's options.env_import_path reaches the harbor/pier harness through
+    # Benchmark.harness(env_import_path=...) — the seam the runner uses from the config.
+    from beagle.benchmarks.harness.benchmark import HarborBenchmark
+    from beagle.benchmarks.harness.drivers import HarborHarness
+
+    class _B(HarborBenchmark):
+        name = "t-env-import"
+
+    h = _B().harness(env_import_path="my.mod:LocalEnv")
+    assert isinstance(h, HarborHarness) and h.ENV_IMPORT_PATH == "my.mod:LocalEnv"
+    assert _B().harness().ENV_IMPORT_PATH == HarborHarness.ENV_IMPORT_PATH   # default when unset

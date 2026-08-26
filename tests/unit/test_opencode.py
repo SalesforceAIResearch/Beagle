@@ -274,13 +274,34 @@ def test_network_and_install_hosts() -> None:
     assert a.source().repo.split("//")[1].split("/")[0] in a.install_hosts()  # source host appended
 
 
+def _clear_gateway_env(monkeypatch) -> None:
+    # `import xrlenv` autoloads .env, which may set the real proxy URL / key; the fallback assertions
+    # must not depend on ambient gateway credentials.
+    for v in ("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "LLM_GATEWAY_EXPRESS_API_KEY",
+              "LLM_GATEWAY_EXPRESS_API_KEY_LIST"):
+        monkeypatch.delenv(v, raising=False)
+
+
 def test_network_hosts_is_gateway(monkeypatch) -> None:
-    # Ensure a clean gateway env first — `import xrlenv` (any prior test) autoloads .env, which
-    # may set the real proxy URL; the "empty" assertion must not depend on ambient env.
-    monkeypatch.delenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", raising=False)
-    assert _agent().network_hosts() == []                       # no gateway env → empty
+    _clear_gateway_env(monkeypatch)
+    assert _agent().network_hosts() == ["https://api.openai.com"]       # no gateway creds → provider fallback
     monkeypatch.setenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "http://gw/v1")
-    assert _agent().network_hosts() == ["http://gw/v1"]
+    assert _agent().network_hosts() == ["http://gw/v1"]                 # gateway wins when its URL is set
+
+
+def test_network_hosts_no_fallback_when_a_gateway_key_is_present(monkeypatch) -> None:
+    # #22: a gateway key present (forward_env may feed it into OPENAI_API_KEY) → no public fallback.
+    _clear_gateway_env(monkeypatch)
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY", "internal-key")
+    assert _agent().network_hosts() == []                              # fail safe, don't open the endpoint
+
+
+def test_network_hosts_empty_for_unknown_model_without_gateway(monkeypatch) -> None:
+    _clear_gateway_env(monkeypatch)
+    unknown = bgl.agents.build(AgentSpec(
+        name="opencode", source=AgentSource(repo="https://x/o", ref="d"),
+        model=ModelSpec(name="mystery-model-9")))               # provider not derivable
+    assert unknown.network_hosts() == []                        # → litellm's default, no allowlist
 
 
 def test_default_source_requires_repo() -> None:

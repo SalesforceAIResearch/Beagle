@@ -71,7 +71,11 @@ class WebArenaInfinity(Benchmark):
     def source(self) -> TaskSource:
         return WaiSource()
 
-    def harness(self) -> BenchmarkHarness:
+    def harness(self, env_import_path: str | None = None) -> BenchmarkHarness:
+        if env_import_path:      # native WAI harness — no harbor cluster Environment; warn, don't drop silently
+            import warnings
+            warnings.warn(f"{self.name}: env_import_path is ignored — this benchmark's harness has no "
+                          "harbor cluster Environment.", stacklevel=2)
         return WaiHarness()
 
     def grader(self) -> Grader:

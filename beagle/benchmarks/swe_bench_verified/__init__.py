@@ -334,7 +334,11 @@ class SweBenchVerified(Benchmark):
     def source(self) -> TaskSource:
         return _SweBenchSource()
 
-    def harness(self) -> BenchmarkHarness:
+    def harness(self, env_import_path: str | None = None) -> BenchmarkHarness:
+        if env_import_path:      # docker drop-in — no cluster Environment; warn rather than drop silently
+            import warnings
+            warnings.warn(f"{self.name}: env_import_path is ignored — this benchmark's docker harness "
+                          "has no cluster Environment.", stacklevel=2)
         return DockerHarness()
 
     def grader(self) -> Grader:

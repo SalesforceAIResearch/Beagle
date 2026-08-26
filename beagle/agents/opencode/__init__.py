@@ -218,12 +218,29 @@ class OpenCodeAgent(Agent, Runnable, Evolvable, Editor):
             task, cfg, invoke.returncode, invoke.stdout, invoke.stderr, base_patch=base_patch)
 
     def network_hosts(self) -> list[str]:
-        """The LLM gateway opencode reaches during :meth:`run_in` — allowlisted on a restricted run
-        phase (DeepSWE/pier). Same gateway env every agent uses; empty when none is configured."""
-        from beagle.agents.core.litellm_gateway import gateway_litellm_kwargs
+        """Hosts opencode reaches during :meth:`run_in`, allowlisted on a network-restricted run
+        phase (DeepSWE/pier). With a gateway that's its ``api_base``; WITHOUT one opencode calls the
+        model provider directly, so fall back to that provider's API host (best-effort from the model
+        name) rather than leave a restricted-egress run with no allowlist. Empty only when neither is
+        known (unrestricted benchmarks unaffected)."""
+        from beagle.agents.core.litellm_gateway import (
+            gateway_key_pool,
+            gateway_litellm_kwargs,
+            provider_api_host,
+        )
 
         kw = gateway_litellm_kwargs()
-        return [kw["api_base"]] if kw and kw.get("api_base") else []
+        if kw and kw.get("api_base"):
+            return [kw["api_base"]]
+        # Direct-provider fallback only in a genuine no-gateway setup. If any gateway credential is
+        # present (``forward_env`` may feed it into ``OPENAI_API_KEY``), fail safe (``[]``) rather than
+        # open a public endpoint and risk leaking an internal key.
+        if os.environ.get("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL") or gateway_key_pool():
+            return []
+        host = provider_api_host(self.spec.model.name if self.spec.model else "gpt-5.5")
+        # Scheme-qualified (like the gateway path): the pier allowlist urlparses each entry, and a
+        # bare ``api.openai.com`` has no ``.hostname`` — it would drop out of the allowlist.
+        return [f"https://{host}"] if host else []
 
     def install_hosts(self) -> list[str]:
         """Hosts :meth:`install` reaches: opencode's git host + the Bun/npm indexes its bootstrap pulls

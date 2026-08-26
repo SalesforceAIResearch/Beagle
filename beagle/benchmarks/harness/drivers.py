@@ -50,6 +50,17 @@ class HarborHarness(BenchmarkHarness):
     #: The ONE shim the framework imports to run any beagle agent (see M+N note below).
     SHIM_IMPORT_PATH = "beagle.benchmarks.harness._harbor_agent:BeagleInstalledAgent"
 
+    def __init__(self, *, env_import_path: str | None = None) -> None:
+        """``env_import_path`` overrides the cluster :attr:`ENV_IMPORT_PATH` for THIS harness — a
+        local, non-cluster tb2/harbor run points at its own harbor ``Environment`` here instead of
+        monkeypatching the class attribute; falls back to the class default when unset.
+
+        Reach: set it in the run config as ``benchmark.options.env_import_path`` — the runner reads
+        a benchmark's ``options`` and passes it to :meth:`Benchmark.harness`, which forwards it here
+        (or construct the harness directly). Config, not an env var."""
+        if env_import_path:
+            self.ENV_IMPORT_PATH = env_import_path
+
     def _harness_api(self) -> dict[str, Any]:
         """The framework's ``Job`` + config classes, imported lazily from :attr:`FRAMEWORK`.
         harbor and pier expose the same names — only the package (and ``Job``'s location:

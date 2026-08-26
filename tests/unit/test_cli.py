@@ -253,6 +253,14 @@ def test_canonical_first_level_vocab_and_per_agent_extra_args() -> None:
                          "monet_args": ["--a"], "provider": "gw"})
     assert legacy["config"]["monet_args"] == ["--a"] and legacy["config"]["provider"] == "gw"
 
+    # source.entrypoint (the invoke/config path — e.g. mini's config YAML) is carried through;
+    # dropping it made a repo+ref yaml install mini with an empty entrypoint → `-c /agent/` (#12).
+    with_src = agent_dict({"harness": {"name": "mini-swe",
+                                       "source": {"repo": "r", "ref": "abc",
+                                                  "entrypoint": "path/to/x.yaml"}},
+                           "model": {"name": "m"}})
+    assert with_src["source"] == {"repo": "r", "ref": "abc", "entrypoint": "path/to/x.yaml"}
+
 
 def test_canonical_folds_prompt_override(tmp_path) -> None:
     # The optional layer-1/2 override escape hatch folds from the role block into agent.config,

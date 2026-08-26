@@ -198,7 +198,12 @@ class Runner:
             g0 = time.monotonic()
             items = groups[name]
             bench = benchmarks.get(name)
-            harness = bench.harness()
+            # A benchmark's ``options`` block can override the harbor/pier cluster Environment
+            # (env_import_path) — e.g. a local, non-cluster tb2 run. Pass the kwarg ONLY when set,
+            # so a benchmark with the plain ``harness(self)`` signature keeps working.
+            _eip = next((b.options.get("env_import_path")
+                         for b in config.all_benchmarks() if b.name == name), None)
+            harness = bench.harness(env_import_path=_eip) if _eip else bench.harness()
 
             # Resume: ask the harness what's already done (read from ITS native tree, not a house
             # ledger), then let ``plan_resume`` (shared with ``--dry-run``) decide what re-runs — each

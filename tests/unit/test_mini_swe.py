@@ -7,7 +7,7 @@ import json
 import pytest
 
 import beagle as bgl
-from beagle.agents.mini_swe import _parse_trajectory
+from beagle.agents.mini_swe import MiniSweAgent, _parse_trajectory, _tail
 from beagle.config import AgentConfig, AgentSourceConfig, ModelConfig
 from beagle.types import RolloutStatus, Task, TaskContext
 
@@ -44,10 +44,14 @@ class _FakeRuntime:
     (rc=1, stderr) — models a swallowed failure."""
 
     def __init__(self, *, diff: str = "", traj: str = "", fail: str | None = None,
-                 base: str | None = None) -> None:
+                 base: str | None = None, fail_stderr: str = "boom-from-container",
+                 probe_key: str = "", probe_raises: bool = False) -> None:
         self.cmds: list[str] = []
         self.envs: list[dict | None] = []
         self._diff, self._traj, self._fail, self._base = diff, traj, fail, base
+        self._fail_stderr = fail_stderr
+        self._probe_key = probe_key                             # the gateway key the in-container probe "finds"
+        self._probe_raises = probe_raises                       # models runtime.exec blowing up on the probe
         self.destroyed = False
 
     def acquire(self, *, image, command, **kw):
@@ -57,8 +61,12 @@ class _FakeRuntime:
         joined = " ".join(str(x) for x in cmd) if isinstance(cmd, list) else str(cmd)
         self.cmds.append(joined)
         self.envs.append(env)
+        if "gw-key-probe" in joined:                               # the in-container gateway key probe
+            if self._probe_raises:
+                raise RuntimeError("probe exec blew up")
+            return _Exec(self._probe_key)
         if self._fail and self._fail in joined:
-            return _Exec(returncode=1, stderr="boom-from-container")
+            return _Exec(returncode=1, stderr=self._fail_stderr)
         if "git rev-parse HEAD" in joined:                      # base commit (empty → no git repo)
             return _Exec(self._base or "")
         if "git diff" in joined and ("..HEAD" in joined or "--cached" in joined):
@@ -205,6 +213,93 @@ def test_run_provider_gates_the_gateway(monkeypatch) -> None:
     assert "model.model_kwargs" not in mini
 
 
+def test_run_probes_and_skips_an_already_blocked_key(monkeypatch) -> None:
+    # #20 (residual of #12/3): with a pool of >1 keys, run_in probes IN-CONTAINER (one request) and
+    # uses the key the probe returned — not pool[0] unconditionally — so a key already blocked at
+    # run start doesn't kill the run.
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "http://node:18088/")
+    monkeypatch.delenv("LLM_GATEWAY_EXPRESS_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY_LIST", "blocked-key,good-key")
+    rt = _FakeRuntime(diff="P", probe_key="good-key")
+    _gw_agent(provider="llm-gateway-express-local-proxy").run(
+        Task(task_id="t", problem_statement="x"),
+        TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+    probe_env = next(e for c, e in zip(rt.cmds, rt.envs) if "gw-key-probe" in c)    # the probe ran
+    assert probe_env["URL"].endswith("/chat/completions")       # against the endpoint the run uses
+    mini = next(c for c in rt.cmds if "mini -t" in c)
+    assert "-c model.model_kwargs.api_key=good-key" in mini      # used the probed key
+    assert "api_key=blocked-key" not in mini
+
+
+def test_probe_targets_responses_endpoint_under_effort(monkeypatch) -> None:
+    # The probe hits the endpoint the run will actually use — /responses when effort selects the
+    # Responses class (where the replica-split 401s bite), not /chat/completions.
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "http://node:18088/")
+    monkeypatch.delenv("LLM_GATEWAY_EXPRESS_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY_LIST", "k1,k2")
+    rt = _FakeRuntime(diff="P", probe_key="k2")
+    _gw_agent(provider="llm-gateway-express-local-proxy", effort="high").run(
+        Task(task_id="t", problem_statement="x"),
+        TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+    probe_env = next(e for c, e in zip(rt.cmds, rt.envs) if "gw-key-probe" in c)  # the probe exec's env
+    assert probe_env["URL"].endswith("/responses")             # probed the endpoint the run will hit
+
+
+def test_probe_targets_chat_endpoint_when_responses_api_false(monkeypatch) -> None:
+    # responses_api=false keeps the run on Chat Completions, so the probe must hit /chat/completions
+    # even with an effort set (not /responses).
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "http://node:18088/")
+    monkeypatch.delenv("LLM_GATEWAY_EXPRESS_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY_LIST", "k1,k2")
+    rt = _FakeRuntime(diff="P", probe_key="k2")
+    _gw_agent(provider="llm-gateway-express-local-proxy", effort="high", responses_api=False).run(
+        Task(task_id="t", problem_statement="x"),
+        TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+    probe_env = next(e for c, e in zip(rt.cmds, rt.envs) if "gw-key-probe" in c)
+    assert probe_env["URL"].endswith("/chat/completions")
+
+
+def test_probe_error_falls_back_to_pool_head_and_run_proceeds(monkeypatch) -> None:
+    # A probe whose exec raises must be swallowed → default pool head, run still completes.
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "http://node:18088/")
+    monkeypatch.delenv("LLM_GATEWAY_EXPRESS_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY_LIST", "k1,k2")
+    rt = _FakeRuntime(diff="P", probe_raises=True)
+    res = _gw_agent(provider="llm-gateway-express-local-proxy").run(
+        Task(task_id="t", problem_statement="x"),
+        TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+    mini = next(c for c in rt.cmds if "mini -t" in c)
+    assert "-c model.model_kwargs.api_key=k1" in mini            # fell back to the pool head
+    assert res.status is RolloutStatus.COMPLETED                 # the probe error never fails the run
+
+
+def test_run_falls_back_to_pool_head_when_probe_finds_nothing(monkeypatch) -> None:
+    # Probe miss (all blocked / no curl) → default pool[0], never fails the run.
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "http://node:18088/")
+    monkeypatch.delenv("LLM_GATEWAY_EXPRESS_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY_LIST", "k1,k2")
+    rt = _FakeRuntime(diff="P", probe_key="")                    # probe returns nothing
+    _gw_agent(provider="llm-gateway-express-local-proxy").run(
+        Task(task_id="t", problem_statement="x"),
+        TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+    mini = next(c for c in rt.cmds if "mini -t" in c)
+    assert "-c model.model_kwargs.api_key=k1" in mini            # first of the pool
+
+
+def test_run_single_key_skips_the_probe(monkeypatch) -> None:
+    # One key → nothing to choose between → no probe request spent.
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "http://node:18088/")
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY", "only")
+    monkeypatch.delenv("LLM_GATEWAY_EXPRESS_API_KEY_LIST", raising=False)
+    rt = _FakeRuntime(diff="P")
+    _gw_agent(provider="llm-gateway-express-local-proxy").run(
+        Task(task_id="t", problem_statement="x"),
+        TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+    assert not any("gw-key-probe" in c for c in rt.cmds)            # no probe
+    mini = next(c for c in rt.cmds if "mini -t" in c)
+    assert "-c model.model_kwargs.api_key=only" in mini
+
+
 def test_run_captures_base_to_head_diff_when_agent_self_commits() -> None:
     # deep-swe/pier: the agent commits its own work, so a post-run working-tree diff is empty. We
     # record the base commit up front and capture `git diff base..HEAD` (after committing leftovers)
@@ -230,6 +325,19 @@ def test_run_wires_effort_and_max_turns() -> None:
     assert "-c model.model_class=litellm_response" in mini
     assert "-c model.model_kwargs.reasoning_effort=high" in mini
     assert "-c agent.step_limit=150" in mini
+
+
+def test_effort_can_opt_out_of_responses_api() -> None:
+    # #12/3 footgun escape: `responses_api: false` keeps mini on Chat Completions (the gateway's
+    # Responses auth can be replica-split — a key 200s on chat, 401s on responses) while still
+    # passing reasoning_effort. The caller then owns the reasoning-split risk.
+    rt = _FakeRuntime(diff="P")
+    _gw_agent(effort="high", responses_api=False).run(
+        Task(task_id="t", problem_statement="x"),
+        TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+    mini = next(c for c in rt.cmds if "mini -t" in c)
+    assert "model.model_class=litellm_response" not in mini          # stays on chat completions
+    assert "-c model.model_kwargs.reasoning_effort=high" in mini     # effort still applied
 
 
 def test_run_no_effort_stays_on_chat_default() -> None:
@@ -297,12 +405,108 @@ def test_failed_install_raises_agent_install_error() -> None:
 
 
 def test_network_hosts_is_the_gateway(monkeypatch) -> None:
-    # the run phase only needs the LLM gateway → allowlisted on a network-restricted benchmark
+    # RUN reaches the LLM gateway → allowlisted. Gated on `provider` (mirrors run_in's routing gate).
     monkeypatch.setenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "http://node:18088/")
     monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY", "sk-real")
-    assert _agent().network_hosts() == ["http://node:18088/"]
+    assert _gw_agent(provider="llm-gateway-express-local-proxy").network_hosts() == ["http://node:18088/"]
 
 
-def test_network_hosts_empty_without_gateway(monkeypatch) -> None:
+def test_network_hosts_gated_on_provider(monkeypatch) -> None:
+    # #22: network_hosts must match run_in's gate (gateway only when `provider` is set). Proxy URL set
+    # but provider UNSET → the run calls the provider directly, so DON'T advertise the gateway; and a
+    # gateway credential is present, so fail safe ([]) rather than open a public endpoint.
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "http://gw/")
+    monkeypatch.delenv("LLM_GATEWAY_EXPRESS_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_GATEWAY_EXPRESS_API_KEY_LIST", raising=False)
+    assert _gw_agent(provider="llm-gateway-express-local-proxy").network_hosts() == ["http://gw/"]
+    assert _gw_agent().network_hosts() == []                          # provider unset + gateway URL → []
+
+
+def test_network_hosts_no_fallback_when_a_gateway_key_is_present(monkeypatch) -> None:
+    # #22: even with no proxy URL, if a gateway KEY is present (forward_env may feed it into
+    # OPENAI_API_KEY), don't open the public provider host — fail safe.
     monkeypatch.delenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", raising=False)
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY", "internal-key")
     assert _agent().network_hosts() == []
+
+
+def test_network_hosts_falls_back_to_the_provider_without_gateway(monkeypatch) -> None:
+    # No gateway credentials at all (a genuine OSS setup) → mini calls the provider directly, so
+    # allowlist the provider's API host (URL form) instead of leaving a restricted-egress run empty.
+    for v in ("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "LLM_GATEWAY_EXPRESS_API_KEY",
+              "LLM_GATEWAY_EXPRESS_API_KEY_LIST"):
+        monkeypatch.delenv(v, raising=False)
+    assert _agent().network_hosts() == ["https://api.openai.com"]     # gpt-5.5 → OpenAI (URL form)
+    claude = bgl.agents.build(AgentConfig(
+        name="mini-swe", model=ModelConfig(name="claude-sonnet-4-5"),
+        source=AgentSourceConfig(repo="https://x/f", ref="a")))
+    assert claude.network_hosts() == ["https://api.anthropic.com"]    # claude → Anthropic
+
+
+def test_network_hosts_empty_for_unknown_model_without_gateway(monkeypatch) -> None:
+    for v in ("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "LLM_GATEWAY_EXPRESS_API_KEY",
+              "LLM_GATEWAY_EXPRESS_API_KEY_LIST"):
+        monkeypatch.delenv(v, raising=False)
+    unknown = bgl.agents.build(AgentConfig(
+        name="mini-swe", model=ModelConfig(name="mystery-model-9"),
+        source=AgentSourceConfig(repo="https://x/f", ref="a")))
+    assert unknown.network_hosts() == []                             # unknown → litellm's default
+
+
+def test_default_source_pins_ref_and_fills_entrypoint() -> None:
+    # #12/2: with NO source, the baseline is a PINNED ref (not upstream's drifting default branch),
+    # carrying the default config-YAML entrypoint.
+    bare = bgl.agents.build(AgentConfig(name="mini-swe", model=ModelConfig(name="gpt-5.5")))
+    src = bare._default_source()
+    assert src.ref == MiniSweAgent.DEFAULT_REF and src.ref                       # a real pin, not None
+    assert src.entrypoint == MiniSweAgent.DEFAULT_ENTRYPOINT
+    # #12/1: a source that sets repo+ref but omits the entrypoint gets the default filled in
+    # (else run_in builds `-c /agent/`, a directory — mini v2 dies).
+    filled = bgl.agents.build(AgentConfig(
+        name="mini-swe", model=ModelConfig(name="gpt-5.5"),
+        source=AgentSourceConfig(repo="https://x/fork", ref="abc123")))._default_source()
+    assert filled.repo == "https://x/fork" and filled.ref == "abc123"            # caller's choices kept
+    assert filled.entrypoint == MiniSweAgent.DEFAULT_ENTRYPOINT                  # entrypoint filled
+
+
+def test_default_ref_stays_in_sync_with_the_onboard_script() -> None:
+    # #20: DEFAULT_REF and scripts/onboard_all_agents.sh must agree — bumping one without the other
+    # is a silent drift. Asserting the constant appears in the script makes that loud.
+    from pathlib import Path
+    script = (Path(__file__).resolve().parents[2] / "scripts" / "onboard_all_agents.sh").read_text()
+    assert MiniSweAgent.DEFAULT_REF in script, \
+        "MiniSweAgent.DEFAULT_REF drifted from the --ref in scripts/onboard_all_agents.sh"
+
+
+def test_run_uses_default_config_yaml_when_config_path_unset() -> None:
+    # #12/1 end-to-end: a repo+ref source with NO config_path still runs mini with the default
+    # `-c /agent/src/minisweagent/config/benchmarks/swebench.yaml`, never `-c /agent/`.
+    agent = bgl.agents.build(AgentConfig(
+        name="mini-swe", model=ModelConfig(name="gpt-5.5"),
+        source=AgentSourceConfig(repo="https://x/fork", ref="abc123")))        # no config_path
+    rt = _FakeRuntime(diff="P")
+    agent.run(Task(task_id="t", problem_statement="x"),
+              TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+    mini = next(c for c in rt.cmds if "mini -t" in c)
+    assert "-c /agent/src/minisweagent/config/benchmarks/swebench.yaml" in mini
+    assert "-c /agent/ " not in mini                                            # not the empty dir
+
+
+def test_tail_keeps_the_exception_at_the_end() -> None:
+    # #12/4: the real cause is at the END of a traceback; the old head slice ([:800]) dropped it.
+    long = ("setup noise\n" * 400) + "RuntimeError: the actual cause"
+    assert len(long) > 2000
+    out = _tail(long)
+    assert out.endswith("RuntimeError: the actual cause") and len(out) <= 2100
+    assert _tail("short") == "short"                                            # short text as-is
+
+
+def test_failed_mini_surfaces_the_tail_not_the_head() -> None:
+    # #12/4 end-to-end: a long mini stderr must surface its trailing exception line in `error`,
+    # not a head slice full of setup noise.
+    long = ("configuring the wizard...\n" * 300) + "AuthError: 401 Key is blocked"
+    rt = _FakeRuntime(fail="mini -t", diff="", fail_stderr=long)
+    res = _agent().run(Task(task_id="t", problem_statement="x"),
+                       TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+    assert res.status is RolloutStatus.FAILED
+    assert "AuthError: 401 Key is blocked" in (res.error or "")                 # the real cause shows

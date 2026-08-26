@@ -41,8 +41,8 @@ class DeepSwe(Benchmark):
     def source(self) -> TaskSource:
         return HarborCache(self.name, cache_name=self.cache_name)
 
-    def harness(self) -> BenchmarkHarness:
-        return PierHarness()
+    def harness(self, env_import_path: str | None = None) -> BenchmarkHarness:
+        return PierHarness(env_import_path=env_import_path)
 
     def grader(self) -> Grader:
         return InBandGrader()

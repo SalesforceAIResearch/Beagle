@@ -38,8 +38,8 @@ class HarborBenchmark(Benchmark):
         # and breaks benchmarks.get(task.benchmark) at run time.
         return HarborCache(self.name, cache_name=self.cache_name or None)
 
-    def harness(self) -> BenchmarkHarness:
-        return HarborHarness()
+    def harness(self, env_import_path: str | None = None) -> BenchmarkHarness:
+        return HarborHarness(env_import_path=env_import_path)
 
     def grader(self) -> Grader:
         return InBandGrader()

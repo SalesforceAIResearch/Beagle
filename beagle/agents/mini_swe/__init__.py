@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 import shlex
+from dataclasses import replace
 from pathlib import Path
 
 from beagle.agents.core.base import (
@@ -37,7 +38,11 @@ from beagle.agents.core.base import (
     Topology,
 )
 from beagle.agents.core.forward_env import normalize_forward_env
-from beagle.agents.core.litellm_gateway import gateway_litellm_kwargs
+from beagle.agents.core.litellm_gateway import (
+    gateway_key_pool,
+    gateway_litellm_kwargs,
+    provider_api_host,
+)
 from beagle.agents.core.registry import register
 from beagle.agents.core.usage import Usage
 from beagle.agents.core.usage import add as usage_add
@@ -73,19 +78,37 @@ class MiniSweAgent(Agent, Runnable, Evolvable, Editor):
     Config keys (``spec.config``): the shared first-level vocabulary — ``provider`` (gates gateway
     routing), ``effort`` (→ ``model.model_kwargs.reasoning_effort``), ``max_turns`` (→
     ``agent.step_limit``) — plus ``config_path`` (mini's ``-c`` preset = the evolvable surface),
-    ``timeout``, ``forward_env`` (``[container_var, host_var]`` gateway-creds pairs).
+    ``timeout``, ``forward_env`` (``[container_var, host_var]`` gateway-creds pairs), and
+    ``responses_api`` (default ``true``; set ``false`` to keep mini on Chat Completions even with an
+    ``effort`` — the escape hatch for the gateway's replica-split Responses auth). Adapter knobs go
+    under ``extra_args.mini_swe_args`` in a canonical yaml, e.g.::
+
+        harness: {name: mini-swe, source: {...}}
+        effort: high
+        extra_args:
+          mini_swe_args: {responses_api: false}   # dodge /v1/responses 401s; you own the split risk
     """
 
     transparency = Transparency.WHITE_BOX
     topology = Topology.IN_CONTAINER  # native shape is HOST_DRIVER; see module docstring
     #: Point at your fork (so the evolver can push branches); upstream is the default.
     REPO = "https://github.com/swe-agent/mini-swe-agent"
+    #: The evolvable surface is mini's config YAML — the default entrypoint (mini's ``-c`` preset).
+    DEFAULT_ENTRYPOINT = "src/minisweagent/config/benchmarks/swebench.yaml"
+    #: Pin the baseline to a validated commit. Without a ref the default source tracks upstream's
+    #: default branch, which drifts across major version bumps (mini-swe is now v2.x). Same commit
+    #: we onboard (scripts/onboard_all_agents.sh).
+    DEFAULT_REF = "a83fcae82d2a08f0ee0c688f9d137b3566c097f8"
 
     def _default_source(self) -> AgentSource:
-        # The evolvable surface is the config YAML — that's the entrypoint.
-        return self.spec.source or AgentSource(
-            repo=self.REPO, entrypoint="src/minisweagent/config/benchmarks/swebench.yaml"
-        )
+        src = self.spec.source
+        if src is None:
+            return AgentSource(repo=self.REPO, ref=self.DEFAULT_REF, entrypoint=self.DEFAULT_ENTRYPOINT)
+        # A yaml may set source.repo (+ref) but omit the entrypoint (the config-YAML path). Fill the
+        # default so run_in doesn't build ``-c /agent/`` (a directory — mini v2 dies at mini.py:72).
+        if not src.entrypoint:
+            return replace(src, entrypoint=self.DEFAULT_ENTRYPOINT)
+        return src
 
     def install(self, handle: object, task_ctx: TaskContext, *, runtime: ContainerRuntime) -> None:
         """INSTALL phase (network-open on a phased harness): fetch the exact repo@ref (carries the
@@ -112,14 +135,14 @@ class MiniSweAgent(Agent, Runnable, Evolvable, Editor):
         if not cloned.ok:
             raise AgentInstallError(
                 f"mini-swe clone failed (rc={cloned.returncode}): "
-                f"{(cloned.stderr or cloned.stdout).strip()[:800]}")
+                f"{_tail(cloned.stderr or cloned.stdout)}")
         # Managed Python 3.11 (see _MINI_INSTALL) — the container's own Python is too old. Allow
         # time for uv to fetch the interpreter + deps.
         install = runtime.exec(handle, ["bash", "-lc", _MINI_INSTALL], timeout=900)
         if not install.ok:
             raise AgentInstallError(
                 f"mini-swe install failed (rc={install.returncode}): "
-                f"{(install.stderr or install.stdout).strip()[:800]}")
+                f"{_tail(install.stderr or install.stdout)}")
 
     def run_in(
         self, handle: object, task: Task, task_ctx: TaskContext, *, runtime: ContainerRuntime
@@ -138,7 +161,7 @@ class MiniSweAgent(Agent, Runnable, Evolvable, Editor):
         # (effort/max_turns) rides `vocab`, gateway routing rides `gw` (gated on `provider`), all as
         # `-c` overrides that layer over the preset; MSWEA_CONFIGURED skips mini's TTY-requiring
         # first-time wizard; creds ride forward_env.
-        gw = _mini_gateway_c_args() if cfg.get("provider") else ""
+        gw = _mini_gateway_c_args(_probe_working_key(runtime, handle, cfg)) if cfg.get("provider") else ""
         vocab = _mini_vocab_c_args(cfg)
         ov = _mini_prompt_override_c_args(self.prompt_override())
         run_env = {"MSWEA_CONFIGURED": "1"}
@@ -189,17 +212,30 @@ class MiniSweAgent(Agent, Runnable, Evolvable, Editor):
             return TaskResult(
                 task_id=task.task_id, status=RolloutStatus.FAILED, tokens=tokens, num_turns=n_turns,
                 error=f"mini run failed (rc={run_res.returncode}): "
-                      f"{(run_res.stderr or run_res.stdout).strip()[:800]}",
+                      f"{_tail(run_res.stderr or run_res.stdout)}",
                 trajectory=ref, trajectory_text=traj_raw or None)
         return TaskResult(
             task_id=task.task_id, status=RolloutStatus.COMPLETED, patch=diff or None,
             tokens=tokens, num_turns=n_turns, trajectory=ref, trajectory_text=traj_raw or None)
 
     def network_hosts(self) -> list[str]:
-        """Only the LLM gateway is contacted during :meth:`run_in` — allowlisted on a restricted
-        run phase (deep-swe/pier). Empty when no gateway is configured (litellm's own defaults)."""
-        kw = gateway_litellm_kwargs()
-        return [kw["api_base"]] if kw and kw.get("api_base") else []
+        """Hosts contacted during :meth:`run_in`, allowlisted on a network-restricted run phase
+        (deep-swe/pier). Mirrors run_in's routing gate: the gateway is used ONLY when ``provider``
+        is set, so we advertise it only then. Otherwise mini calls the model provider directly and
+        we allowlist that provider's API host (best-effort from the model name) — BUT only in a
+        genuine no-gateway setup. If any gateway credential is present (``forward_env`` may feed it
+        into ``OPENAI_API_KEY``), opening a public endpoint could leak an internal key, so we fail
+        safe (``[]``). Empty too when the provider isn't derivable (litellm's own default)."""
+        if self.config.get("provider"):
+            kw = gateway_litellm_kwargs()
+            if kw and kw.get("api_base"):
+                return [kw["api_base"]]
+        if os.environ.get("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL") or gateway_key_pool():
+            return []                              # gateway creds present → don't open a public endpoint
+        host = provider_api_host(self.spec.model.name if self.spec.model else "")
+        # Scheme-qualified (like the gateway path): pier's allowlist urlparses each entry, and a bare
+        # ``api.openai.com`` has no ``.hostname`` — it would drop out of the allowlist.
+        return [f"https://{host}"] if host else []
 
     def install_hosts(self) -> list[str]:
         """Hosts :meth:`install` reaches: the fork's git host + the package indexes uv pulls from
@@ -233,14 +269,71 @@ class MiniSweAgent(Agent, Runnable, Evolvable, Editor):
         raise NotImplementedError("mini-swe edit() not yet implemented")
 
 
-def _mini_gateway_c_args() -> str:
+def _tail(text: str, limit: int = 2000) -> str:
+    """The last ``limit`` chars of ``text`` (stripped). A traceback's actual exception line sits at
+    the END, so the old head slice (``[:800]``) cut it off — surfacing setup noise instead of the
+    real cause (which is what got finding #1 misdiagnosed). Keeps errors diagnosable at a glance."""
+    t = (text or "").strip()
+    return t if len(t) <= limit else "…(truncated)…\n" + t[-limit:]
+
+
+def _mini_gateway_c_args(api_key: str | None = None) -> str:
     """The shared litellm→gateway settings (:func:`gateway_litellm_kwargs`), formatted as mini's
     ``-c model.model_kwargs.…`` CLI overrides — ``""`` when no gateway is configured. The routing
-    itself is reusable infra; only this CLI *formatting* is mini-swe-specific."""
+    itself is reusable infra; only this CLI *formatting* is mini-swe-specific. ``api_key`` overrides
+    the default pool pick (the container probe's choice, see :func:`_probe_working_key`)."""
     kw = gateway_litellm_kwargs()
     if not kw:
         return ""
+    if api_key:
+        kw = {**kw, "api_key": api_key}
     return "".join(f" -c model.model_kwargs.{k}={shlex.quote(str(v))}" for k, v in kw.items())
+
+
+def _probe_working_key(runtime: ContainerRuntime, handle: object, cfg: dict) -> str | None:
+    """Pick a gateway key that isn't ALREADY blocked, by probing from **inside the container** —
+    one request against the endpoint this run will hit. A login-node probe isn't trustworthy: the
+    gateway's 200/401 split differs per replica, per endpoint, and host-vs-container. This closes
+    the "pool[0] is already blocked at run start" gap; a key that flips mid-rollout is still
+    unrecoverable here (mini owns its in-container calls). Best-effort — returns ``None`` (→ default
+    pool pick) when there's nothing to choose (0/1 keys), no gateway, or the probe can't run, so a
+    probe miss never fails the run."""
+    kw = gateway_litellm_kwargs()
+    pool = gateway_key_pool()
+    if not kw or len(pool) < 2:            # nothing to choose between → don't spend a request
+        return None
+    endpoint = "responses" if (cfg.get("effort") and cfg.get("responses_api", True)) else "chat/completions"
+    url = kw["api_base"].rstrip("/") + "/" + endpoint
+    # Probe each key; the first whose response isn't auth-rejected (401/403) wins. Use the venv's
+    # Python (uv installs it in _MINI_INSTALL, so it's guaranteed present by the RUN phase) rather than
+    # curl — the tb2.1 images that motivated this lack curl/wget entirely, where a curl probe would
+    # silently no-op. Keys + body ride env (not argv). The "# gw-key-probe" marker tags the exec.
+    probe = (
+        "# gw-key-probe\n"
+        "/agent/.venv/bin/python - <<'PY'\n"
+        "import os, urllib.request, urllib.error\n"
+        "url = os.environ['URL']; body = os.environ['BODY'].encode()\n"
+        "for k in (x.strip() for x in os.environ['KEYS'].replace(';', ',').split(',')):\n"
+        "    if not k:\n"
+        "        continue\n"
+        "    req = urllib.request.Request(url, data=body, method='POST',\n"
+        "        headers={'Authorization': 'Bearer ' + k, 'Content-Type': 'application/json'})\n"
+        "    try:\n"
+        "        urllib.request.urlopen(req, timeout=8); print(k); break\n"
+        "    except urllib.error.HTTPError as e:\n"
+        "        if e.code not in (401, 403):\n"
+        "            print(k); break\n"
+        "    except Exception:\n"
+        "        pass\n"
+        "PY")
+    body = '{"model":"probe","messages":[{"role":"user","content":"ping"}],"max_tokens":1}'
+    try:
+        res = runtime.exec(handle, ["bash", "-lc", probe],
+                           env={"URL": url, "KEYS": ",".join(pool), "BODY": body}, timeout=90)
+    except Exception:
+        return None
+    picked = (getattr(res, "stdout", "") or "").strip().splitlines()
+    return picked[-1].strip() if picked and picked[-1].strip() in pool else None
 
 
 def _mini_vocab_c_args(cfg: dict) -> str:
@@ -261,7 +354,12 @@ def _mini_vocab_c_args(cfg: dict) -> str:
     mini json-decodes each value, so ``150`` types as ``int`` and ``high`` stays a string."""
     parts = []
     if cfg.get("effort"):
-        parts.append(" -c model.model_class=litellm_response")
+        # By default reasoning ALSO selects the Responses API class (see above). But the gateway's
+        # Responses auth can be replica-split (a key 200s on /v1/chat/completions and 401s on
+        # /v1/responses), so `responses_api: false` keeps mini on Chat Completions — the caller then
+        # owns the reasoning-split risk. reasoning_effort is passed either way.
+        if cfg.get("responses_api", True):
+            parts.append(" -c model.model_class=litellm_response")
         parts.append(f" -c model.model_kwargs.reasoning_effort={shlex.quote(str(cfg['effort']))}")
     if cfg.get("max_turns") is not None:
         parts.append(f" -c agent.step_limit={shlex.quote(str(int(cfg['max_turns'])))}")

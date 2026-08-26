@@ -116,6 +116,8 @@ def agent_dict(role: dict) -> dict:
     d: dict = {"name": _adapter_for(a["name"]), "model": role["model"], "config": config}
     if src.get("repo"):
         d["source"] = {"repo": src["repo"], "ref": src.get("ref")}
+        if src.get("entrypoint"):        # the invoke/config path (e.g. mini's config YAML) — an
+            d["source"]["entrypoint"] = src["entrypoint"]   # adapter needs it; dropping it broke `-c`
     return d
 
 

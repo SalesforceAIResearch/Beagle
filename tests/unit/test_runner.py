@@ -299,3 +299,57 @@ def test_runner_force_resume_overrides_drift_and_records_both_hashes(tmp_path, m
     assert rec["config_hash"] != prior_hash                # current (drifted) hash is the run's
     assert rr.metrics["num_tasks"] == 2                    # t1 (resumed) + t2 (new) both present
     assert first.run_id == "RID"
+
+
+def _recording_bench(record: list, *, old_signature: bool = False):
+    """A benchmark whose harness() records the env_import_path it's called with (or, with
+    ``old_signature``, keeps the pre-#20 ``harness(self)`` shape to prove backward-compat)."""
+
+    class _H:
+        def completed(self, items, *, run_dir):  # noqa: ANN001
+            return []
+
+        def rollout(self, agent, items, *, runtime, run_dir, parallelism, retry=None, attempt=0, resuming=False):  # noqa: ANN001
+            return [TaskResult(task_id=t.task_id, resolved=True, reward=1.0,
+                               tokens={"prompt": 1, "completion": 1},
+                               artifact_dir=run_dir / "b" / t.task_id) for t, _ in items]
+
+    class _G:
+        def grade(self, results, *, runtime, run_dir, parallelism=1):  # noqa: ANN001
+            return GradeReport(num_tasks=len(results), num_resolved=len(results), score=1.0)
+
+    class _B:
+        if old_signature:
+            def harness(self):
+                record.append("PLAIN")
+                return _H()
+        else:
+            def harness(self, env_import_path=None):
+                record.append(env_import_path)
+                return _H()
+
+        def grader(self):
+            return _G()
+
+    return _B()
+
+
+def test_runner_threads_env_import_path_from_benchmark_options(tmp_path, monkeypatch) -> None:
+    # #20 item 1: benchmark.options.env_import_path reaches Benchmark.harness() through the runner.
+    rec: list = []
+    monkeypatch.setattr(benchmarks, "get", lambda name: _recording_bench(rec))
+    cfg = RunConfig.from_dict({
+        "model": {"name": "gpt-5.5"}, "agent": {"name": "monet", "config": {}},
+        "benchmark": {"name": "b", "task_ids": ["t1"],
+                      "options": {"env_import_path": "my.mod:LocalEnv"}}})
+    Runner(results_root=tmp_path).run(agent=object(), dataset=_dataset("t1"), config=cfg, run_id="RID")
+    assert rec == ["my.mod:LocalEnv"]                       # the option flowed through
+
+
+def test_runner_calls_plain_harness_when_env_import_path_unset(tmp_path, monkeypatch) -> None:
+    # Backward-compat: no option → runner calls the plain harness() (a benchmark with the old
+    # signature must not break).
+    rec: list = []
+    monkeypatch.setattr(benchmarks, "get", lambda name: _recording_bench(rec, old_signature=True))
+    Runner(results_root=tmp_path).run(agent=object(), dataset=_dataset("t1"), config=_cfg("t1"), run_id="RID")
+    assert rec == ["PLAIN"]                                 # plain harness() invoked, no TypeError

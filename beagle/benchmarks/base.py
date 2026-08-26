@@ -296,8 +296,11 @@ class Benchmark(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def harness(self) -> BenchmarkHarness:
-        """The native rollout driver for this benchmark."""
+    def harness(self, env_import_path: str | None = None) -> BenchmarkHarness:
+        """The native rollout driver for this benchmark. ``env_import_path`` (from the run config's
+        ``benchmark.options.env_import_path``) overrides the harbor/pier cluster ``Environment`` for
+        a harbor-family harness — e.g. a local, non-cluster tb2 run. Harnesses that use no cluster
+        Environment (docker drop-in, native-runner) ignore it."""
         raise NotImplementedError
 
     @abstractmethod

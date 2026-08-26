@@ -253,11 +253,55 @@ Flags are **independent** — combine to union. Resolved tasks are never re-run.
 
 ### Evolve
 
-> **Placeholder.** Evolution CLI usage and loop details land here.
->
-> Until then: [examples/quick-start/config.yaml](examples/quick-start/config.yaml)
-> and `beagle evolve --config … --dry-run`.
-> Architecture: [notes/design.md](notes/design.md) · Plan: [notes/roadmap.md](notes/roadmap.md)
+`beagle evolve` runs the loop named by the `algorithm` block — DarwinX unless you swap it.
+One config is one **campaign**: every node it scores is recorded in a genealogy DB, so
+re-launching the same config continues the tree instead of starting over.
+
+```bash
+beagle evolve --config examples/quick-start/config.yaml --dry-run   # resolve + plan, no spend
+beagle evolve --config examples/quick-start/config.yaml
+```
+
+Each pipeline (one proposal attempt against one parent) walks these phases:
+
+| Phase | What happens |
+| --- | --- |
+| **seed** | θ (the `evolvee`) is cloned once under `repo_root`; each pipeline gets its own worktree |
+| **baseline** | the parent is scored on the subset — skipped when that parent already has a score |
+| **propose** | the `evolver` edits the worktree; its diff is the candidate |
+| **score** | the candidate runs the same tasks at the same budget as the baseline |
+| **gate** | keep / reject — verification gates, guard (canary) tasks, equivalence, anti-cheat |
+| **land** | a kept node is committed and pushed as `evolve/<parent-sha>__<pipeline-id>` |
+
+Nodes end as `completed`, `no_change`, `rejected`, or `failed`. **`no_change` is a normal
+outcome** — the proposer found nothing that survived the gate — not an error.
+
+**Which tasks.** DarwinX is single-benchmark, so it evolves on `data[0]`. `tasks` is the
+subset it optimizes against; `options.priority_tasks` / `variance_tasks` / `fullset_tasks`
+stratify it further. All optional — omit them and the driver's own defaults stand.
+
+**Knobs** go under `algorithm.hparams` and are typed (`extra='forbid'`, so a typo fails at
+load instead of being silently ignored). The ones you reach for first:
+
+| Knob | Controls |
+| --- | --- |
+| `max_loop_iters` | proposal attempts per pipeline before it gives up |
+| `subset_eval_n_attempts` / `fullset_eval_n_attempts` | avg@k on the subset / on the scoring set |
+| `mini_eval_k_samples` | cheap screen before committing to a full re-score |
+| `parent_strategy` | which scored node the next pipeline branches from |
+| `node_score` | `panel` (fixed task panel) or `mixture` (multi-benchmark) |
+| `gate_enabled` · `anti_cheat` | the accept/reject machinery |
+| `guard_enabled` · `guard_strict` | canary tasks a candidate is not allowed to regress |
+| `absorb_timeouts` · `infra_retries` | keep infra flakiness out of the score |
+
+That is the short list; the full surface is `DarwinXConfig` in
+[beagle/algorithms/darwinx/config.py](beagle/algorithms/darwinx/config.py), which is also
+where each knob's meaning is documented.
+
+**What you get.** Under `<run.dir>/<run.name>/`, per campaign: `state.db` (the genealogy),
+`nodes/<node-id>/` and `pipelines/<pipeline-id>/` for per-node and per-attempt logs, the
+worktrees, and `_evals/` holding the raw native harness trees. Kept branches land on your
+experiment copy; the CLI prints the best node when the campaign finishes.
 
 ---
 
@@ -365,5 +409,3 @@ Build by name: `bgl.agents.build(...)`, `bgl.algorithms.build(...)`,
 > DarwinX loop (baseline → edit → candidate eval → keep/reject → best node + branch).
 > `Trainer.fit`, DarwinX, and the version gate are wired end-to-end; `DataMixture` is
 > the main piece still landing.
->
-> [notes/design.md](notes/design.md) · [notes/roadmap.md](notes/roadmap.md)
