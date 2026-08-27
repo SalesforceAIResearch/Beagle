@@ -34,16 +34,16 @@ evaluation/
 └── <benchmark>/<agent>.yaml        # GENERATED (gitignored) — the script's matrix + your manifests
 ```
 
-| benchmark | harness | mini-swe | monet | opencode |
-|---|---|---|---|---|
-| terminal_bench_2_1 | harbor | ✅ | ✅ | ✅ |
-| swe-bench-verified | harbor / docker | ✅ | ✅ | ✅ |
-| deep-swe | pier (filtered egress) | ✅ | ✅ ¹ | ✅ ¹ |
+| benchmark | harness | mini-swe | opencode |
+|---|---|---|---|
+| terminal_bench_2_1 | harbor | ✅ | ✅ |
+| swe-bench-verified | harbor / docker | ✅ | ✅ |
+| deep-swe | pier (filtered egress) | ✅ | ✅ ¹ |
 
-¹ monet (Node) and opencode (Bun) on DeepSWE install behind pier's Squid allowlist; their
-`install_hosts` cover the runtime + npm indexes across the common base-image package managers, but
-it's **best-effort** — a task image whose apt/apk mirror isn't listed will 403 the runtime bootstrap
-(add the host to that agent's `install_hosts`).
+¹ opencode (Bun) on DeepSWE installs behind pier's Squid allowlist; its `install_hosts` cover the
+runtime + npm indexes across the common base-image package managers, but it's **best-effort** — a
+task image whose apt/apk mirror isn't listed will 403 the runtime bootstrap (add the host to that
+agent's `install_hosts`).
 
 Each config runs the **whole suite** (the benchmark configs omit `tasks:`). Add `tasks: [id, …]`
 under `data` to subset while iterating.
@@ -62,44 +62,42 @@ agent:
   harness: {name, version, source}         # agent type + version + source (repo/ref/token_env)
   model: {name}
   provider / effort / max_turns / forward_env / timeout   # first-level vocabulary (every agent)
-  extra_args: {<agent>_args: …}            # the one agent-specific block (mini_swe_args / monet_args)
+  extra_args: {<agent>_args: …}            # the one agent-specific block (mini_swe_args / opencode_args)
 data:  [{benchmark, tasks?, …}]            # omit `tasks` → the whole suite
 ```
 
 - **`harness.source`** is filled by the generator from `.beagle/agents/<name>.json` — the manifest
   whose `version` matches the matrix entry — pulling its `repo`/`ref`/`token_env` (a public copy with
-  no `token_env` omits the line). `harness.name` is the registered agent (`mini-swe`/`monet`/`opencode`).
+  no `token_env` omits the line). `harness.name` is the registered agent (`mini-swe`/`opencode`).
   Advanced: hand-write a config with a literal `source` and skip the generator.
-- **`effort`** drives reasoning: mini-swe selects the Responses-API model class; monet passes
-  `--effort`; opencode passes `--variant`. All reach the LLM via `provider` + the `forward_env`
-  gateway creds. (opencode accepts `max_turns` for a uniform vocabulary but has no turn-cap flag — it
+- **`effort`** drives reasoning: mini-swe selects the Responses-API model class; opencode passes
+  `--variant`. Each reaches the LLM via `provider` + the key you forward in `forward_env` (bring your
+  own API key). (opencode accepts `max_turns` for a uniform vocabulary but has no turn-cap flag — it
   is a no-op there.)
 - **`extra_args`** is keyed by `<agent>_args` so a config names which knobs belong to which agent —
-  `mini_swe_args: [{config_path: …}]` (its `-c` preset) vs `monet_args` / `opencode_args: [--…]`
-  (their raw CLI).
+  `mini_swe_args: [{config_path: …}]` (its `-c` preset) vs `opencode_args: [--…]` (its raw CLI).
 
 ## deep-swe (filtered egress)
 
 DeepSWE is pier-driven with `allow_internet=false`, so the harness drives each agent across pier's
 **phased network**: `install()` (INSTALL, open — clone + build, `install_hosts` allowlisted) then
-`run_in()` (RUN, restricted to `network_hosts` — the LLM gateway). mini-swe, monet, and opencode all
+`run_in()` (RUN, restricted to `network_hosts` — the model provider). mini-swe and opencode both
 implement that split; the submission is `git diff base..HEAD`, so `run_in` commits the agent's edits.
 Needs the `.[deep-swe]` extra (`uv pip install -e '.[deep-swe]'`).
 
-The Node/Bun agents' `install_hosts` are **best-effort** across base-image package managers (monet
-fetches node ≥ 20.5 via nodesource/apt/apk; opencode fetches Bun from bun.sh + deps from npm). If a
-DeepSWE image uses an apt/apk mirror not listed, the runtime bootstrap will 403 through the proxy —
-add that host to the agent's `install_hosts`. opencode's LLM call rides pier's Squid proxy with no
-extra shim (Bun's `fetch` honors `HTTPS_PROXY` natively); mini-swe (uv, a bounded host set) doesn't
-hit the mirror issue at all.
+opencode's `install_hosts` are **best-effort** across base-image package managers (it fetches Bun
+from bun.sh + deps from npm). If a DeepSWE image uses an apt/apk mirror not listed, the runtime
+bootstrap will 403 through the proxy — add that host to the agent's `install_hosts`. opencode's LLM
+call rides pier's proxy with no extra shim (Bun's `fetch` honors `HTTPS_PROXY` natively); mini-swe
+(uv, a bounded host set) doesn't hit the mirror issue at all.
 
 ## Reading results
 
 `--dry-run` prints the resolved plan + the version gate (fails loud if a black-box agent's pinned
-`agent.version` ≠ its installed version; monet and opencode are exempt — versioned by `source.ref`).
+`agent.version` ≠ its installed version; opencode is exempt — versioned by `source.ref`).
 A live run
 prints `score` + per-task `resolved`/`reward`/`error`; artifacts land under `<run.dir>/<run.name>-<ts>/`.
-Prerequisites + gateway setup are the top-level README §0–1.
+Prerequisites (bring your own API key) are the top-level README §0–1.
 
 > **A 0-token task means the agent never actually ran** (e.g. a clone/install failure) — check the
 > per-task `error` and the trial's `agent/` tree, not the score.

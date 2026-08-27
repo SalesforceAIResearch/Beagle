@@ -14,18 +14,16 @@ evolvee:
     name: opencode         # the agent/harness type (resolved to the `opencode` adapter that runs it)
     version: 1.18.16            # the experiment-copy version → identity opencode_v1.18.16
     source:
-      repo: https://github.com/<your-org>/opencode_v1.18.16     # the experiment copy (θ's home)
-      ref: f2fddc2bbe130f02fa1df6ebe6661de054eaaeb7                   # the copy's baseline commit (snapshot of upstream a3647eb)
+      repo: https://github.com/<your-org>/opencode_v1.18.16          # the experiment copy (θ's home)
+      ref: <your copy's baseline commit>                             # the copy's baseline commit (snapshot of upstream a3647eb)
       token_env: GH_TOKEN                                             # env var holding the clone token
       upstream: https://github.com/anomalyco/opencode                 # where the copy was forked from
       dir: ../beagle-experiments/opencode_v1.18.16                   # local checkout (DarwinX links it in)
   model:
     name: gpt-5.5               # --effort works across model families, so this isolates the model.
-  provider: llm-gateway-express-local-proxy   # how THIS agent reaches the LLM (per-agent)
+  provider: openai            # opencode's provider id — reads your OPENAI_API_KEY (use `anthropic` for claude)
   forward_env:
-    - LLM_GATEWAY_EXPRESS_API_KEY
-    - LLM_GATEWAY_EXPRESS_API_KEY_LIST
-    - LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL
+    - OPENAI_API_KEY          # your provider key, forwarded into the run container (LiteLLM/opencode read it)
   effort: high                # reasoning effort
   max_turns: 150              # agentic budget (opencode accepts it for uniformity; it has no turn-cap flag)
   timeout: 12000              # per-rollout wall-clock seconds

@@ -31,7 +31,6 @@ from beagle.config import (
     AgentConfig,
     AgentSourceConfig,
     BenchmarkConfig,
-    ClaudeModelConfig,
     ModelConfig,
 )
 from beagle.tools.onboard import latest_manifest, load_manifest
@@ -41,9 +40,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]   # the beagle repo (examples/qu
 # Portable run knobs — edit to taste (these are benchmark-side, not machine-specific).
 BENCHMARK = "terminal_bench_2_1"
 TASKS = ["bn-fit-modify"]                    # keep it to 1 task for a cheap smoke
-EVOLVEE_TYPE = "monet"                       # the agent adapter the onboarded repo is built with
-EVOLVEE_MODEL = "claude-opus-4-8"
-EVOLVEE_EFFORT = "high"                      # monet reasoning effort (→ --effort; default `none` is weak)
+EVOLVEE_TYPE = "opencode"                    # the agent adapter the onboarded repo is built with
+EVOLVEE_MODEL = "gpt-5.5"
+EVOLVEE_EFFORT = "high"                      # opencode reasoning effort (→ --variant; default is weak)
+EVOLVEE_PROVIDER = "openai"                  # opencode's provider id — reads EVOLVEE_KEY_ENV (use "anthropic" for claude)
+EVOLVEE_KEY_ENV = "OPENAI_API_KEY"           # your provider key, forwarded into the run container
 EVOLVER = "cursor"
 #: The cursor proposer model — a bare family slug passed verbatim to `cursor-agent --model`.
 EVOLVER_MODEL = "gpt-5.5-high"
@@ -51,14 +52,18 @@ EVOLVER_MODEL = "gpt-5.5-high"
 
 def _evolvee_agent_config(m: dict) -> AgentConfig:
     """θ (the harness under evolution) as a declarative :class:`AgentConfig`, pinned to the
-    manifest's experiment copy @ its baseline ref. The DarwinX driver supplies monet's gateway
-    provider itself, so only the reasoning effort + clone credential live here."""
-    config: dict = {"effort": EVOLVEE_EFFORT}
+    manifest's experiment copy @ its baseline ref. Bring your own API key: opencode routes to the
+    provider directly, reading ``EVOLVEE_KEY_ENV`` (forwarded into the container via ``forward_env``)."""
+    config: dict = {
+        "effort": EVOLVEE_EFFORT,
+        "provider": EVOLVEE_PROVIDER,        # opencode provider id (no gateway — direct to the provider)
+        "forward_env": [EVOLVEE_KEY_ENV],    # your provider key, forwarded into the run container
+    }
     if m.get("token_env"):
         config["token_env"] = m["token_env"]      # clone credential for the private experiment copy
     return AgentConfig(
         name=EVOLVEE_TYPE,
-        model=ClaudeModelConfig(name=EVOLVEE_MODEL),
+        model=ModelConfig(name=EVOLVEE_MODEL),
         source=AgentSourceConfig(repo=m["repo"], ref=m["ref"]),
         config=config,
     )
@@ -76,9 +81,9 @@ def build_trainer(agent: str, *, runtime: str, run_dir: Path, runname: str) -> b
 
     # the optimizer — DarwinX, configured by its typed DarwinXConfig (every field validated).
     #   repo_root         the run home (<dir>/<runname>): worktrees + the genealogy DB + config
-    #   evolvee_checkout  the manifest's local clone, linked in as <repo_root>/monet_code
+    #   evolvee_checkout  the manifest's local clone, linked in under <repo_root>
     #   campaign          the run's id (= runname), namespacing the genealogy DB
-    #   evolvee_effort    monet --effort on the DarwinX eval path (else the driver's default `none`)
+    #   evolvee_effort    opencode --variant on the DarwinX eval path (else the driver's default)
     algorithm = bgl.algorithms.build(DarwinXConfig(
         repo_root=str(run_dir),
         evolvee_checkout=str((REPO_ROOT / m["dir"]).resolve()),
@@ -105,7 +110,7 @@ def main() -> int:
                    help="resolve + print the plan and exit — no spend (default: launch the loop)")
     args = p.parse_args()
 
-    # Bucket-1 facts/secrets (xrlenv topology + gateway creds + benchmark cache) from .env.
+    # Bucket-1 facts/secrets (xrlenv topology + your provider API key + benchmark cache) from .env.
     bgl.load_dotenv()
 
     agent = args.agent or latest_manifest(root=REPO_ROOT)

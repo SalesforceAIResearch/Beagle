@@ -59,26 +59,28 @@ cp .env.example .env         # fill in credentials
 set -a; source .env; set +a
 ```
 
-### LLM gateway *(internal, optional)*
+### Bring your own API keys
 
-Cluster nodes often can't reach LLM Gateway Express; your laptop can. Two scripts
-bridge it — details in [scripts/gateway/README.md](scripts/gateway/README.md):
-
-```bash
-# on your LAPTOP (keep running):
-bash scripts/gateway/laptop.sh <ssh-target>   # e.g. w1, or ubuntu@<node-ip>
-# on the LOGIN NODE (keep running — writes proxy URL into .env):
-bash scripts/gateway/login-node.sh
-set -a; source .env; set +a
-```
-
-Verify with a real completion (JSON, not a 502):
+Agents reach their model through **LiteLLM**, so bring the API key for whichever provider
+you'll run — nothing else to stand up. Put it in `.env` (sourced above) and list the same
+variable in the agent's `forward_env` so it reaches the run container:
 
 ```bash
-curl -s -H 'Content-Type: application/json' \
-  -d '{"model":"gpt-5.5","messages":[{"role":"user","content":"ping"}],"max_tokens":5}' \
-  "$LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL/chat/completions"
+# .env — set the key(s) for the model you'll use:
+OPENAI_API_KEY=sk-...           # gpt-*, o-series
+ANTHROPIC_API_KEY=sk-ant-...    # claude-*
+# GEMINI_API_KEY / MISTRAL_API_KEY / GROQ_API_KEY / XAI_API_KEY — as your model needs
 ```
+
+```yaml
+# ...in the agent block of your config:
+  model: {name: gpt-5.5}          # the model name selects the provider
+  forward_env: [OPENAI_API_KEY]   # forwarded into the container; LiteLLM reads it
+```
+
+The model name picks the provider and LiteLLM authenticates with the forwarded key. On a
+network-restricted benchmark, beagle allowlists that provider's API host automatically.
+
 
 ### Onboard agent experiment copies
 
@@ -148,33 +150,33 @@ run:      {dir, name, runtime, parallelism}
 evolvee:                                    # θ — harness under evolution
   agent:  {name, version, source}           # type + version + INLINE source
   model:  {name}
-  provider / forward_env                    # LLM routing (gateway)
+  provider / forward_env                    # LLM routing (provider + key(s) to forward)
   effort / max_turns / timeout / extra_args # agent knobs (extra_args = CLI)
 evolver:  {agent: {name, version}, model}   # proposer (e.g. cursor-agent)
 algorithm: {name: darwinx, hparams: {…}}    # optimizer + typed knobs
 data:     [{benchmark, tasks}]              # benchmark + tasks
 ```
 
-**Derive** `evolvee.agent.source` from the onboard manifest — don't hand-write it.
-Example shape for monet:
+**Derive** `evolvee.agent.source` from the onboard manifest (`.beagle/agents/<profile>.json`,
+written by onboarding) — don't hand-write it. For the mini-swe copy onboarded above:
 
 ```json
 {
-  "profile": "monet_code_20260816",
-  "version": "20260816",
-  "repo": "https://github.com/<you>/monet_code_20260816",
+  "profile": "mini_swe_agent_v2.4.6",
+  "version": "v2.4.6",
+  "repo": "https://github.com/<your-org>/mini_swe_agent_v2.4.6",
   "ref": "<baseline commit>",
   "branch": "baseline",
   "token_env": "GH_TOKEN",
-  "upstream": "https://github.com/<your-org>/monet_code",
-  "upstream_ref": "1261608…",
-  "dir": "../beagle-experiments/…"
+  "upstream": "https://github.com/SWE-agent/mini-swe-agent",
+  "upstream_ref": "a83fcae…",
+  "dir": "../beagle-experiments/mini_swe_agent_v2.4.6"
 }
 ```
 
 Paste `repo` / `ref` / `token_env` / `dir` 1:1 into `evolvee.agent.source.*`.
-Add `agent.name` (adapter — `monet`) and `agent.version` (label). Gateway routing
-and CLI flags live on the **agent** block, not the model block.
+Add `agent.name` (adapter — `mini-swe`) and `agent.version` (label). LLM routing
+(`forward_env`) and CLI flags live on the **agent** block, not the model block.
 
 Validate with `python -m beagle.config <file>` (`extra=forbid` — unknown fields hard-error).
 

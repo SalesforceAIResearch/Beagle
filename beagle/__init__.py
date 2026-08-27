@@ -5,7 +5,7 @@ Top-level surface (assembled like ``torch``)::
     import beagle as bgl
 
     trainer = bgl.Trainer(
-        evolvee=bgl.agents.build("monet"),          # the harness being evolved
+        evolvee=bgl.agents.build("mini-swe"),       # the harness being evolved
         evolver=bgl.agents.build("cursor"),         # the coding agent that edits it
         algorithm=bgl.algorithms.build("darwinx"),  # the evolution "optimizer"
     )

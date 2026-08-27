@@ -3,7 +3,7 @@
 Public surface::
 
     import beagle as bgl
-    bgl.agents.build("monet")       # a white-box coding agent (either role)
+    bgl.agents.build("mini-swe")    # a white-box coding agent (either role)
     bgl.agents.build("cursor")      # a black-box evolver (editor only)
     bgl.agents.available()          # -> ["claude-code", "codex", "cursor", ...]
 
