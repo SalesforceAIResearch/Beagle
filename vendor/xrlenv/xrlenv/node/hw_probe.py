@@ -37,6 +37,16 @@ def probe_hardware(disk_root: str = "/") -> HardwareInfo:
     Designed to be called at node-agent startup and on a slow re-probe loop;
     cheap (a few syscalls + maybe a sysctl). Cross-platform — Linux uses
     ``/proc/meminfo``; Darwin uses ``sysctl hw.memsize``.
+
+    ``disk_root`` MUST name a path on the volume sandboxes actually write
+    into — the container runtime's data-root — because ``disk_bytes`` is
+    what :class:`~xrlenv.control.capacity.StaticCapacityEstimator` sizes the
+    sandbox-writable pool against. The ``"/"`` default is a last resort for
+    single-volume hosts; on a node whose data-root sits on a separate volume
+    (e.g. an EBS/NVMe mount at ``/opt/sagemaker``) it measures the wrong
+    filesystem and the estimator caps the node far below its real capacity.
+    :py:meth:`xrlenv.node.agent.NodeAgent.hardware` passes the backend's
+    resolved data-root; see ``DockerBackend.disk_monitor_path``.
     """
     return HardwareInfo(
         vcpus=os.cpu_count() or 1,

@@ -709,3 +709,113 @@ def test_probe_hardware_assembles_full_record(
     assert hw.gpu_model is None
     assert hw.kernel_version == "5.15.0-fake"
     assert hw.platform == "linux"
+
+
+# ── hardware(): disk probed against the sandbox data-root ─────────────────────
+#
+# Regression guard for the cn-cluster capacity collapse (2026-08-26): the agent
+# probed ``/`` (a 97 GiB root fs) while docker's data-root lived on a separate
+# 500 GiB volume, so the capacity estimator sized the sandbox-writable pool
+# against the wrong filesystem and capped each node at ~22 containers instead
+# of ~78 — surfacing as a deep admission queue and ``capacity_rejected`` seals
+# while cpu and mem sat idle.
+
+
+class _RootedBackend(FakeBackend):
+    """Backend that reports a data-root, like ``DockerBackend``.
+
+    ``path=None`` models the daemon still starting: ``disk_monitor_path``
+    returns ``None`` rather than guessing ``/``.
+    """
+
+    def __init__(self, path: str | None) -> None:
+        self._path = path
+        self.calls = 0
+
+    def disk_monitor_path(self) -> str | None:
+        self.calls += 1
+        return self._path
+
+
+def test_hardware_probes_the_backend_data_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any,
+) -> None:
+    """``disk_bytes`` comes from the data-root, not ``/``."""
+    seen: list[str] = []
+
+    def _fake_disk_usage(path: str) -> Any:
+        seen.append(path)
+        return type("DU", (), {"total": 500 * 1024**3, "free": 1, "used": 1})()
+
+    monkeypatch.setattr("xrlenv.node.hw_probe.shutil.disk_usage", _fake_disk_usage)
+    agent = _make_agent({"docker": _RootedBackend("/opt/sagemaker")})
+
+    hw = agent.hardware()
+
+    assert seen == ["/opt/sagemaker"]
+    assert hw.disk_bytes == 500 * 1024**3
+
+
+def test_hardware_prefers_docker_over_other_backends(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """docker is the backend that carries raw containers — ask it first."""
+    seen: list[str] = []
+    monkeypatch.setattr(
+        "xrlenv.node.hw_probe.shutil.disk_usage",
+        lambda p: (seen.append(p), type("DU", (), {"total": 1, "free": 1, "used": 1})())[1],
+    )
+    # dict order deliberately puts the non-docker backend first.
+    agent = _make_agent({
+        "zzz": _RootedBackend("/wrong"),
+        "docker": _RootedBackend("/opt/sagemaker"),
+    })
+
+    agent.hardware()
+
+    assert seen == ["/opt/sagemaker"]
+
+
+def test_hardware_falls_back_to_root_without_caching_until_daemon_is_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unresolved data-root must NOT cement the wrong reading.
+
+    Each redial re-sends a hello, so leaving the fallback uncached lets the
+    node advertise the real data-root as soon as the daemon answers.
+    """
+    totals = {"/": 97 * 1024**3, "/opt/sagemaker": 500 * 1024**3}
+    monkeypatch.setattr(
+        "xrlenv.node.hw_probe.shutil.disk_usage",
+        lambda p: type("DU", (), {"total": totals[p], "free": 1, "used": 1})(),
+    )
+    backend = _RootedBackend(None)
+    agent = _make_agent({"docker": backend})
+
+    first = agent.hardware()
+    assert first.disk_bytes == 97 * 1024**3   # fallback for this hello only
+
+    backend._path = "/opt/sagemaker"          # daemon came up
+    second = agent.hardware()
+    assert second.disk_bytes == 500 * 1024**3  # re-probed, not served from cache
+
+    third = agent.hardware()                   # now cached
+    assert third is second
+    assert backend.calls == 2
+
+
+def test_hardware_survives_backends_without_the_data_root_hook() -> None:
+    """A backend/test-double predating ``disk_monitor_path`` still works."""
+    agent = _make_agent({"docker": FakeBackend()})
+    assert agent.hardware().disk_bytes > 0
+
+
+def test_hardware_survives_a_raising_data_root_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Boom(FakeBackend):
+        def disk_monitor_path(self) -> str | None:
+            raise RuntimeError("daemon unreachable")
+
+    agent = _make_agent({"docker": _Boom()})
+    assert agent.hardware().disk_bytes > 0

@@ -131,6 +131,15 @@ class CapacityEstimator(Protocol):
         backend: str = DEFAULT_BACKEND,
     ) -> CapacityCell: ...
 
+    def capacity_remaining(
+        self,
+        node: NodeProfile,
+        running: list[tuple[str, ResourceSpec]],
+        candidate: TemplateManifest,
+        *,
+        backend: str = DEFAULT_BACKEND,
+    ) -> CapacityCell: ...
+
     def fits(
         self,
         node: NodeProfile,
@@ -210,6 +219,40 @@ class StaticCapacityEstimator:
         *,
         backend: str = DEFAULT_BACKEND,
     ) -> CapacityCell:
+        """Cells for an EMPTY node — the per-(node, template) ceiling."""
+        return self._capacity_cell(node, manifest, running=[], backend=backend)
+
+    def capacity_remaining(
+        self,
+        node: NodeProfile,
+        running: list[tuple[str, ResourceSpec]],
+        candidate: TemplateManifest,
+        *,
+        backend: str = DEFAULT_BACKEND,
+    ) -> CapacityCell:
+        """How many MORE ``candidate`` fit on a node already carrying
+        ``running``, with the binding axis reported.
+
+        :py:meth:`fits` answers the scheduler's yes/no question on the same
+        arithmetic; this returns the whole cell so an operator can see *how
+        much* headroom is left and *which* axis runs out first. A node
+        reporting ``max_concurrent`` in the eighties but ``remaining=0``
+        bound on ``disk:sandbox_writable`` while cpu and mem sit idle is a
+        misconfigured disk pool, not a busy cluster — the admin capacity
+        view exists to make that distinction visible.
+        """
+        return self._capacity_cell(
+            node, candidate, running=running, backend=backend,
+        )
+
+    def _capacity_cell(
+        self,
+        node: NodeProfile,
+        manifest: TemplateManifest,
+        *,
+        running: list[tuple[str, ResourceSpec]],
+        backend: str,
+    ) -> CapacityCell:
         if backend not in node.backends:
             return CapacityCell(
                 node_id=node.node_id,
@@ -235,9 +278,12 @@ class StaticCapacityEstimator:
             backend,
             BackendOverhead(cpu_per_sandbox=0.0, mem_bytes_per_sandbox=0),
         )
-        cpu_cap = self._cpu_cap(node, manifest, overhead, running=[])
-        mem_cap = self._mem_cap(node, manifest, overhead, running=[])
-        disk_cap = self._disk_cap(node, manifest)
+        # ``running=[]`` reduces each of these to the empty-node ceiling —
+        # ``_disk_cap_remaining`` with nothing running is ``_disk_cap`` — so
+        # :py:meth:`capacity` keeps its exact prior behaviour.
+        cpu_cap = self._cpu_cap(node, manifest, overhead, running)
+        mem_cap = self._mem_cap(node, manifest, overhead, running)
+        disk_cap = self._disk_cap_remaining(node, manifest, running)
         max_concurrent = max(0, min(cpu_cap, mem_cap, disk_cap))
         binding = _binding_label(cpu_cap, mem_cap, disk_cap)
 

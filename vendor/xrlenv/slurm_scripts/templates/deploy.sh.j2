@@ -74,6 +74,29 @@ log() { printf '\n==> %s\n' "$*"; }
 # shellcheck source=../lib/_deploy_gates.sh
 source "${REPO_ROOT}/slurm_scripts/lib/_deploy_gates.sh"
 
+# ── Load this checkout's .env, exactly as the jobs do ─────────────────────────
+# The node + control jobs run ``set -a; source ./.env; set +a`` before starting,
+# so their runtime config comes from this file. The deploy-time preflights below
+# must read the SAME config, or they judge a different cluster than the one they
+# are about to bounce. Concretely: ``xrlenv_plugins/sysbox/pin.env`` (sourced by
+# the sysbox gate) reads ``$XRLENV_SYSBOX_VENDOR_DIR`` from the ENVIRONMENT, and
+# without this it aborted the deploy with "is not set" on a checkout whose .env
+# sets it perfectly well. The topology + registry gates escaped that only because
+# they grep the file instead of reading the environment — two mechanisms, and
+# just one of them happened to work without .env loaded.
+#
+# ``set -a`` exports, so these also reach the ssh/sbatch calls below — the same
+# values the jobs would have loaded for themselves. The file WINS over a variable
+# already set in your shell, deliberately: deploy-time and runtime have to agree,
+# so .env stays the single place to change one of these. Missing .env is left to
+# the topology gate immediately below, which reports it properly.
+if [ -f "${REPO_ROOT}/.env" ]; then
+    set -a
+    # shellcheck disable=SC1091  # operator-managed; not in the repo
+    source "${REPO_ROOT}/.env"
+    set +a
+fi
+
 # ── Pre-deploy topology gate: clusters.yaml is the source of truth ────────────
 # The node jobs source this checkout's .env for their runtime topology (control
 # plane + registry hosts/ports), and non-Slurm consumers read it via

@@ -25,6 +25,7 @@ import statistics
 import threading
 import time
 import warnings
+from collections import Counter
 from collections.abc import Callable, Iterable
 from contextlib import suppress
 from dataclasses import dataclass
@@ -49,6 +50,7 @@ from pydantic import BaseModel, ConfigDict, Field, SkipValidation
 from xrlenv._version import __version__
 from xrlenv.control.state import (
     BuildAssignmentStatus,
+    RawRolloutStatus,
     RolloutRecord,
     SqliteStateStore,
 )
@@ -59,6 +61,7 @@ from xrlenv.image_refs import (
     registry_agnostic_ref,
     repo_path,
 )
+from xrlenv.node.hw_probe import HardwareInfo
 from xrlenv.node.trajectory_reader import JsonlTrajectoryReader
 from xrlenv.types import RolloutStatus, Trajectory
 
@@ -5323,86 +5326,240 @@ def _gather_build_plan(
     }
 
 
-def _capacity_blocking(cfg: AdminServerConfig) -> dict[str, Any]:
-    """Spec-13 Capacity matrix view: nodes by templates with per-cell binding.
+# Raw-rollout statuses that hold capacity. Everything else is terminal
+# (``released`` / ``cancelled`` / ``failed`` / ``reaped`` /
+# ``capacity_rejected``) and has given its footprint back.
+_LIVE_RAW_STATUSES: tuple[RawRolloutStatus, ...] = ("acquiring", "running")
 
-    The admin server doesn't share the live :class:`StaticCapacityEstimator`
-    instance with the running coordinator (we'd need an admin RPC for
-    that). For phase-0 we reconstruct an estimator from the on-disk
-    state — same defaults the coordinator uses, so the rendered numbers
-    match the live ones up to running-rollouts-recompute drift.
+# Cap on how many distinct workload profiles the matrix renders. Profiles are
+# ranked by live container count, so the ones actually filling the cluster are
+# the ones shown; the tail is summarised in ``profiles_omitted``.
+_MAX_CAPACITY_PROFILES = 12
+
+
+def _node_hardware_live(cfg: AdminServerConfig, node_id: str) -> Any:
+    """Real :class:`HardwareInfo` for ``node_id``, or ``None``.
+
+    Reads it off the live node transport the same way the scheduler does
+    (``node_lookup`` → ``NodeTransport.hardware()``), so the matrix is
+    computed from the *same* numbers placement uses — including the
+    heartbeat-reconciled ``disk_bytes``. Returns ``None`` when the admin
+    runs without cluster reachability (``node_lookup`` unwired) or the node
+    is disconnected; the caller renders "unknown" rather than inventing a
+    profile.
     """
-    from xrlenv.control.capacity import (
-        NodeProfile,
-        StaticCapacityEstimator,
+    lookup = cfg.node_lookup
+    if lookup is None:
+        return None
+    try:
+        transport = lookup(node_id)
+    except Exception:
+        return None
+    probe = getattr(transport, "hardware", None)
+    if probe is None:
+        return None
+    try:
+        hw = probe()
+    except Exception:
+        return None
+    return hw if isinstance(hw, HardwareInfo) else None
+
+
+def _resource_spec_from_json(raw: str | None) -> Any:
+    """Parse a stored ``effective_resources_json`` into a ``ResourceSpec``.
+
+    ``None`` (a rollout sealed before placement, e.g. ``capacity_rejected``)
+    and malformed JSON both yield ``None`` — such a row held no footprint.
+    """
+    if not raw:
+        return None
+    from xrlenv.backends.base import ResourceSpec
+    try:
+        return ResourceSpec.model_validate_json(raw)
+    except Exception:
+        return None
+
+
+def _profile_key(spec: Any) -> tuple[float, int, int]:
+    """Group footprints by the three axes the estimator packs against."""
+    return (
+        float(spec.cpu_request),
+        int(spec.mem_request_bytes),
+        int(spec.disk_request_bytes),
     )
+
+
+def _profile_label(key: tuple[float, int, int]) -> str:
+    cpu, mem, disk = key
+    cpu_txt = f"{cpu:g}"
+    return f"{cpu_txt} cpu / {mem / 1024 ** 3:g} GiB / {disk / 1024 ** 3:g} GiB disk"
+
+
+def _capacity_blocking(cfg: AdminServerConfig) -> dict[str, Any]:
+    """Spec-13 capacity matrix — what the scheduler would actually admit.
+
+    Three properties this view must have, each learned the hard way when a
+    node advertising the wrong disk capped the cluster at ~28 % of its real
+    capacity and this page showed nothing at all:
+
+    1. **Real hardware.** Cells are computed from each node's live
+       ``HardwareInfo`` (``node_lookup`` → the same transport the scheduler
+       reads), not a fabricated profile. A node whose hardware can't be read
+       is listed as ``hardware_known=False`` and gets no cells — an honest
+       gap beats a plausible-looking fiction.
+    2. **Raw containers are first-class.** Workload profiles are derived from
+       the footprints of *live raw rollouts* as well as registered template
+       manifests, so a cluster running only raw containers (case 2/3 — every
+       benchmark harness) is no longer a blank page.
+    3. **Live load, so ``remaining`` is real.** Each node's running raw
+       containers and sandboxes are charged against its capacity, and the
+       binding axis is reported per cell. ``remaining == 0`` with
+       ``binding='disk:sandbox_writable'`` while cpu/mem sit idle is exactly
+       the signal that was missing.
+
+    The estimator + synthetic manifests are the ones the raw-container
+    coordinator uses, so the numbers here match the placement decision rather
+    than approximating it.
+    """
+    from xrlenv.control.capacity import NodeProfile, StaticCapacityEstimator
+    from xrlenv.control.raw_container_service import _synthetic_manifest_for_raw
     from xrlenv.control.template_catalog import TemplateCatalog
-    from xrlenv.node.hw_probe import HardwareInfo
 
     computed_at = time.time()
     rostered = _load_nodes_yaml_lazy(cfg.nodes_yaml or Path("nodes.yaml"))
+
+    sandboxes: list[Any] = []
+    live_raw: list[Any] = []
+    connected: list[str] = []
     if cfg.state_db.exists():
         store = SqliteStateStore(cfg.state_db, read_only=True)
         try:
             sandboxes = store.list_sandboxes()
+            for status in _LIVE_RAW_STATUSES:
+                live_raw.extend(store.list_raw_rollouts(status=status))
+            connected = [n.node_id for n in store.list_nodes(status="connected")]
         finally:
             store.close()
-    else:
-        sandboxes = []
-    sandboxes_by_node: dict[str, int] = {}
-    for sb in sandboxes:
-        sandboxes_by_node[sb.node_id] = sandboxes_by_node.get(sb.node_id, 0) + 1
 
-    nodes_by_id: dict[str, dict[str, Any]] = {}
-    for entry in rostered:
-        if isinstance(entry.get("id"), str):
-            nodes_by_id[entry["id"]] = entry
-    for sb in sandboxes:
-        nodes_by_id.setdefault(sb.node_id, {"id": sb.node_id})
+    # ── Node set: rostered, plus connected, plus whoever carries load ───────
+    node_ids: list[str] = []
+    for candidate in (
+        [e["id"] for e in rostered if isinstance(e.get("id"), str)],
+        connected,
+        [sb.node_id for sb in sandboxes],
+        [r.node_id for r in live_raw if r.node_id],
+    ):
+        for nid in candidate:
+            if nid not in node_ids:
+                node_ids.append(nid)
+    node_ids.sort()
 
+    # ── Live load per node, charged with the footprint it was placed on ─────
+    #
+    # ``running`` mirrors the estimator's ``(template_id, ResourceSpec)``
+    # shape so ``fits`` / ``capacity_remaining`` see exactly what the
+    # scheduler's own load accounting sees.
+    load: dict[str, list[tuple[str, Any]]] = {nid: [] for nid in node_ids}
+    counts: dict[str, int] = dict.fromkeys(node_ids, 0)
+    profile_counts: Counter[tuple[float, int, int]] = Counter()
+    profile_specs: dict[tuple[float, int, int], Any] = {}
+    unpriced = 0
+
+    for record in live_raw:
+        nid = record.node_id
+        spec = _resource_spec_from_json(record.effective_resources_json)
+        if nid is None or spec is None:
+            # ``acquiring`` before placement lands: no node, no footprint yet.
+            unpriced += 1
+            continue
+        load.setdefault(nid, []).append((record.image, spec))
+        counts[nid] = counts.get(nid, 0) + 1
+        key = _profile_key(spec)
+        profile_counts[key] += 1
+        profile_specs.setdefault(key, spec)
+
+    for sb in sandboxes:
+        counts[sb.node_id] = counts.get(sb.node_id, 0) + 1
+
+    # ── Workload profiles: live raw footprints first, then templates ────────
     catalog = TemplateCatalog()
     pkg_templates = Path(__file__).resolve().parent.parent / "templates"
     if pkg_templates.exists():
         catalog.register_dir(pkg_templates)
     manifests = catalog.list()
 
-    estimator = StaticCapacityEstimator()
-    profiles: list[NodeProfile] = []
-    for nid in sorted(nodes_by_id):
-        # Without live hw probe the admin reconstructs a generic profile;
-        # the matrix cells reflect manifest * default-headroom math but
-        # not the actual node hardware. The /nodes view shows the live
-        # rostered + active counts; phase-1 wires real hw via heartbeat.
-        hw = HardwareInfo(
-            vcpus=8, mem_bytes=32 * 1024**3, disk_bytes=200 * 1024**3,
-            has_kvm=False, has_gpu=False, gpu_model=None,
-            kernel_version="unknown", platform="unknown",
-        )
-        profiles.append(NodeProfile(node_id=nid, hardware=hw, backends=("docker",)))
+    profiles: list[tuple[str, str, Any]] = []   # (kind, label, manifest)
+    for key, _count in profile_counts.most_common(_MAX_CAPACITY_PROFILES):
+        profiles.append((
+            "live",
+            _profile_label(key),
+            _synthetic_manifest_for_raw("live-workload", profile_specs[key]),
+        ))
+    profiles_omitted = max(0, len(profile_counts) - _MAX_CAPACITY_PROFILES)
+    for manifest in manifests:
+        profiles.append(("template", manifest.name, manifest))
 
-    cells = estimator.matrix(profiles, manifests)
-    by_node: dict[str, list[Any]] = {p.node_id: [] for p in profiles}
-    for cell in cells:
-        by_node[cell.node_id].append(cell)
-    # Live disk pressure moved to /nodes (the operational view). This page is a
-    # pure per-template planning estimate now.
+    # ── The matrix ──────────────────────────────────────────────────────────
+    estimator = StaticCapacityEstimator()
+    nodes_out: list[dict[str, Any]] = []
+    for nid in node_ids:
+        hw = _node_hardware_live(cfg, nid)
+        running = load.get(nid, [])
+        row: dict[str, Any] = {
+            "id": nid,
+            "hardware_known": hw is not None,
+            "vcpus": hw.vcpus if hw else None,
+            "mem_bytes": hw.mem_bytes if hw else None,
+            "disk_bytes": hw.disk_bytes if hw else None,
+            "active": counts.get(nid, 0),
+            "used_cpu": round(sum(s.cpu_request for _, s in running), 2),
+            "used_mem_bytes": sum(s.mem_request_bytes for _, s in running),
+            "used_disk_bytes": sum(s.disk_request_bytes for _, s in running),
+            "cells": [],
+        }
+        if hw is not None:
+            profile = NodeProfile(
+                node_id=nid, hardware=hw, backends=("docker",),
+            )
+            for kind, label, manifest in profiles:
+                cell = estimator.capacity(profile, manifest)
+                left = estimator.capacity_remaining(profile, running, manifest)
+                row["cells"].append({
+                    "kind": kind,
+                    "label": label,
+                    "max_concurrent": cell.max_concurrent,
+                    "remaining": left.max_concurrent,
+                    "remaining_binding": left.binding_constraint,
+                    "cpu_cap": cell.cpu_cap,
+                    "mem_cap": cell.mem_cap,
+                    "disk_cap": cell.disk_cap,
+                    "binding_constraint": cell.binding_constraint,
+                })
+        nodes_out.append(row)
+
+    cluster_total = {
+        label: sum(
+            c["max_concurrent"]
+            for n in nodes_out for c in n["cells"] if c["label"] == label
+        )
+        for _kind, label, _m in profiles
+    }
 
     return {
-        "nodes": [
-            {
-                "id": p.node_id,
-                "active_sandboxes": sandboxes_by_node.get(p.node_id, 0),
-                "cells": by_node[p.node_id],
-            }
-            for p in profiles
-        ],
-        "templates": [m.name for m in manifests],
-        "matrix_present": bool(profiles and manifests),
+        "nodes": nodes_out,
+        "profiles": [{"kind": k, "label": lb} for k, lb, _ in profiles],
+        "cluster_total": cluster_total,
+        "profiles_omitted": profiles_omitted,
+        "unpriced_live": unpriced,
+        "live_containers": sum(counts.values()),
+        "hardware_unknown": [n["id"] for n in nodes_out if not n["hardware_known"]],
+        "node_lookup_wired": cfg.node_lookup is not None,
+        "matrix_present": bool(
+            profiles and any(n["hardware_known"] for n in nodes_out)
+        ),
         "computed_at": computed_at,
         "computed_at_label": datetime.fromtimestamp(computed_at).strftime("%H:%M:%S"),
     }
-
-
 async def _gather_health(cfg: AdminServerConfig) -> dict[str, Any]:
     return await asyncio.to_thread(_health_blocking, cfg)
 

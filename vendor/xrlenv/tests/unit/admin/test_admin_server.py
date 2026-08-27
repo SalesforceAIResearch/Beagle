@@ -39,6 +39,7 @@ from xrlenv.control.template_catalog import (
 )
 from xrlenv.control.trajectory_cache import TrajectoryCacheConfig
 from xrlenv.control.trajectory_sink import PlatformJsonlSink
+from xrlenv.node.hw_probe import HardwareInfo
 from xrlenv.types import RolloutStatus, Step
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -4629,25 +4630,162 @@ def test_sandboxes_filters_by_node(state_db: Path, runs_root: Path) -> None:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def test_capacity_renders_matrix_with_node_rows(
+def _fake_hw(
+    *, vcpus: int = 192, mem_gb: int = 744, disk_gb: int = 500,
+) -> HardwareInfo:
+    return HardwareInfo(
+        vcpus=vcpus, mem_bytes=mem_gb * 1024**3, disk_bytes=disk_gb * 1024**3,
+        has_kvm=False, has_gpu=False, gpu_model=None,
+        kernel_version="0.0.0", platform="linux",
+    )
+
+
+class _FakeNodeTransport:
+    """Minimal stand-in for the live transport the scheduler reads."""
+
+    def __init__(self, hw: HardwareInfo) -> None:
+        self._hw = hw
+
+    def hardware(self) -> HardwareInfo:
+        return self._hw
+
+
+def _capacity_client(
     state_db: Path, runs_root: Path, tmp_path: Path,
-) -> None:
+    *, hardware: dict[str, HardwareInfo] | None = None,
+    node_ids: tuple[str, ...] = ("node-A", "node-B"),
+) -> TestClient:
     nodes_yaml = tmp_path / "nodes.yaml"
     nodes_yaml.write_text(yaml.safe_dump({
-        "nodes": [{"id": "node-A", "cloud": "gcp"}, {"id": "node-B", "cloud": "aws"}],
+        "nodes": [{"id": n, "cloud": "aws"} for n in node_ids],
     }))
-    SqliteStateStore(state_db).close()
+    transports = {
+        nid: _FakeNodeTransport(hw) for nid, hw in (hardware or {}).items()
+    }
     cfg = AdminServerConfig(
         state_db=state_db, runs_root=runs_root, nodes_yaml=nodes_yaml, port=0,
+        node_lookup=(transports.get if hardware is not None else None),
     )
-    client = TestClient(build_admin_app(cfg))
+    return TestClient(build_admin_app(cfg))
+
+
+def _record_live_raw(
+    state_db: Path, *, node_id: str, rollout_id: str,
+    cpu: float = 2.0, mem_gb: int = 8, disk_gb: int = 2,
+) -> None:
+    from xrlenv.backends.base import ResourceSpec
+    from xrlenv.control.state import RawRolloutRecord
+
+    store = SqliteStateStore(state_db)
+    try:
+        store.record_raw_rollout(RawRolloutRecord(
+            rollout_id=rollout_id,
+            status="running",
+            image="im/deepswe:1",
+            node_id=node_id,
+            created_at=1.0,
+            effective_resources_json=ResourceSpec(
+                cpu_request=cpu, cpu_limit=cpu,
+                mem_request_bytes=mem_gb * 1024**3,
+                mem_limit_bytes=mem_gb * 1024**3,
+                disk_request_bytes=disk_gb * 1024**3,
+            ).model_dump_json(),
+        ))
+    finally:
+        store.close()
+
+
+def test_capacity_renders_cells_from_live_reported_hardware(
+    state_db: Path, runs_root: Path, tmp_path: Path,
+) -> None:
+    """Cells come from what the node actually reported, not a fixed profile."""
+    SqliteStateStore(state_db).close()
+    _record_live_raw(state_db, node_id="node-A", rollout_id="r-1")
+    client = _capacity_client(
+        state_db, runs_root, tmp_path,
+        hardware={"node-A": _fake_hw(), "node-B": _fake_hw()},
+    )
+
     r = client.get("/capacity")
+
     assert r.status_code == 200
     body = r.text
     assert "node-A" in body and "node-B" in body
-    # The matrix renders binding-constraint labels for each cell.
-    assert "binding" in body or "max_concurrent" in body
-    assert "Estimator computed at" in body
+    assert "192 vCPU" in body            # the real reported figure
+    assert "2 cpu / 8 GiB / 2 GiB disk" in body   # the live raw footprint
+
+
+def test_capacity_surfaces_raw_container_workloads(
+    state_db: Path, runs_root: Path, tmp_path: Path,
+) -> None:
+    """A cluster running ONLY raw containers must not render a blank page.
+
+    Raw containers carry no template manifest, so a template-catalog-only
+    matrix showed nothing at all for every real benchmark harness.
+    """
+    SqliteStateStore(state_db).close()
+    _record_live_raw(state_db, node_id="node-A", rollout_id="r-1")
+
+    r = _capacity_client(
+        state_db, runs_root, tmp_path, hardware={"node-A": _fake_hw()},
+    ).get("/capacity")
+
+    assert "Cluster ceiling by workload profile" in r.text
+    assert "2 cpu / 8 GiB / 2 GiB disk" in r.text
+    assert "Nothing to compute yet" not in r.text
+
+
+def test_capacity_exposes_a_disk_bound_node(
+    state_db: Path, runs_root: Path, tmp_path: Path,
+) -> None:
+    """The regression this view exists to catch.
+
+    A node reporting a small disk (a ``/``-probing agent on a host whose
+    data-root is a separate volume) binds on ``disk:sandbox_writable`` at a
+    fraction of its cpu/mem ceiling. The page must SAY so.
+    """
+    SqliteStateStore(state_db).close()
+    _record_live_raw(state_db, node_id="node-A", rollout_id="r-1")
+
+    r = _capacity_client(
+        state_db, runs_root, tmp_path,
+        hardware={"node-A": _fake_hw(disk_gb=97)},
+    ).get("/capacity")
+
+    assert "disk:sandbox_writable" in r.text
+    # cpu (84) and mem (78) both dwarf the disk axis (23) — the tell.
+    assert "<td>23</td>" in r.text
+    assert "<td>84</td>" in r.text
+
+
+def test_capacity_admits_no_hardware_rather_than_inventing_it(
+    state_db: Path, runs_root: Path, tmp_path: Path,
+) -> None:
+    """An unreachable node is listed WITHOUT cells and flagged.
+
+    The prior page fabricated an 8 vCPU / 32 GiB / 200 GB profile for every
+    node, so its numbers described no real cluster.
+    """
+    SqliteStateStore(state_db).close()
+    client = _capacity_client(
+        state_db, runs_root, tmp_path, hardware={"node-A": _fake_hw()},
+    )
+
+    body = client.get("/capacity").text
+
+    assert "No live hardware for" in body and "node-B" in body
+    assert "hardware unknown" in body
+
+
+def test_capacity_says_so_when_cluster_is_unreachable(
+    state_db: Path, runs_root: Path, tmp_path: Path,
+) -> None:
+    SqliteStateStore(state_db).close()
+    client = _capacity_client(state_db, runs_root, tmp_path, hardware=None)
+
+    body = client.get("/capacity").text
+
+    assert "no cluster reachability wired" in body
 
 
 def test_capacity_handles_no_nodes(state_db: Path, runs_root: Path) -> None:
@@ -4656,8 +4794,7 @@ def test_capacity_handles_no_nodes(state_db: Path, runs_root: Path) -> None:
     client = TestClient(build_admin_app(cfg))
     r = client.get("/capacity")
     assert r.status_code == 200
-    assert "No nodes or templates registered" in r.text
-    assert "Estimator computed at" in r.text
+    assert "Nothing to compute yet" in r.text
 
 
 # ──────────────────────────────────────────────────────────────────────────────

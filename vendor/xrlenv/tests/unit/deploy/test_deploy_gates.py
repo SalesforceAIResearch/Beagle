@@ -401,3 +401,56 @@ def test_full_deploy_script_aborts_before_cp_restart_on_node_gate_failure(
         f"{script}: proceeded to the control-plane restart despite the node gate "
         "failing — the gate is not actually wired into the script's control flow"
     )
+
+
+# ── Deploy-time config == runtime config ──────────────────────────────────────
+#
+# The node + control jobs run ``set -a; source ./.env; set +a`` before starting.
+# The deploy script's pre-flights must read that SAME file, or they judge a
+# different cluster than the one they are about to bounce.
+#
+# Regression (2026-08-26): the deploy scripts never loaded ``.env``, while
+# ``xrlenv_plugins/sysbox/pin.env`` — which they source — reads
+# ``$XRLENV_SYSBOX_VENDOR_DIR`` from the ENVIRONMENT. Every sysbox-pool deploy
+# aborted with "XRLENV_SYSBOX_VENDOR_DIR is not set" on a checkout whose .env
+# set it correctly. The topology + registry gates were unaffected only because
+# they grep the file rather than reading the environment, which is what made the
+# failure look like an operator misconfiguration rather than a script bug.
+
+
+@pytest.mark.parametrize("script", ["deploy_prod.sh", "deploy_dev.sh", "deploy_cn.sh"])
+def test_deploy_script_loads_dotenv(script: str) -> None:
+    body = (_SLURM / "generated" / script).read_text()
+    assert 'source "${REPO_ROOT}/.env"' in body, (
+        f"{script}: does not load the checkout's .env, so deploy-time pre-flights "
+        "read different config than the jobs they launch"
+    )
+    assert "set -a" in body, (
+        f"{script}: .env must be sourced under `set -a` so the values are EXPORTED "
+        "— pin.env and the ssh/sbatch calls read them from the environment"
+    )
+
+
+@pytest.mark.parametrize("script", ["deploy_prod.sh", "deploy_dev.sh", "deploy_cn.sh"])
+def test_deploy_script_loads_dotenv_before_sourcing_pin_env(script: str) -> None:
+    """Ordering is the whole point: pin.env reads the environment."""
+    body = (_SLURM / "generated" / script).read_text()
+    pin = 'source "${REPO_ROOT}/xrlenv_plugins/sysbox/pin.env"'
+    if pin not in body:
+        pytest.skip(f"{script} has no sysbox pin gate")
+    assert body.index('source "${REPO_ROOT}/.env"') < body.index(pin), (
+        f"{script}: sources pin.env BEFORE loading .env — pin.env reads "
+        "$XRLENV_SYSBOX_VENDOR_DIR from the environment and would abort the deploy"
+    )
+
+
+@pytest.mark.parametrize("script", ["deploy_prod.sh", "deploy_dev.sh", "deploy_cn.sh"])
+def test_deploy_script_tolerates_a_missing_dotenv(script: str) -> None:
+    """A checkout with no .env must reach the topology gate, which reports it
+    properly — not die on an unguarded ``source``."""
+    body = (_SLURM / "generated" / script).read_text()
+    assert '[ -f "${REPO_ROOT}/.env" ]' in body, (
+        f"{script}: the .env source is unguarded; a checkout without one would "
+        "fail with a raw `source: No such file` instead of the topology gate's "
+        "explanation"
+    )

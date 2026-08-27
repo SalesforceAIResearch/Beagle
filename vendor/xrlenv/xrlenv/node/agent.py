@@ -478,9 +478,81 @@ class NodeAgent:
         return self._source_builder.lookup_producer(image_ref)
 
     def hardware(self) -> HardwareInfo:
-        if self._hw is None:
-            self._hw = probe_hardware()
-        return self._hw
+        """Hardware profile advertised to the control plane in ``NodeHello``.
+
+        ``disk_bytes`` is measured against the **sandbox data-root** (the
+        volume the container runtime writes into), not ``/``. The capacity
+        estimator sizes the sandbox-writable pool from this number, so
+        probing ``/`` on a node whose data-root is a separate volume caps
+        the node at a fraction of its real capacity — a phantom disk bound
+        that reads as "pool at capacity" while cpu/mem sit idle.
+
+        The result is cached only once the data-root is known. While the
+        daemon is still starting :py:meth:`_sandbox_data_root` returns
+        ``None``; we fall back to ``/`` for this call but do NOT cache it,
+        so the next hello (each redial re-sends one) re-probes and picks up
+        the real root. The control plane also reconciles ``disk_bytes``
+        from the heartbeat's ``total_disk_bytes``, which closes the window
+        for a node that connected before its daemon was up.
+        """
+        if self._hw is not None:
+            return self._hw
+        data_root = self._sandbox_data_root()
+        hw = probe_hardware(data_root if data_root is not None else "/")
+        if data_root is None:
+            LOGGER.warning(
+                "node %s: sandbox data-root not resolved yet (backend daemon "
+                "still starting?) — advertising disk_bytes measured against "
+                "'/' (%.1f GiB) for this hello. NOT cached: the next hello "
+                "re-probes, and the control plane reconciles disk_bytes from "
+                "the heartbeat.",
+                self.node_id, hw.disk_bytes / 1024 ** 3,
+            )
+            return hw
+        self._hw = hw
+        return hw
+
+    def _sandbox_data_root(self) -> str | None:
+        """Path on the volume sandboxes write into, or ``None`` if unknown.
+
+        Asks the backends for their resolved data-root (docker's
+        ``DockerRootDir``, via ``disk_monitor_path``), preferring ``docker``
+        — the only backend that carries raw containers in phase 1. Returns
+        ``None`` rather than guessing ``/``: the caller distinguishes
+        "unknown" from a genuine single-volume host so it doesn't cache a
+        wrong reading. Defensive throughout — a test double without the
+        hook, a non-dict ``backends`` (legacy list-of-strings fixtures), or
+        a raising probe all collapse to ``None``.
+
+        Cost: ``disk_monitor_path`` resolves ``DockerRootDir`` via one
+        ``docker info`` and caches it for the daemon's lifetime, so this is
+        at most one daemon round-trip per node process — and usually zero,
+        because the image cache's disk sampling has already populated that
+        cache by the time a redial re-sends hello. The uncached case is the
+        first hello at process start, when the node is idle and ``info`` is
+        fast. Later hellos on a busy node hit the cache and never touch the
+        daemon.
+        """
+        backends = self._config.backends
+        if not isinstance(backends, dict):
+            return None
+        ordered = [b for name, b in backends.items() if name == "docker"]
+        ordered += [b for name, b in backends.items() if name != "docker"]
+        for backend in ordered:
+            probe = getattr(backend, "disk_monitor_path", None)
+            if probe is None:
+                continue
+            try:
+                path = probe()
+            except Exception:
+                LOGGER.debug(
+                    "node %s: data-root probe raised on a backend; trying "
+                    "the next one", self.node_id, exc_info=True,
+                )
+                continue
+            if path:
+                return str(path)
+        return None
 
     def disk_state(self) -> tuple[int, int]:
         """Issue #14 — last-known ``(free_bytes, total_bytes)`` for the

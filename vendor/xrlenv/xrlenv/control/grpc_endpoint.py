@@ -246,6 +246,11 @@ class RemoteNodeTransport:
         # so freshly-connected nodes aren't refused work before reporting.
         self._last_free_disk_bytes: int = 0
         self._last_total_disk_bytes: int = 0
+        # Whether we've already logged a hello-vs-heartbeat disk_bytes
+        # correction for this node (see ``touch``). One line per connection
+        # is a useful "your node probed the wrong volume" signal; one per
+        # heartbeat would be noise.
+        self._disk_bytes_reconciled: bool = False
         # P6 (§8.6, R6) — last (free, total) pinnable-CPU counts reported on the
         # most recent heartbeat. ``(0, 0)`` until the first heartbeat / on an
         # agent predating the fields; callers treat ``total == 0`` as "unknown"
@@ -1767,6 +1772,34 @@ class RemoteNodeTransport:
         if total_disk_bytes > 0:
             self._last_free_disk_bytes = free_disk_bytes
             self._last_total_disk_bytes = total_disk_bytes
+            # The node reports its disk twice: ``NodeHello.hardware.disk_bytes``
+            # (a ``probe_hardware`` statvfs) and this heartbeat total (the
+            # image cache's statvfs of the runtime data-root). The heartbeat
+            # one is authoritative for CAPACITY — it measures the volume
+            # sandboxes actually write into — so reconcile the hello value to
+            # it. A node-agent probing ``/`` on a host whose data-root is a
+            # separate volume otherwise makes the estimator size the
+            # sandbox-writable pool against the wrong filesystem, capping the
+            # node far below its real capacity while cpu/mem sit idle. Doing
+            # it here means a fleet already running such an agent self-heals
+            # on its next heartbeat, with no node redeploy.
+            if self._hardware.disk_bytes != total_disk_bytes:
+                if not self._disk_bytes_reconciled:
+                    self._disk_bytes_reconciled = True
+                    LOGGER.warning(
+                        "node %s: hello advertised disk_bytes=%.1f GiB but the "
+                        "heartbeat reports data-root total=%.1f GiB; using the "
+                        "heartbeat for capacity. A large gap means the agent "
+                        "probed the wrong volume (data-root on a separate "
+                        "mount) — upgrade the node agent so hello is right at "
+                        "the source.",
+                        self.node_id,
+                        self._hardware.disk_bytes / 1024 ** 3,
+                        total_disk_bytes / 1024 ** 3,
+                    )
+                self._hardware = self._hardware.model_copy(
+                    update={"disk_bytes": total_disk_bytes},
+                )
         # P6 — same sentinel discipline as disk: ``total > 0`` means the node
         # actually reported pinnable-CPU counts; ``(0, 0)`` (pre-field agent or
         # a node with no core ledger) keeps the last-known "unknown".
