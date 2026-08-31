@@ -1,0 +1,263 @@
+version: 1
+name: seta-env-starter-16
+replication: 1
+budget:
+  reserved_runtime_gb: 30
+  buffer_gb: 10
+entries:
+- image_ref: xrlenv-seta-env/0:main
+  context_source:
+    type: git
+    repo: https://github.com/camel-ai/seta-env
+    ref: main
+    subdir: Harbor-Dataset/0/environment
+    dockerfile: Dockerfile
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 234344015
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: seta-env
+    xrlenv.task_id: '0'
+- image_ref: xrlenv-seta-env/1:main
+  context_source:
+    type: git
+    repo: https://github.com/camel-ai/seta-env
+    ref: main
+    subdir: Harbor-Dataset/1/environment
+    dockerfile: Dockerfile
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 80995636
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: seta-env
+    xrlenv.task_id: '1'
+- image_ref: xrlenv-seta-env/2:main
+  context_source:
+    type: git
+    repo: https://github.com/camel-ai/seta-env
+    ref: main
+    subdir: Harbor-Dataset/2/environment
+    dockerfile: Dockerfile
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 375659124
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: seta-env
+    xrlenv.task_id: '2'
+- image_ref: xrlenv-seta-env/3:main
+  context_source:
+    type: git
+    repo: https://github.com/camel-ai/seta-env
+    ref: main
+    subdir: Harbor-Dataset/3/environment
+    dockerfile: Dockerfile
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 387071180
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: seta-env
+    xrlenv.task_id: '3'
+- image_ref: xrlenv-seta-env/4:main
+  context_source:
+    type: git
+    repo: https://github.com/camel-ai/seta-env
+    ref: main
+    subdir: Harbor-Dataset/4/environment
+    dockerfile: Dockerfile
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 78141454
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: seta-env
+    xrlenv.task_id: '4'
+- image_ref: xrlenv-seta-env/5:main
+  context_source:
+    type: git
+    repo: https://github.com/camel-ai/seta-env
+    ref: main
+    subdir: Harbor-Dataset/5/environment
+    dockerfile: Dockerfile
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 78140250
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: seta-env
+    xrlenv.task_id: '5'
+- image_ref: xrlenv-seta-env/6:main
+  context_source:
+    type: git
+    repo: https://github.com/camel-ai/seta-env
+    ref: main
+    subdir: Harbor-Dataset/6/environment
+    dockerfile: Dockerfile
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 86217072
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: seta-env
+    xrlenv.task_id: '6'
+- image_ref: xrlenv-seta-env/7:main
+  context_source:
+    type: git
+    repo: https://github.com/camel-ai/seta-env
+    ref: main
+    subdir: Harbor-Dataset/7/environment
+    dockerfile: Dockerfile
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 338973530
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: seta-env
+    xrlenv.task_id: '7'
+- image_ref: xrlenv-seta-env/8:main
+  context_source:
+    type: git
+    repo: https://github.com/camel-ai/seta-env
+    ref: main
+    subdir: Harbor-Dataset/8/environment
+    dockerfile: Dockerfile
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 711706892
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: seta-env
+    xrlenv.task_id: '8'
+- image_ref: xrlenv-seta-env/9:main
+  context_source:
+    type: git
+    repo: https://github.com/camel-ai/seta-env
+    ref: main
+    subdir: Harbor-Dataset/9/environment
+    dockerfile: Dockerfile
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 432684606
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: seta-env
+    xrlenv.task_id: '9'
+- image_ref: xrlenv-seta-env/10:main
+  context_source:
+    type: git
+    repo: https://github.com/camel-ai/seta-env
+    ref: main
+    subdir: Harbor-Dataset/10/environment
+    dockerfile: Dockerfile
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 81449277
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: seta-env
+    xrlenv.task_id: '10'
+- image_ref: xrlenv-seta-env/11:main
+  context_source:
+    type: git
+    repo: https://github.com/camel-ai/seta-env
+    ref: main
+    subdir: Harbor-Dataset/11/environment
+    dockerfile: Dockerfile
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 149533502
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: seta-env
+    xrlenv.task_id: '11'
+- image_ref: xrlenv-seta-env/12:main
+  context_source:
+    type: git
+    repo: https://github.com/camel-ai/seta-env
+    ref: main
+    subdir: Harbor-Dataset/12/environment
+    dockerfile: Dockerfile
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 78140250
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: seta-env
+    xrlenv.task_id: '12'
+- image_ref: xrlenv-seta-env/13:main
+  context_source:
+    type: git
+    repo: https://github.com/camel-ai/seta-env
+    ref: main
+    subdir: Harbor-Dataset/13/environment
+    dockerfile: Dockerfile
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 78141220
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: seta-env
+    xrlenv.task_id: '13'
+- image_ref: xrlenv-seta-env/14:main
+  context_source:
+    type: git
+    repo: https://github.com/camel-ai/seta-env
+    ref: main
+    subdir: Harbor-Dataset/14/environment
+    dockerfile: Dockerfile
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 511781880
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: seta-env
+    xrlenv.task_id: '14'
+- image_ref: xrlenv-seta-env/15:main
+  context_source:
+    type: git
+    repo: https://github.com/camel-ai/seta-env
+    ref: main
+    subdir: Harbor-Dataset/15/environment
+    dockerfile: Dockerfile
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 78149964
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: seta-env
+    xrlenv.task_id: '15'

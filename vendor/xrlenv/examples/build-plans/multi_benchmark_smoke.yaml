@@ -1,0 +1,35 @@
+# Multi-benchmark cluster image distribution plan.
+#
+# Combines the smoke sets from terminal-bench-2 + swebench-verified
+# into one apply. The bin-packer treats the entries as one
+# cluster-wide image set, so on multi-node setups it spreads the
+# images across nodes uniformly (FFD largest-first + spread
+# tie-break) rather than packing one benchmark onto one node.
+#
+# ~24 GiB swebench-verified + ~8 GiB terminal-bench-2 = ~32 GiB
+# per node when R=1.
+#
+# Usage:
+#
+#   # Local (laptop):
+#   xrlenv build apply --plan examples/build-plans/multi_benchmark_smoke.yaml
+#
+#   # Cluster:
+#   xrlenv build apply --plan examples/build-plans/multi_benchmark_smoke.yaml \
+#       --connect-host 127.0.0.1 --connect-port 8080 
+#
+# See docs/deployment/build_plans.md for the schema + recovery flows.
+
+version: 1
+replication: 1
+budget:
+  reserved_runtime_gb: 30
+  buffer_gb: 10
+benchmarks:
+  - name: terminal-bench-2
+    selection:
+      smoke: true
+  - name: swebench-verified
+    selection:
+      smoke: true
+    build_path: pull-and-retag

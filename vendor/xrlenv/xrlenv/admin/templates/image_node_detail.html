@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}images — {{ node_id }}{% endblock %}
+{% block content %}
+<p><a href="/images/cache">← node storage</a></p>
+<h1>Node image cache: <code>{{ node_id }}</code></h1>
+
+{% if not node_lookup_wired %}
+  <p class="muted">
+    No live node-lookup wired. Run admin alongside <code>xrlenv up</code>
+    to inspect per-node image details.
+  </p>
+{% elif not row.reachable %}
+  <p class="bad">unreachable: {{ row.error }}</p>
+{% else %}
+  <section class="image-summary-grid" aria-label="Node image summary">
+    <article class="image-summary-card">
+      <span class="metric-label">pressure</span>
+      <strong>{{ row.pressure_label }}</strong>
+    </article>
+    <article class="image-summary-card">
+      <span class="metric-label">free disk</span>
+      <strong>{{ "%.1f"|format(row.free_disk_bytes / (1024 ** 3)) }} GiB</strong>
+    </article>
+    <article class="image-summary-card">
+      <span class="metric-label">cached images</span>
+      <strong>{{ row.total_count }}</strong>
+    </article>
+    <article class="image-summary-card">
+      <span class="metric-label">cached bytes</span>
+      <strong>{{ "%.1f"|format(row.total_bytes / (1024 ** 3)) }} GiB</strong>
+    </article>
+    <article class="image-summary-card">
+      <span class="metric-label">cold bytes</span>
+      <strong>{{ "%.1f"|format(row.cold_bytes / (1024 ** 3)) }} GiB</strong>
+    </article>
+    <article class="image-summary-card">
+      <span class="metric-label">operator-pinned</span>
+      <strong>{{ row.pinned_count }}</strong>
+    </article>
+  </section>
+
+  <form method="get" action="/images/nodes/{{ node_id }}" class="filters image-filters">
+    <input type="hidden" name="page" value="1">
+    <label>search
+      <input type="text" name="q" value="{{ q or '' }}" placeholder="image ref">
+    </label>
+    <label>tier
+      <select name="tier">
+        <option value="">(any)</option>
+        {% for option in tier_options %}
+          <option value="{{ option }}" {% if tier == option %}selected{% endif %}>{{ option }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>pinned
+      <select name="pinned">
+        <option value="">(any)</option>
+        <option value="yes" {% if pinned == "yes" %}selected{% endif %}>yes</option>
+        <option value="no" {% if pinned == "no" %}selected{% endif %}>no</option>
+      </select>
+    </label>
+    <label>sort
+      <select name="sort">
+        {% for option in ["operational", "size", "tier", "in_use", "pinned", "name"] %}
+          <option value="{{ option }}" {% if sort == option %}selected{% endif %}>{{ option }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>per page
+      <select name="page_size">
+        {% for option in page_size_options %}
+          <option value="{{ option }}" {% if image_page.page_size == option %}selected{% endif %}>{{ option }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>include
+      <select name="include">
+        <option value="default" {% if hide_intermediate and xrlenv_only %}selected{% endif %}>xrlenv only</option>
+        <option value="intermediates" {% if not hide_intermediate and xrlenv_only %}selected{% endif %}>+ intermediates</option>
+        <option value="foreign" {% if hide_intermediate and not xrlenv_only %}selected{% endif %}>+ foreign images</option>
+        <option value="all" {% if not hide_intermediate and not xrlenv_only %}selected{% endif %}>all images</option>
+      </select>
+    </label>
+    <button type="submit">filter</button>
+  </form>
+
+  {% if hide_intermediate or xrlenv_only %}
+  <p class="muted small">
+    Showing {{ ownership_visible }} of {{ ownership_total }} images on this node — use the include dropdown above to add
+    {%- if hide_intermediate %} intermediates{% endif -%}
+    {%- if hide_intermediate and xrlenv_only %} +{% endif -%}
+    {%- if xrlenv_only %} foreign images{% endif -%}.
+  </p>
+  {% endif %}
+
+  <div class="pagination">
+    <span class="pagination-summary">
+      Showing {{ image_page.first_index }}-{{ image_page.last_index }} of {{ image_page.total }} images
+    </span>
+    <span class="pagination-links">
+      {% if image_page.has_prev %}
+        <a class="btn pagination-arrow" href="{{ image_page.prev_page_url }}" aria-label="previous page">&larr;</a>
+      {% else %}
+        <span class="btn disabled pagination-arrow" aria-label="previous page">&larr;</span>
+      {% endif %}
+      {% if image_page.has_next %}
+        <a class="btn pagination-arrow" href="{{ image_page.next_page_url }}" aria-label="next page">&rarr;</a>
+      {% else %}
+        <span class="btn disabled pagination-arrow" aria-label="next page">&rarr;</span>
+      {% endif %}
+    </span>
+  </div>
+
+  <table class="data image-list image-table-dense">
+    <thead>
+      <tr>
+        <th>image</th>
+        <th>tier</th>
+        <th class="num">size</th>
+        <th class="num">in-use</th>
+        <th>pinned</th>
+        <th class="num">last-used clock</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for img in image_page.rows %}
+        <tr>
+          <td><a class="image-ref" href="{{ img.detail_url }}" title="{{ img.name }}"><code>{{ img.name }}</code></a></td>
+          <td><span class="tier-badge tier-{{ img.tier }}">{{ img.tier }}</span></td>
+          <td class="num">{{ "%.1f"|format(img.size_bytes / (1024 ** 3)) }} GiB</td>
+          <td class="num">{% if img.in_use_count %}{{ img.in_use_count }}{% else %}—{% endif %}</td>
+          <td>{% if img.pinned %}yes{% else %}no{% endif %}</td>
+          <td class="num">{% if img.last_used_at is not none %}{{ "%.0f"|format(img.last_used_at) }}{% else %}—{% endif %}</td>
+        </tr>
+      {% endfor %}
+      {% if not image_page.rows %}
+        <tr><td colspan="6" class="muted">No images match the current filters.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+{% endif %}
+{% endblock %}

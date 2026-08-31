@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}builds{% endblock %}
+{% block content %}
+<h1>Build plans</h1>
+<p class="page-subtitle">
+  Snapshot of every <code>xrlenv build apply</code> the control plane
+  has processed. Click a row for the full per-assignment breakdown.
+</p>
+
+{% if state_db_missing %}
+<p class="warn">
+  No <code>state.db</code> at the configured path. Run
+  <code>xrlenv up</code> + <code>xrlenv build apply</code> to populate
+  the snapshot.
+</p>
+{% else %}
+
+<form method="get" action="/builds" class="filters">
+  <label>status
+    <select name="status">
+      <option value="">(any)</option>
+      {% for option in status_options %}
+        <option value="{{ option }}" {% if status_filter == option %}selected{% endif %}>{{ option }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>per page
+    <select name="page_size">
+      {% for option in page_size_options %}
+        <option value="{{ option }}" {% if page_size == option %}selected{% endif %}>{{ option }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <input type="hidden" name="page" value="1">
+  <button type="submit">filter</button>
+</form>
+
+<div class="pagination">
+  <span class="pagination-summary">
+    {% if total %}
+      Showing {{ first_index }}-{{ last_index }} of {{ total }} plan(s)
+    {% elif status_filter %}
+      No plans with status <code>{{ status_filter }}</code>. Clear the filter to see other plans.
+    {% else %}
+      No plans yet — try
+      <code>xrlenv build apply --plan xrlenv_plugins/benchmarks/terminal_bench_2/build-plans/smoke.yaml --dry-run</code>
+    {% endif %}
+  </span>
+  <span class="pagination-links">
+    {% if has_prev %}
+      <a class="btn pagination-arrow" href="{{ prev_url }}" aria-label="previous page">&larr;</a>
+    {% else %}
+      <span class="btn disabled pagination-arrow" aria-label="previous page">&larr;</span>
+    {% endif %}
+    {% if has_next %}
+      <a class="btn pagination-arrow" href="{{ next_url }}" aria-label="next page">&rarr;</a>
+    {% else %}
+      <span class="btn disabled pagination-arrow" aria-label="next page">&rarr;</span>
+    {% endif %}
+  </span>
+</div>
+
+<table class="data">
+  <thead>
+    <tr>
+      <th>plan id</th>
+      <th>plan name</th>
+      <th>applied at</th>
+      <th>by</th>
+      <th>status</th>
+      <th class="num">done / total</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for plan in plans %}
+    <tr>
+      <td>
+        <a href="{{ plan.detail_url }}" title="{{ plan.plan_id }}"><code>{{ plan.plan_id_short }}</code></a>
+      </td>
+      <td>
+        <strong>{{ plan.name }}</strong>
+        <br>
+        <small class="muted">{{ plan.assignment_count }} image(s)</small>
+      </td>
+      <td>
+        {{ plan.applied_at_abs }}
+        <br>
+        <small class="muted">{{ plan.applied_at_rel }}</small>
+      </td>
+      <td><code>{{ plan.applied_by }}</code></td>
+      <td><span class="status-{{ plan.status }}">{{ plan.status }}</span></td>
+      <td class="num">
+        <strong>{{ plan.done }} / {{ plan.assignment_count }}</strong>
+        {% if plan.failed %}
+          <br><small class="bad">{{ plan.failed }} failed</small>
+        {% endif %}
+        {% if plan.building %}
+          <br><small class="muted">{{ plan.building }} building</small>
+        {% endif %}
+        {% if plan.pending %}
+          <br><small class="muted">{{ plan.pending }} pending</small>
+        {% endif %}
+        {% if plan.registered %}
+          <br><small class="muted">{{ plan.registered }} deferred</small>
+        {% endif %}
+        {% if plan.evicted %}
+          <br><small class="muted">{{ plan.evicted }} evicted</small>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    {% if not plans %}
+      <tr><td colspan="6" class="muted">No plans match the current filter.</td></tr>
+    {% endif %}
+  </tbody>
+</table>
+
+{% endif %}
+{% endblock %}

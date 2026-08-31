@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}capacity{% endblock %}
+{% block content %}
+<h1>Capacity</h1>
+<p class="page-subtitle">
+  What the scheduler would admit right now, computed from each node's
+  <strong>live reported hardware</strong> and the footprints actually running
+  on it. <code>max</code> is the empty-node ceiling; <code>left</code> is what
+  still fits given current load, with the axis that runs out first. Live
+  connectivity is on <a href="/nodes">nodes</a>, per-node runtime signals on
+  <a href="/health">health</a>, disk / cache usage on
+  <a href="/images/cache">node storage</a>. Computed at {{ computed_at_label }}.
+</p>
+
+{% if not node_lookup_wired %}
+<p class="warn">
+  This admin server has no cluster reachability wired (<code>node_lookup</code>
+  is unset), so per-node hardware can't be read and no cells can be computed.
+  Nothing below is an estimate of your cluster.
+</p>
+{% elif hardware_unknown %}
+<p class="warn">
+  No live hardware for: {% for n in hardware_unknown %}<code>{{ n }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
+  Those nodes are listed without cells — disconnected, or rostered but never
+  attached. A missing row is honest; a fabricated one is not.
+</p>
+{% endif %}
+
+{% if not matrix_present %}
+  <p>Nothing to compute yet: no node has reported hardware, or no workload
+  profile is in play. Profiles come from live raw-container footprints plus
+  registered template manifests — start a rollout, or register templates in
+  the <code>xrlenv/templates/</code> package directory.</p>
+{% else %}
+
+<p>
+  <strong>{{ live_containers }}</strong> live container(s) across
+  <strong>{{ nodes | length }}</strong> node(s).
+  {% if unpriced_live %}
+  {{ unpriced_live }} acquiring but not yet placed (no footprint charged).
+  {% endif %}
+  {% if profiles_omitted %}
+  {{ profiles_omitted }} less-common profile(s) not shown.
+  {% endif %}
+</p>
+
+<h2>Cluster ceiling by workload profile</h2>
+<table class="data">
+  <thead>
+    <tr><th>profile</th><th>source</th><th>cluster max_concurrent</th></tr>
+  </thead>
+  <tbody>
+    {% for p in profiles %}
+    <tr>
+      <td>{{ p.label }}</td>
+      <td><code>{{ p.kind }}</code></td>
+      <td>{{ cluster_total[p.label] }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% for node in nodes %}
+<h2>{{ node.id }}
+  {% if node.hardware_known %}
+  <small>({{ node.vcpus }} vCPU / {{ (node.mem_bytes / 1073741824) | round(1) }} GiB /
+   {{ (node.disk_bytes / 1073741824) | round(1) }} GiB data-root —
+   {{ node.active }} active, using {{ node.used_cpu }} cpu /
+   {{ (node.used_mem_bytes / 1073741824) | round(1) }} GiB /
+   {{ (node.used_disk_bytes / 1073741824) | round(1) }} GiB disk)</small>
+  {% else %}
+  <small>(hardware unknown — not reachable)</small>
+  {% endif %}
+</h2>
+{% if node.hardware_known %}
+<table class="data">
+  <thead>
+    <tr>
+      <th>profile</th>
+      <th>max</th>
+      <th>left</th>
+      <th>cpu_cap</th>
+      <th>mem_cap</th>
+      <th>disk_cap</th>
+      <th>binding</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for cell in node.cells %}
+    <tr>
+      <td>{{ cell.label }}</td>
+      <td>{{ cell.max_concurrent }}</td>
+      <td>{{ cell.remaining }}</td>
+      <td>{{ cell.cpu_cap }}</td>
+      <td>{{ cell.mem_cap }}</td>
+      <td>{{ cell.disk_cap }}</td>
+      <td><code>{{ cell.binding_constraint }}</code></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endfor %}
+
+{% endif %}
+{% endblock %}

@@ -1,0 +1,20 @@
+# hello-shell — minimal run-config for the spine smoke template.
+#
+# Copy and edit. Point the client at it via
+# ``Client.in_process(service, run_config="/path/to/your-copy.yaml")``.
+# The smoke example (``tests/smoke/cluster_bringup/single_rollout.py``) loads
+# this file directly — see that script for a usage reference.
+
+version: 1
+manifests:
+  hello-shell:
+    deadlines:
+      hard_s: 120           # 2 min hard envelope per rollout
+      step_timeout_s: 30
+      setup_timeout_s: 30
+      teardown_timeout_s: 15
+    idle_ttl_s: 300         # cancel idle rollouts after 5 min
+    backend: docker         # phase 0; the only backend that ships today
+    network: open
+    init_params:
+      cwd: /sandbox

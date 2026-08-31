@@ -1,0 +1,121 @@
+/* Widen the RTD theme content area so large monitors don't get a grey right margin. */
+
+/* The main content wrapper — remove the fixed 800 px cap. */
+.wy-nav-content {
+    max-width: none;
+}
+
+/* The content-wrap block that RTD centres inside the nav pane. */
+.wy-nav-content-wrap {
+    background: #fcfcfc;
+}
+
+/* Keep code blocks readable on very wide screens by capping them generously. */
+.rst-content .highlight pre {
+    max-width: 100%;
+}
+
+.rst-content .literal-block-caption {
+    text-align: left;
+}
+
+/* Mermaid diagrams: cap rendered height so a long chart does not push the rest
+   of the page off-screen. Browsers can still zoom (Cmd/Ctrl + scroll, or open
+   the SVG in a new tab) when the user wants more detail. */
+.mermaid {
+    text-align: center;
+    margin: 1.25em auto;
+}
+.mermaid svg {
+    max-height: 500px;
+    width: auto !important;
+    height: auto;
+    max-width: 100%;
+}
+
+/* Generic per-instance height limiter for MyST content:
+
+   ::::{height-limit}
+   :height: 150px
+   :overflow: auto
+
+   ...any Markdown/MyST content...
+   ::::
+
+   For Mermaid, this creates a fixed-height frame. The default `contain` fit
+   preserves existing behavior; `:fit: height` scales by height and can use
+   horizontal overflow when the resulting SVG is wider than the content area. */
+.height-limit {
+    --height-limit: 500px;
+    --height-limit-overflow: hidden;
+    height: var(--height-limit);
+    overflow: var(--height-limit-overflow);
+}
+.height-limit > .mermaid,
+.height-limit > pre.mermaid {
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 auto !important;
+}
+.height-limit > .mermaid-container {
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 auto !important;
+}
+.height-limit > .mermaid-container > pre.mermaid {
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 auto !important;
+}
+.height-limit > .mermaid > svg,
+.height-limit > pre.mermaid > svg,
+.height-limit > .mermaid-container > pre.mermaid > svg {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 auto;
+    max-width: 100% !important;
+    max-height: 100% !important;
+}
+.height-limit.height-limit-fit-height > .mermaid,
+.height-limit.height-limit-fit-height > pre.mermaid,
+.height-limit.height-limit-fit-height > .mermaid-container,
+.height-limit.height-limit-fit-height > .mermaid-container > pre.mermaid {
+    width: max-content !important;
+    min-width: 100%;
+}
+.height-limit.height-limit-fit-height > .mermaid > svg,
+.height-limit.height-limit-fit-height > pre.mermaid > svg,
+.height-limit.height-limit-fit-height > .mermaid-container > pre.mermaid > svg {
+    width: auto !important;
+    height: 100% !important;
+    max-width: none !important;
+    max-height: 100% !important;
+}
+
+.code-block-caption {
+    text-align: left;
+}
+.code-block-caption .caption-text {
+    font-style: italic;
+    color: #555;
+}
+
+/* Landing-page cards. Keep this small and theme-friendly: the RTD theme still
+   owns fonts, link colors, and dark-sidebar contrast. */
+.landing-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0 2rem;
+}
+.landing-card {
+    border: 1px solid #d9e2ec;
+    border-radius: 0.5rem;
+    background: #fff;
+    padding: 1rem 1.1rem;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.landing-card p {
+    margin-bottom: 0;
+}

@@ -1,0 +1,1489 @@
+// Spec 21 — Node Control Protocol (phase-0 subset).
+//
+// One bidirectional gRPC stream per node, *initiated by the node* (spec 00
+// invariant 7). Both directions share a stream_epoch (node-generated, fresh
+// per dial) and carry a monotonic seq within that epoch.
+//
+// Phase-0 surface implemented here: stream lifecycle (NodeHello/ControlHello),
+// command + reply correlation (command_id + idempotency_key), the five
+// sandbox-lifecycle commands the coordinator uses, and explicit Acks.
+//
+// Deferred (Slice 3.5+): Heartbeat, Stats, FetchTrajectory, ImageDirective,
+// Drain, GC, Snapshot, Invoke, CommandCancel, flow-control caps.
+
+syntax = "proto3";
+
+package xrlenv.node_control.v1;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Envelope
+// ──────────────────────────────────────────────────────────────────────────────
+
+message NodeMsg {
+  // Node-generated UUIDv7; constant for the lifetime of one TCP/TLS stream;
+  // rotates on every reconnect.
+  string stream_epoch = 1;
+  // Monotonic within stream_epoch; resets to 0 on each new epoch; covers ALL
+  // NodeMsg traffic.
+  uint64 seq = 2;
+
+  oneof body {
+    NodeHello       hello     = 10;
+    Heartbeat       heartbeat = 11;  // Slice 3.5 (spec 21 — phase-0 lifecycle)
+    CommandReply    reply     = 16;
+    Ack             ack       = 90;  // transport-level ack of the OPPOSITE direction
+  }
+}
+
+message ControlMsg {
+  // Mirrors the node's current stream_epoch from NodeHello.
+  string stream_epoch = 1;
+  // UUID of the control-plane process; stable across reconnects to the same
+  // instance, different on takeover.
+  string control_instance_id = 2;
+  // Monotonic within stream_epoch on this direction.
+  uint64 seq = 3;
+
+  oneof body {
+    ControlHello              hello   = 10;
+    CreateSandboxCommand      create  = 20;
+    DestroySandboxCommand     destroy = 21;
+    EnvSetupCommand           env_setup    = 22;
+    EnvStepCommand            env_step     = 23;
+    EnvTeardownCommand        env_teardown = 24;
+    RunInSandboxCommand       run_in_sandbox = 25;  // Slice 3.5 (closes audit M1)
+    StatsRequest              stats_req      = 26;  // Slice 3.5
+    FetchTrajectoryCommand    fetch_trajectory = 27;  // Slice 7b (spec 17)
+    PutArchiveCommand         put_archive    = 28;  // D12 stage 1 (verifier-asset injection)
+    ListSandboxesCommand      list_sandboxes = 29;  // A3 / D15 (P1.1) — GC layer 3 reverse query
+    QueryImageCommand         query_image    = 30;  // A1 / D18+D19 (P1.2) — image-affinity + pre-flight check
+    ReportImagesCommand       report_images  = 31;  // B7.6 (P1.2.c) — admin /images cache snapshot
+    BuildImagesCommand        build_images   = 32;  // P1.6.c — control-plane-driven image builds
+    EnsurePresentCommand      ensure_present = 33;  // P1.6.g — lazy image lifecycle async pre-fetch
+    AcquireContainerCommand   acquire_container = 34;  // P1.7.A.1 — raw container (case 2/3, bypasses stub)
+    ContainerExecCommand      container_exec    = 35;  // P1.7.A.1 — direct docker exec
+    DestroyContainerCommand   destroy_container = 36;  // P1.7.A.1 — direct docker rm -f
+    ContainerPutArchiveCommand container_put_archive = 37;  // P1.7.A.2 — raw-container put_archive
+    ContainerGetArchiveCommand container_get_archive = 38;  // P1.7.A.2 — raw-container get_archive
+    ListRawContainersCommand   list_raw_containers   = 39;  // P1.7.A.2 — raw-GC reconciler
+    ForceDestroyContainerCommand force_destroy_container = 40;  // P1.7.A.2 — raw-GC privileged destroy
+    StreamContainerExecCommand stream_container_exec = 41;  // P1.7.A.2 — streaming exec for long-running runs
+    BuildImageCommand          build_image    = 42;  // source-build dispatch (per-image-ref)
+    CancelBuildImageCommand    cancel_build_image = 43;  // operator-driven mid-build cancel
+    ApplyEgressCommand         apply_egress   = 44;  // spec 07 — egress restriction
+    EvictImageCommand          evict_image    = 45;  // operator-driven node-cache eviction (xrlenv images evict)
+    AcquireComposeProjectCommand acquire_compose_project = 46;  // P1.7.C.2 — multi-service compose up
+    DestroyComposeProjectCommand destroy_compose_project = 47;  // P1.7.C.2 — multi-service compose down
+    ContainerPutArchiveChunk   container_put_archive_chunk = 48;  // chunked put_archive (oversized-upload fix; N frames share command_id)
+    RegisterScratchSourceCommand register_scratch_source = 49;  // scratch build-on-demand — register content-addressed ref -> source
+    Ack                       ack     = 90;
+  }
+}
+
+message Ack {
+  string stream_epoch = 1;     // the epoch being acked (must equal current epoch)
+  uint64 up_to_seq    = 2;     // contiguous prefix of opposite direction's seq durably received
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Hello (handshake)
+// ──────────────────────────────────────────────────────────────────────────────
+
+message NodeHello {
+  string node_id = 1;
+  // Backends advertised by this node (e.g. ["docker"]).
+  repeated string backends = 2;
+  // Hardware probe snapshot; sent at registration so the control plane can
+  // size its capacity matrix immediately.
+  HardwareInfo hardware = 3;
+  // Reconnect / replay coordination (all may be empty on first connect).
+  string prior_stream_epoch = 4;
+  string last_seen_control_instance_id = 5;
+  uint64 last_command_seq_seen = 6;
+  uint64 last_reply_seq_acked = 7;
+  // Issue #18 (Ask #2) — node-agent build identity, shape
+  // "{version}+{sha}" (xrlenv.buildinfo.agent_identity()). The
+  // control plane logs this at connect and WARNs when it differs
+  // from its own — turning a stale-node-binary mystery into one log
+  // line. Empty string means the node-agent predates this field
+  // (itself a strong "redeploy me" signal); the control plane treats
+  // empty as "unknown" and WARNs accordingly.
+  string agent_version = 8;
+  // OCI runtimes docker has registered on this node (e.g. ["runc",
+  // "sysbox-runc"]). Parallel to ``backends`` — the scheduler filters
+  // candidate nodes by this when an acquire requests a non-default
+  // ``container_runtime`` (§5.3). Empty on agents predating this field.
+  repeated string supported_runtimes = 9;
+  // The docker daemon's default runtime (``docker info`` DefaultRuntime).
+  // Security-relevant: if this is anything but "runc" the allowed_runtimes
+  // opt-in is silently bypassed, so the control plane re-verifies it on
+  // every (re)connect rather than trusting a one-time bootstrap check.
+  // Empty on agents predating this field (treated as "unknown").
+  string default_runtime = 10;
+  // P6 (§8.6) — this node can enforce the shared-parent cpuset isolation
+  // scheme: cgroup v2 AND it passed the §8.5 self-test proving an unpinned
+  // child under the xrlenv-shared parent actually follows parent cpuset
+  // changes. Only ``true`` nodes will run the scheme (a later P6 step); v1
+  // nodes and v2 nodes that fail the self-test advertise ``false`` and keep
+  // today's behavior. Default ``false`` on agents predating this field (the
+  // safe assumption — never presume isolation a node hasn't proven).
+  bool isolation_capable = 11;
+  // This node's grpc_link accumulates a chunked ``ContainerPutArchiveChunk`` command
+  // stream (N ControlMsg frames sharing command_id) and runs one docker put_archive.
+  // Only ``true`` nodes receive the chunked upload; the control plane falls back to the
+  // unary ``ContainerPutArchiveCommand`` (128 MiB cap) for a node advertising ``false``.
+  // Default ``false`` on agents predating this field (safe: never send a command an old
+  // node can't reassemble).
+  bool chunked_put_archive_capable = 12;
+}
+
+message ControlHello {
+  string control_instance_id = 1;
+  // Last NodeMsg.seq the control plane durably received in the prior epoch
+  // (0 on first connect).
+  uint64 last_node_seq_acked_in_prior_epoch = 2;
+}
+
+message HardwareInfo {
+  uint32 vcpus = 1;
+  uint64 mem_bytes = 2;
+  uint64 disk_bytes = 3;
+  bool has_kvm = 4;
+  bool has_gpu = 5;
+  string gpu_model = 6;
+  string kernel_version = 7;
+  string platform = 8;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Command header (every action-carrying ControlMsg embeds this)
+// ──────────────────────────────────────────────────────────────────────────────
+
+message CommandHeader {
+  string command_id      = 1;     // UUIDv7; control-plane generated
+  string idempotency_key = 2;     // see spec 21 §"Idempotency"
+  // google.protobuf.Timestamp deadline = 3;  // deferred until needed
+  uint32 max_retries     = 4;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Sandbox lifecycle commands
+// ──────────────────────────────────────────────────────────────────────────────
+
+message CreateSandboxCommand {
+  CommandHeader header = 1;
+  string rollout_id    = 2;
+  string backend       = 3;
+  TemplateRef template = 4;
+  ResourceSpec resources = 5;
+  // "none" | "open" | "egress-allowlist"
+  string network_policy = 6;
+  // A5 / D17 stage 1 — per-sandbox HTTP cap for the in-sandbox stub
+  // session, derived control-plane-side from the manifest's max
+  // phase timeout + 60 s buffer (see
+  // ``xrlenv.control.coordinator._http_cap_from_manifest``). The
+  // node-agent stages this on the per-sandbox record BEFORE any
+  // stub-touching call (init_cmd, env_setup, etc.) so a hung stub
+  // surfaces in (max_phase + 60 s) rather than the 1 h
+  // ``NodeAgentConfig.stub_request_timeout_s`` safety-net default.
+  // 0.0 = unset (keep the default cap). Audit response: closes H2
+  // (the prior init_params-based path was bypassed by manifests
+  // with init_cmd because run_in_sandbox built the StubClient
+  // before env_setup could stage the cap).
+  double stub_request_timeout_s = 7;
+}
+
+message DestroySandboxCommand {
+  CommandHeader header = 1;
+  SandboxHandle sandbox = 2;
+}
+
+message EnvSetupCommand {
+  CommandHeader header = 1;
+  SandboxHandle sandbox = 2;
+  string adapter_module = 3;
+  string adapter_class  = 4;
+  // JSON-encoded init_params payload.
+  string init_params_json = 5;
+  // A5 / D17 stage 2 (P1.2.b) — per-call HTTP cap that overrides the
+  // per-sandbox cap staged at create_sandbox time. The coordinator
+  // derives this from the manifest's setup_timeout_s + buffer so a
+  // hung setup surfaces in setup_timeout + buffer (not the full
+  // max-phase cap from stage 1). 0.0 = unset, fall back to the
+  // per-sandbox cap; old control planes that don't set this field
+  // continue to work unchanged.
+  double request_timeout_s = 6;
+}
+
+message EnvStepCommand {
+  CommandHeader header = 1;
+  SandboxHandle sandbox = 2;
+  // JSON-encoded action payload (opaque to the platform).
+  string action_json = 3;
+  // A5 / D17 stage 2 — per-call HTTP cap derived from the manifest's
+  // step_timeout_s + buffer. See EnvSetupCommand.request_timeout_s.
+  double request_timeout_s = 4;
+}
+
+message EnvTeardownCommand {
+  CommandHeader header = 1;
+  SandboxHandle sandbox = 2;
+  // A5 / D17 stage 2 — per-call HTTP cap derived from the manifest's
+  // teardown_timeout_s + buffer. See EnvSetupCommand.request_timeout_s.
+  double request_timeout_s = 3;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Slice 3.5 — RunInSandbox (closes audit M1) and Stats
+// ──────────────────────────────────────────────────────────────────────────────
+
+message RunInSandboxCommand {
+  CommandHeader header = 1;
+  SandboxHandle sandbox = 2;
+  repeated string cmd = 3;
+  double timeout_s    = 4;
+  string cwd          = 5;
+  map<string, string> env = 6;
+}
+
+message StatsRequest {
+  CommandHeader header = 1;
+  SandboxHandle sandbox = 2;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// D12 stage 1 — verifier-asset injection (closes audit H1 timing-isolation half)
+//
+// Used by the platform's in_sandbox_final reward path: the resolver tarballs
+// per-task grader assets host-side at resolve time; the coordinator ships the
+// bytes via this command immediately before running reward.cmd. The grader
+// files therefore do not exist in the sandbox during the agent's step() loop.
+// Tarball bytes are gzipped tar; the receiving end calls
+// ``BackendAdapter.put_archive`` which auto-detects gzip.
+// ──────────────────────────────────────────────────────────────────────────────
+
+message PutArchiveCommand {
+  CommandHeader header  = 1;
+  SandboxHandle sandbox = 2;
+  string target_dir     = 3;  // dir to extract into; mkdir -p as root
+  bytes tarball         = 4;  // gzipped tar bytes; controlled by the
+                              // platform's grpc.max_*_message_length
+                              // option (see DEFAULT_MAX_MESSAGE_BYTES
+                              // in xrlenv.api.constants)
+  bool clean_target     = 5;  // when true, ``rm -rf target_dir`` as root
+                              // before extraction; raises on non-zero
+                              // exit (audit H1 root-backed wipe).
+}
+
+message PutArchiveReply {
+  // Empty — success is signalled by ReplyStatus=OK on the CommandReply.
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// A3 / D15 (P1.1) — ListSandboxesCommand: spec 09 GC layer 3 reverse query
+//
+// The control-plane reconciler periodically asks each connected node "which
+// sandbox IDs do you currently believe you own?" The reply is a flat list of
+// sandbox IDs; richer per-sandbox state (resources, image, etc.) is not
+// needed because the reconciler diffs against ``state.list_sandboxes()``
+// which already carries that data — the wire only needs the set membership.
+//
+// Two orphan classes the reconciler can detect:
+//
+//  - **Node-only**: node returns a sandbox ID the state store does not know
+//    about → CP issues ``DestroySandboxCommand`` (likely a CP-crash leftover
+//    that survived the node-side GC layer 2 startup sweep, or an out-of-band
+//    create).
+//
+//  - **State-only**: state store has a ``running`` sandbox attached to a
+//    rollout, but the node's reply does not include the ID → the sandbox
+//    died on the node (Docker crash, OOM, manual ``docker rm``). The
+//    coordinator's ``handle_sandbox_lost`` seals the rollout
+//    ``failed/sandbox_lost`` and drops the sandbox row.
+// ──────────────────────────────────────────────────────────────────────────────
+
+message ListSandboxesCommand {
+  CommandHeader header = 1;
+  // Optional backend filter. Empty = all backends. Phase-0 always sends
+  // empty (one backend per node); reserved for phase-2 mixed-backend hosts.
+  string backend = 2;
+}
+
+message ListSandboxesReply {
+  // Flat list of sandbox IDs the node-agent currently tracks in its
+  // in-memory ``_sandboxes`` table. Order is not significant; the
+  // reconciler treats it as a set.
+  repeated string sandbox_ids = 1;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// A1 / D18+D19 (P1.2) — QueryImageCommand: image-affinity + pre-flight check
+//
+// "Does this node already have image X?" Reverse query the scheduler
+// asks each node before placing a rollout (D18 image-affinity scoring)
+// and the coordinator asks the chosen node before sending
+// CreateSandboxCommand (D19 pre-flight check). Cheap — the node just
+// reads its in-memory ``ImageCacheManager`` index, no Docker daemon
+// round-trip needed for "is this tag known?" today.
+//
+// The reply carries the per-node digest (when the node knows one)
+// even though the platform doesn't centrally pin per_node_local
+// images. Useful for spec-19 audit events that want
+// ``digest_source=per_node`` to record what the node believed it
+// had.
+// ──────────────────────────────────────────────────────────────────────────────
+
+message QueryImageCommand {
+  CommandHeader header = 1;
+  // Image tag or digest reference, exactly as the manifest /
+  // resolver supplies it. The node's existence check handles both
+  // forms (``ImageCacheManager._is_present`` delegates to the
+  // backend's native ``image_exists``).
+  string image = 2;
+}
+
+message QueryImageReply {
+  // ``true`` if the node has the image locally; ``false`` if it
+  // doesn't (the coordinator should fail the rollout with
+  // ``reason="image_missing"`` before sending CreateSandboxCommand).
+  bool present = 1;
+  // The node's local digest for the image when known
+  // (``sha256:<hex>`` form). May be empty if the image is
+  // tag-only on this node, or absent entirely. The control plane
+  // uses this for spec-19 audit only — never for cross-node
+  // identity checks (per_node_local digests are per-host random).
+  string digest = 2;
+  // Last-used wall-clock timestamp from the ImageCacheManager,
+  // 0.0 if never used. Lets the scheduler weight affinity by
+  // recency (a recently-used image is "warmer" — its layers are
+  // likely still in the kernel's page cache).
+  double last_used_at = 3;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// B7.6 (P1.2.c) — ReportImagesCommand: full per-node cache snapshot
+//
+// Wire-format analogue of :class:`xrlenv.node.image_cache.NodeImageReport`.
+// Asked on demand by the admin ``/images`` route — fans out to each
+// connected node, aggregates a cluster-wide tier histogram. Cheap on the
+// node side (in-memory ImageCacheManager state + one ``free_disk_bytes``
+// backend round-trip + one ``list_images`` for sizes); not a hot path,
+// so no caching is required at the control plane.
+// ──────────────────────────────────────────────────────────────────────────────
+
+message ReportImagesCommand {
+  CommandHeader header = 1;
+  // When true, the node computes per-image SharedSize (Docker `system df`,
+  // which walks the whole layer graph). Off by default: the live /images
+  // view doesn't need it, and it's slow on a large catalog. Only the
+  // `xrlenv build calibrate` path sets it for unique-size accounting.
+  bool include_shared_size = 2;
+}
+
+message ImageStateEntry {
+  string name           = 1;
+  // Tier from spec 15: in_use / pinned / recently_used / cold.
+  string tier           = 2;
+  uint64 size_bytes     = 3;
+  uint32 in_use_count   = 4;
+  // Last-used per-node monotonic timestamp; 0.0 if never observed.
+  // NOT comparable across nodes — each node tracks its own clock.
+  double last_used_at   = 5;
+  bool   pinned         = 6;
+  // Ownership class derived from Docker labels (B7.6 follow-up):
+  // ``xrlenv_final`` (final task image), ``xrlenv_intermediate`` (build
+  // byproduct), or ``external`` (image not built by xrlenv). The admin
+  // /images filters default to dropping intermediate + external rows;
+  // toggle off to see the full daemon-level inventory.
+  string owner          = 7;
+  // Bytes belonging to layers this image shares with one or more
+  // other tagged images on the same node (Docker ``SharedSize`` from
+  // ``GET /system/df``). 0 means "no shared layers measured" — could
+  // be a singleton image OR a node whose backend doesn't surface
+  // SharedSize (older daemons, in-memory test backend). The decoder
+  // distinguishes the two cases via ``has_shared_size_bytes``.
+  uint64 shared_size_bytes     = 8;
+  // Explicit "did the backend report SharedSize for this image?"
+  // flag. Required because proto3 can't distinguish "0" from
+  // "unset" for scalar fields, and the calibrate path needs to
+  // tell "no sharing" from "no info"; the former trusts the unique
+  // calculation, the latter falls back to size_bytes.
+  bool   has_shared_size_bytes = 9;
+  // The image's registry manifest digest ("repo@sha256:...", from Docker
+  // ``RepoDigests``) — the SAME content-addressed identity the control-plane
+  // ``RegistryDigestResolver`` produces for a plan's ``:tag`` ref. Lets
+  // ``xrlenv build calibrate`` attribute an image a node pulled BY DIGEST
+  // (digest-pinned on acquire, invariant 4 → held untagged) back to its plan
+  // entry even when many tags share one repository (e.g. SWE-bench's 113 tags
+  // of ``d3j8x8q7/swe-bench-202605``), where the tag/repo-path matchers can't.
+  // Empty string when the backend reports no RepoDigests (locally-built /
+  // never-pushed images) — decoded to ``None``.
+  string repo_digest           = 10;
+}
+
+message ReportImagesReply {
+  repeated ImageStateEntry images = 1;
+  uint64 free_disk_bytes          = 2;
+  // Sorted set of operator-pinned image refs (the loader-time pin
+  // file plus any runtime ``pin()`` calls).
+  repeated string pinned          = 3;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// P1.6.c — BuildImagesCommand: control-plane-driven image builds
+//
+// The build coordinator (xrlenv/control/build_coordinator.py) packs a
+// node's slice of a plan into one BuildImagesCommand and dispatches it
+// over the spec-21 stream. The node loads each per-benchmark builder
+// in-process via ``xrlenv.control.image_builder.load_image_builder``,
+// runs the builds sequentially, and returns one BuildResultEntry per
+// assignment in the batched BuildImagesReply.
+//
+// Phase-A is batched (the entire node's job lands in one reply) — at
+// 8 smoke instances × ~3 min/instance = ~24 min, batched is acceptable.
+// A streaming variant is a phase-2 follow-on if operators ask for
+// per-image progress feedback.
+// ──────────────────────────────────────────────────────────────────────────────
+
+message BuildImagesCommand {
+  CommandHeader header = 1;
+  repeated BuildAssignmentEntry assignments = 2;
+  // Per-benchmark Python module + class to load; same shape as the
+  // manifest's ``image_builder:`` block. The control plane fills this
+  // from the catalog at dispatch time so every node sees the same
+  // pinned builder regardless of when it joined the cluster.
+  map<string, BuilderRefEntry> builder_per_benchmark = 3;
+  // Optional per-benchmark kwargs forwarded to ``builder.build(...)``
+  // (e.g. ``{"build_path": "build-locally"}`` for swebench-verified).
+  map<string, BuildKwargsEntry> kwargs_per_benchmark = 4;
+  bool force = 5;
+  // P1.6.g-H1 fix: refs the node should *register* a builder mapping
+  // for (so a later ensure_present can dispatch lazily) but NOT
+  // synchronously build here. Used for opportunistic-mode deferred
+  // rows whose preferred_home is this node.
+  repeated BuildAssignmentEntry lazy_registrations = 6;
+}
+
+message BuildAssignmentEntry {
+  string image_ref = 1;
+  string benchmark = 2;
+  uint64 size_bytes = 3;
+}
+
+message BuilderRefEntry {
+  string module = 1;
+  string class_name = 2;
+}
+
+message BuildKwargsEntry {
+  map<string, string> kv = 1;
+}
+
+message BuildImagesReply {
+  repeated BuildResultEntry results = 1;
+}
+
+message BuildResultEntry {
+  string image_ref = 1;
+  // 'done' or 'failed'.
+  string status = 2;
+  uint64 bytes_pulled = 3;
+  double duration_s = 4;
+  // Empty when status == 'done'.
+  string error = 5;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// P1.6.g — EnsurePresentCommand: async pre-fetch at admission time
+//
+// When the AdmissionQueue admits a rollout, the control plane fires
+// this command at the chosen node so the image cache pre-fetches
+// the rollout's image (lazy build via the registered benchmark
+// builder, OR ordinary docker pull) BEFORE the CreateSandboxCommand
+// arrives. The CreateSandbox path's own ensure_present call hits a
+// warm cache.
+//
+// Fire-and-forget from the admission queue's perspective: the
+// command returns ack immediately; the actual ensure_present runs
+// in the node's existing pull-semaphore pool.
+// ──────────────────────────────────────────────────────────────────────────────
+
+message EnsurePresentCommand {
+  CommandHeader header = 1;
+  string image_ref     = 2;
+  // Pre-fetch deadline — should be the rollout's hard deadline or
+  // a sensible cap (e.g. 600s). 0 means use the cache's default.
+  double timeout_s     = 3;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// BuildImageCommand: source-build dispatch (per-image-ref)
+//
+// When a build plan declares ``context_source: type: git`` or
+// ``type: tarball``, the coordinator dispatches one BuildImageCommand
+// per (node, image_ref). The node clones / extracts the source,
+// runs ``docker build``, tags the result with ``image_ref``, and
+// returns a BuildImageReply. Distinct from BuildImagesCommand
+// (legacy benchmark-driven path); the two share no state.
+//
+// Tarball bytes are size-capped operator-side (default 100 MB,
+// configurable via ``xrlenv build apply --build-tarball-max-bytes``);
+// over-cap plans fail at apply time on the CLI before reaching the
+// wire.
+// ──────────────────────────────────────────────────────────────────────────────
+
+message BuildImageCommand {
+  CommandHeader header = 1;
+  string image_ref     = 2;
+  oneof source {
+    GitSourceProto     git     = 3;
+    TarballSourceProto tarball = 4;
+  }
+  // Build deadline. 0 means use the node's default
+  // (ImageCacheConfig.default_pull_timeout_s, typically 600s — but
+  // builds frequently take longer; operators should set explicitly).
+  double timeout_s     = 5;
+  // Operator-set Docker labels passed through to ``docker build
+  // --label``. The node auto-adds ``xrlenv.image.rebuild-cost``
+  // based on source type; that label is reserved and overrides any
+  // operator-supplied value.
+  map<string, string> labels = 6;
+  // When true, the node-side builder short-circuits if ``image_ref``
+  // is already tagged locally (``docker images -q`` non-empty) —
+  // returns ``ok`` without cloning, untarring, or invoking
+  // ``docker build``. Used by operator-driven re-applies against a
+  // warm cluster (typical post-calibrate flow + partial-failure
+  // recovery) where most entries are already built. Default false
+  // preserves the existing "always rebuild" behavior.
+  bool skip_if_present = 7;
+  // When true, the node BUILDS then PUSHES image_ref to the registry embedded
+  // in the (registry-qualified) ref — ``build_and_push`` — and returns the
+  // pushed digest in ``BuildImageReply.repo_digest``. Used by ``xrlenv build
+  // push`` to populate the private registry fleet-wide. Registry-HEAD skip is
+  // implied (already-pushed refs are not rebuilt: resumable + overlap-safe).
+  // Default false = today's local-tag-only build.
+  bool push = 8;
+}
+
+message GitSourceProto {
+  string repo       = 1;
+  string ref        = 2;
+  string subdir     = 3;
+  string dockerfile = 4;
+}
+
+message TarballSourceProto {
+  bytes  content    = 1;
+  string dockerfile = 2;
+}
+
+message BuildImageReply {
+  string image_ref = 1;
+  // 'ok' (build succeeded; image tagged locally) or 'failed'.
+  string status    = 2;
+  // Empty when status == 'ok'.
+  string error     = 3;
+  // Build duration in seconds (clone + docker build, not wire time).
+  double duration_s = 4;
+  // The pushed ``<repo>@sha256:...`` when the command carried ``push=true`` and
+  // the push succeeded; empty for a local-tag build or on any failure. The
+  // control plane pins the fleet to this digest (invariant 4).
+  string repo_digest = 5;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// CancelBuildImageCommand: operator-driven mid-build cancel
+//
+// Issued by the admin /api/build/cancel orchestrator when the
+// operator runs ``xrlenv build cancel --plan <id>``. For each
+// ``building`` assignment in the plan, the orchestrator dispatches
+// one CancelBuildImageCommand to the owning node; the node looks
+// up the in-flight ``GitSourceBuilder`` task for ``image_ref``,
+// cancels it, and best-effort kills any docker build container
+// labeled with the matching ``xrlenv.cancel-key=<image_ref>``
+// (every git build sets this label automatically). The task's
+// ``CancelledError`` handler returns ``("failed", "cancelled by
+// operator")`` to the parent ``BuildImageCommand`` reply, which
+// closes that command-id's outstanding wait normally.
+//
+// Result semantics (best-effort):
+//
+//   ``status="ok"``         — cancel signal sent (or no-op because
+//                             no in-flight build exists for that
+//                             image_ref on this node).
+//   ``status="failed"``     — internal error issuing the cancel
+//                             (e.g. docker daemon unreachable);
+//                             ``error`` carries the message.
+//
+// The cancel reply does NOT wait for the BuildImageCommand task to
+// finish unwinding — that completes asynchronously over its own
+// pre-existing command_id.
+// ──────────────────────────────────────────────────────────────────────────────
+
+message CancelBuildImageCommand {
+  CommandHeader header = 1;
+  string image_ref     = 2;
+}
+
+message CancelBuildImageReply {
+  string image_ref = 1;
+  string status    = 2;  // 'ok' | 'failed'
+  string error     = 3;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// RegisterScratchSourceCommand: scratch build-on-demand registration
+//
+// For a scratch_build template (spec 06 image_build:), the coordinator
+// computes the content-addressed scratch ref + build source and dispatches
+// one RegisterScratchSourceCommand to the chosen node BEFORE create. The node
+// records (image_ref -> source, durable_to); the later
+// ``ImageCacheManager.ensure_present(image_ref)`` builds the source AND pushes
+// it to the scratch registry embedded in the ref (build_and_push), copying to
+// ``durable_to`` when set. This is a lightweight *registration* — no build
+// happens synchronously here (mirrors lazy_registrations).
+// See notes/scratch-registry-build-on-demand.md.
+// ──────────────────────────────────────────────────────────────────────────────
+
+message RegisterScratchSourceCommand {
+  CommandHeader header = 1;
+  string image_ref     = 2;
+  oneof source {
+    GitSourceProto     git     = 3;
+    TarballSourceProto tarball = 4;
+  }
+  // Optional user-owned durable registry ref; empty => scratch-only.
+  string durable_to    = 5;
+}
+
+message RegisterScratchSourceReply {
+  string image_ref = 1;
+  string status    = 2;  // 'ok' | 'failed'
+  string error     = 3;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// EvictImageCommand: operator-driven node-cache eviction
+//
+// Issued by the admin /api/image/evict orchestrator when the operator
+// runs ``xrlenv images evict <ref>``. The orchestrator fans one
+// EvictImageCommand out to every connected node; each node matches
+// ``image_ref`` registry-agnostically against the tags it actually
+// holds (``xrlenv.image_refs.same_image`` — so a bare plan ref matches
+// the registry-qualified tag a node pulled), then removes the matching
+// local image(s) so the next ``ensure_present`` re-pulls fresh from the
+// registry. The escape hatch for the mutable-tag staleness problem
+// (rebuild + re-push under the same tag → nodes never re-pull).
+//
+// ``force`` attempts removal even when the cache shows the image
+// in-use / pinned (maps to ``docker rmi -f``). Default (false) skips
+// in-use / pinned images and reports them so a live rollout is never
+// disrupted.
+//
+// Result semantics (per node):
+//   status="evicted" — at least one matching image removed; reclaimed_bytes set.
+//   status="absent"  — node holds no image matching the ref (no-op).
+//   status="in_use"  — matches exist but all are in-use/pinned and force=false.
+//   status="failed"  — daemon/internal error; error carries the message.
+// ──────────────────────────────────────────────────────────────────────────────
+
+message EvictImageCommand {
+  CommandHeader header = 1;
+  string image_ref     = 2;
+  bool   force         = 3;
+}
+
+message EvictImageReply {
+  string node_id        = 1;
+  string image_ref      = 2;
+  string status         = 3;  // 'evicted' | 'absent' | 'in_use' | 'failed'
+  string error          = 4;
+  int64  reclaimed_bytes = 5;  // best-effort sum of removed image sizes
+  repeated string removed = 6;  // the exact local tags removed
+}
+
+message EnsurePresentReply {
+  // 'ok' = image now present locally; 'failed' = pre-fetch failed
+  // (the create path may still succeed via its own ensure_present
+  // retry if conditions improve, OR fail with a clearer error).
+  string status        = 1;
+  // Empty when status == 'ok'.
+  string error         = 2;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// P1.7.A.1 — Raw container session (case 2/3 evaluation harnesses)
+//
+// These commands talk **directly to the docker daemon** on the node, bypassing
+// the in-sandbox stub layer (which is mounted only for case-1 EnvAdapter-bound
+// CreateSandboxCommand sandboxes). Why a separate path: case 2/3 evaluation
+// harnesses (swebench's run_evaluation, harbor's DockerEnvironment, OSWorld's
+// provider) issue raw ``docker exec`` / ``docker put_archive`` against
+// containers they own. They don't know about xrlenv's stub-runtime layer and
+// don't ship it. Forcing them through ``RunInSandboxCommand`` would require
+// modifying their harnesses or shipping the stub layer in every case-2/3
+// image. Both are wrong; this command family lets case 2/3 reach the daemon
+// natively while xrlenv keeps tracking the container for billing /
+// per-rollout scoping / GC.
+//
+// Per-rollout scoping: every command carries a ``rollout_id``; the node-side
+// dispatcher records the ``container_id ↔ rollout_id`` mapping at acquire
+// time and rejects any subsequent exec / destroy on a container_id that
+// doesn't belong to the requesting rollout. Same enforcement model as the
+// stub-bound commands.
+// ──────────────────────────────────────────────────────────────────────────────
+
+message AcquireContainerCommand {
+  CommandHeader header = 1;
+  // Owning rollout — node tracks ``container_id ↔ rollout_id`` for scoping
+  // + GC. The rollout must exist + be ``running`` on the node side.
+  string rollout_id    = 2;
+  // Image reference (tag or digest). Must already be present on the node;
+  // the consumer / harness pulls separately (P1.7.A.2 will add direct-pull
+  // support if needed). Pre-flight: the node refuses if the image is
+  // missing — no implicit pull on this path (different policy from
+  // CreateSandboxCommand which ensure_present-pulls per image_pin_mode).
+  // [P1.7.A.1 — WIRED]
+  string image         = 3;
+  // Optional override of the image's CMD. swebench's harness uses
+  // ``["tail", "-f", "/dev/null"]`` to keep the container alive while it
+  // execs work into it. Empty = use image default.  [P1.7.A.1 — WIRED]
+  repeated string command = 4;
+  // Optional explicit container name (Docker-side). Empty = docker
+  // auto-names. Useful for debug ``docker ps`` recognisability;
+  // platform-side identity is the returned container_id.
+  // [P1.7.A.1 — WIRED]
+  string name          = 5;
+  // Optional resource override. Empty = take from owning rollout's
+  // ResourceSpec. (Phase-1 typically inherits; case-2/3 harnesses
+  // sometimes pin specific cpus/mem per benchmark instance.)
+  // [P1.7.A.1 — DEFERRED to P1.7.A.2: dispatcher currently ignores
+  // this field; raw containers spawn with whatever cpus/mem the
+  // docker default policy allows. Wired alongside the streaming-exec
+  // surface so resource and execution shape land together.]
+  ResourceSpec resources = 6;
+  // Egress policy ("none" | "open" | "egress-allowlist"). Same semantics
+  // as CreateSandboxCommand.
+  // [P1.7.A.1 — DEFERRED to P1.7.A.2: dispatcher currently ignores
+  // this field; raw containers spawn with the docker default network
+  // (typically "open"). Wired alongside resources for the same
+  // reason — both touch DockerBackend.create's policy surface.]
+  string network_policy = 7;
+  // Extra docker labels to set on the container. The node always merges
+  // ``xrlenv.rollout_id`` and ``xrlenv.session_kind=raw`` on top —
+  // operators should not override those keys.  [P1.7.A.1 — WIRED]
+  map<string, string> labels = 8;
+  // Optional environment variables passed to the container at spawn
+  // (docker ``-e KEY=VALUE``). Used by harnesses that configure the
+  // workload via env vars (HF_TOKEN, GIT_AUTHOR, etc.) without baking
+  // them into the image.  [P1.7.A.1 — WIRED]
+  map<string, string> environment = 9;
+  // P1.7.B.2 — strict image check opt-out. When false (proto3 default),
+  // node runs ``ImageCacheManager.ensure_present(image)`` before
+  // container spawn, pulling/building/no-opping as appropriate (the
+  // new default UX). When true, node reverts to the strict legacy
+  // contract: raise XRLEnvError if the image isn't present locally.
+  // SDK kwarg is positive-form (``ensure_image_present=True/False``);
+  // wire field is negative-form so proto3's default-false aligns
+  // with the new default (`ensure_image_present=True` ⇔
+  // `strict_image_check=false`). Older node-agents (P1.7.A.1) didn't
+  // know the field, but they also did `images.get + raise` =
+  // strict-mode behaviour anyway; the new control plane should
+  // refuse acquires to old nodes (an upgrade hint), but the wire
+  // shape is forward-compat-safe.
+  bool strict_image_check = 10;
+  // B5.4 — operator-side opt-in to honoring the docker daemon's
+  // ``userns-remap`` config for THIS container. ``"host"`` (proto3
+  // default-empty string treated as "host" by the node) preserves
+  // existing behavior: the container runs with host UIDs even when
+  // the daemon has a remap configured. ``"remap"`` translates to
+  // docker-py's ``userns_mode=""`` — i.e. "use the daemon's
+  // userns-remap if set." Empty / unset = ``"host"``.
+  //
+  // The container in remap mode still appears to run as its image's
+  // declared user (often ``root``); only the host-side UID changes.
+  // This is defense-in-depth: a container escape lands as an
+  // unprivileged subordinate UID on the host, not host root.
+  //
+  // Operators must configure daemon-level ``userns-remap`` in
+  // ``/etc/docker/daemon.json`` separately; xrlenv does not write
+  // that file. When the daemon has no remap configured,
+  // ``userns_mode="remap"`` is a silent no-op (the daemon ignores
+  // the empty string and runs the container with host UIDs as
+  // usual). See docs/deployment/.
+  string userns_mode = 11;
+  // Optional ENTRYPOINT override. Empty repeated = image default;
+  // a one-element ``[""]`` means "clear the image's ENTRYPOINT"
+  // (matches docker CLI's ``--entrypoint ""``). Forwarded to
+  // ``DockerBackend`` as the ``entrypoint`` kwarg on the
+  // ``docker run`` invocation. Mirrors
+  // AcquireContainerRequest.entrypoint on rollout_control.proto.
+  // [WIRED]
+  repeated string entrypoint = 12;
+  // Optional ``USER`` override. Mirrors AcquireContainerRequest.user.
+  // Forwarded to docker-py's ``containers.run(user=...)``. Empty
+  // string = use the image's declared ``USER`` directive.
+  // [WIRED]
+  string user = 13;
+  // Optional ``cap_add`` list. Mirrors AcquireContainerRequest.cap_add.
+  // Forwarded to docker-py's ``containers.run(cap_add=...)``. Empty
+  // = default capabilities.
+  // [WIRED]
+  repeated string cap_add = 14;
+  // Optional ``devices`` list. Mirrors AcquireContainerRequest.devices.
+  // Forwarded to docker-py's ``containers.run(devices=...)``. Each
+  // entry is a docker-py device spec — ``/dev/x``, ``/dev/x:/dev/y``,
+  // or ``/dev/x:/dev/y:rwm``. Empty = no host-device passthrough.
+  // [WIRED]
+  repeated string devices = 15;
+  // Optional ``privileged`` flag. Mirrors AcquireContainerRequest.privileged.
+  // Forwarded to docker-py's ``containers.run(privileged=...)``. Default
+  // proto3 false = "not privileged" = standard sandbox.
+  // [WIRED]
+  bool privileged = 16;
+  // Optional ``network_mode``. Mirrors AcquireContainerRequest.network_mode.
+  // Forwarded to docker-py's ``containers.run(network_mode=...)``. Empty
+  // = docker default (``bridge``).
+  // [WIRED]
+  string network_mode = 17;
+  // Optional bind-mount specs. Mirrors AcquireContainerRequest.binds.
+  // Forwarded as docker-py's ``volumes=`` parameter (each entry is
+  // ``"/host/path:/container/path[:mode]"``).
+  // [WIRED]
+  repeated string binds = 18;
+  // Issue #12 — node-side pull / build deadline override. The
+  // control plane derives this from the consumer's
+  // ``acquire_timeout_s`` so the node's
+  // ``ImageCacheManager.ensure_present(deadline_s=...)`` matches
+  // the wire wait. ``0`` (proto3 default) means "use the node's
+  // configured default" (currently
+  // ``ImageCacheConfig.default_pull_timeout_s = 600 s``). Without
+  // this field, a consumer who set ``acquire_timeout_s=1800`` for
+  // a 10 GB image would still see the pull fail at 600 s on the
+  // node while the wire patiently waited — audit M1 against
+  // commit `86afca1` flagged the half-wired contract.
+  // [WIRED]
+  double pull_deadline_s = 19;
+  // P0b (cluster-resource-isolation-plan) — container-shape
+  // RuntimeLimits (pids / shm / tmpfs / read-only rootfs). Distinct
+  // from ``resources`` (field 6): RuntimeLimits do NOT affect
+  // scheduling, only container creation. Unset = harness specified
+  // none; the node applies only the limits that are set.
+  // [WIRED — P0b]
+  RuntimeLimits runtime_limits = 20;
+  // OCI runtime selector (e.g. "sysbox-runc"). Empty = unset = docker's
+  // default runtime. The node verifies the runtime is registered before
+  // ``containers.run`` and fails loud otherwise (§5.5).
+  string container_runtime = 21;
+}
+
+message AcquireContainerReply {
+  // Docker-side container ID (long form). Used as the handle in subsequent
+  // ContainerExecCommand / DestroyContainerCommand.
+  string container_id = 1;
+  // Container name docker assigned (matches AcquireContainerCommand.name
+  // when set, otherwise the auto-generated one).
+  string container_name = 2;
+}
+
+message ContainerExecCommand {
+  CommandHeader header = 1;
+  // Owning rollout — must match the rollout that AcquireContainer'd this
+  // container, else ENOENT-equivalent.
+  string rollout_id    = 2;
+  string container_id  = 3;
+  repeated string cmd  = 4;
+  double timeout_s     = 5;
+  string cwd           = 6;
+  map<string, string> env = 7;
+  // Optional explicit user (uid:gid or username); empty = container default.
+  string user          = 8;
+}
+
+// Reply reuses ``ExecReply`` (defined below): {exit_code, stdout, stderr,
+// timed_out}. Batched — full output captured in memory before reply
+// returns. P1.7.A.2 adds streaming variant for swebench's 30+ min test
+// runs.
+
+message DestroyContainerCommand {
+  CommandHeader header = 1;
+  string rollout_id    = 2;
+  string container_id  = 3;
+  // ``docker rm -f`` semantics: stop+remove. The platform doesn't expose
+  // a softer stop-and-keep variant on this path because case-2/3 harnesses
+  // typically destroy-and-recreate per evaluation rather than reuse.
+  bool force           = 4;
+}
+
+// Reply reuses ``DestroyReply`` (defined below) — empty.
+
+// ──────────────────────────────────────────────────────────────────────────────
+// P1.7.C.2 — Multi-service compose project (harbor tasks with sidecars)
+//
+// Brings up a task's whole compose stack (main + sidecars + private network)
+// on one node via the real ``docker compose`` CLI, then execs the agent into
+// the ``main`` service over the existing container-scoped exec/archive commands
+// (which address by ``container_id`` — the reply hands back main's id + the full
+// member map for GC). The compose document is already CP-vetted against
+// KwargsPolicy (§3.5) and rewritten so every ``build:`` is a pushed image ref
+// (§4.1); the node ensures each image present, writes the doc to a temp project
+// dir, and runs ``docker compose up -d --wait``.
+// ──────────────────────────────────────────────────────────────────────────────
+
+message AcquireComposeProjectCommand {
+  CommandHeader header = 1;
+  // Owning rollout — the node registers each member container_id ↔ rollout_id
+  // for exec/archive scoping + GC, exactly like a single raw container.
+  string rollout_id    = 2;
+  // Docker Compose project name (``docker compose -p``). Unique per trial;
+  // the CP derives it from the session id. Namespaces the project's containers
+  // + network so concurrent trials don't collide.
+  string project_name  = 3;
+  // The rewritten, image-ref-only compose document (YAML). No ``build:`` — the
+  // node never receives a build context (§4.1).
+  string compose_yaml  = 4;
+  // Image refs to ``ensure_present`` before ``up`` so compose never triggers an
+  // uncached pull on the hot path. Main + sidecars.
+  repeated string images = 5;
+  // Service harbor execs the agent into (the exec target). Empty → ``main``.
+  string main_service  = 6;
+  // ``up --wait`` ceiling (seconds). 0 → node default.
+  double up_timeout_s  = 7;
+}
+
+message AcquireComposeProjectReply {
+  // ``main`` service's container id — the handle for subsequent
+  // ContainerExecCommand / ContainerPutArchive / ContainerGetArchive.
+  string main_container_id   = 1;
+  string main_container_name = 2;
+  // Echoed back so the CP addresses the DestroyComposeProjectCommand.
+  string project_name        = 3;
+  // On-node temp project dir (bookkeeping / diagnostics).
+  string project_dir         = 4;
+  // Every service's container id (``service -> container_id``), including main.
+  // The node tracks all of them; the whole project is reaped on destroy, not
+  // just main.
+  map<string, string> service_container_ids = 5;
+}
+
+message DestroyComposeProjectCommand {
+  CommandHeader header = 1;
+  string rollout_id    = 2;
+  string project_name  = 3;
+  // ``docker compose down -v --remove-orphans`` semantics (force stop+remove).
+  bool force           = 4;
+}
+
+// Reply reuses ``DestroyReply`` — empty.
+
+// ──────────────────────────────────────────────────────────────────────────────
+// P1.7.A.2 — Raw container archives (case 2/3)
+//
+// Symmetric to swebench's ``container.put_archive`` /
+// ``container.get_archive`` calls and harbor's ``upload_dir`` /
+// ``download_dir`` for non-mounted backends. The existing
+// ``PutArchiveCommand`` is identity-keyed on ``SandboxHandle``
+// (case-1 stub-bound rollouts); these are container_id-keyed for
+// raw containers. Both go through the same docker daemon
+// ``put_archive`` / ``get_archive`` HTTP endpoints under the
+// hood — the data plane is identical, only the addressing
+// differs.
+// ──────────────────────────────────────────────────────────────────────────────
+
+message ContainerPutArchiveCommand {
+  CommandHeader header  = 1;
+  string rollout_id     = 2;
+  string container_id   = 3;
+  // Dir to extract into. **MUST already exist** in the container —
+  // unlike the case-1 ``PutArchiveCommand`` (which mkdir -p's as
+  // root for the verifier-asset injection path), the case-2/3 raw
+  // path leaves target-dir layout to the harness. swebench's
+  // harness ``container.exec_run('mkdir -p /tmp')`` first; harbor's
+  // upload_dir relies on the image's existing layout. Aligning
+  // contract to harness expectations rather than spawning a root
+  // exec the harness didn't ask for.
+  string target_dir     = 4;
+  bytes  tarball        = 5;  // tar bytes (plain or gzipped; docker
+                              // auto-detects). Bounded by
+                              // ``DEFAULT_MAX_MESSAGE_BYTES`` in
+                              // ``xrlenv.api.constants``.
+}
+
+// Reply: empty; success is OK status on the wrapping CommandReply
+// (raised inside _send_and_wait on FAILED). Reuses
+// ``PutArchiveReply``.
+
+message ContainerGetArchiveCommand {
+  CommandHeader header  = 1;
+  string rollout_id     = 2;
+  string container_id   = 3;
+  string source_path    = 4;  // path inside the container to tar up
+}
+
+message ContainerGetArchiveReply {
+  bytes  tarball        = 1;  // tar bytes of the path's contents
+}
+
+// Streamed get_archive: ONE ``ContainerGetArchiveCommand`` elicits
+// MULTIPLE ``CommandReply`` NodeMsgs sharing the same ``command_id``,
+// each carrying a slice of the tarball. Mirrors the
+// StreamContainerExecCommand → ContainerExecChunk pattern. Required
+// because the single-reply ``ContainerGetArchiveReply`` above packs
+// the whole tarball into one message — a >128 MiB verifier dir trips
+// gRPC's send ceiling and a >2 GiB one trips protobuf's serialize
+// limit, and either tears down the bidi stream the heartbeat shares
+// (node goes "lost"). The control-plane reader reassembles
+// ``data`` slices in order until ``done=true``; on the node side a
+// FAILED CommandReply with the same command_id aborts the stream.
+// A control plane that talks to an OLD node still gets a single
+// ``ContainerGetArchiveReply`` and handles it; a new node always
+// chunks.
+message ContainerGetArchiveChunk {
+  bytes data = 1;  // slice of the tarball; empty on a pure terminator
+  bool  done = 2;  // set on exactly the last chunk (end-of-stream)
+}
+
+// Streamed put_archive (the UPLOAD twin of ContainerGetArchiveChunk): the control
+// plane sends MULTIPLE ``ControlMsg`` frames all sharing the same
+// ``header.command_id``, each carrying a slice of the tarball, terminated by
+// ``done=true``. Required for the same reason as the get chunking — the single
+// ``ContainerPutArchiveCommand`` above packs the whole tarball into one message, so a
+// >128 MiB solution/ upload (e.g. an oracle that bundles a 340 MB SDK) trips gRPC's
+// send ceiling and — because this hop shares the heartbeat's bidi stream — would
+// starve the heartbeat and drop the node ("lost"). Slicing into ~4 MiB frames keeps
+// the heartbeat flowing between chunks. The FIRST chunk carries the routing metadata
+// (``rollout_id`` / ``container_id`` / ``target_dir``); every chunk carries ``data``;
+// the last sets ``done``. The node reassembles ``data`` in order under ``command_id``,
+// runs ONE docker put_archive, and replies with a single ``PutArchiveReply`` (tag 16).
+// A node that lacks this (``NodeHello.chunked_put_archive_capable=false``) never
+// receives it — the control plane falls back to the unary ``ContainerPutArchiveCommand``
+// (128 MiB cap), symmetric to the get fallback.
+message ContainerPutArchiveChunk {
+  CommandHeader header  = 1;
+  string rollout_id     = 2;  // set on the FIRST chunk only
+  string container_id   = 3;  // set on the FIRST chunk only
+  string target_dir     = 4;  // set on the FIRST chunk only
+  bytes  data           = 5;  // slice of the tarball; empty on a pure terminator
+  bool   done           = 6;  // set on exactly the last chunk (end-of-stream)
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Egress restriction (spec 07)
+//
+// Tighten an already-running raw container's egress to an IP/CIDR allowlist.
+// Generic mechanism: the wire carries the high-level entries; the node compiles
+// them (xrlenv.backends.egress.compile_egress_rules) and installs an iptables
+// OUTPUT chain into the container's netns via nsenter. The container holds no
+// CAP_NET_ADMIN, so the workload can't flush them. An empty ``allow`` list
+// blocks all external egress (loopback stays up).
+// ──────────────────────────────────────────────────────────────────────────────
+
+message EgressAllowEntry {
+  string cidr           = 1;  // IPv4 CIDR the sandbox may reach (e.g. "3.149.157.52/32")
+  repeated uint32 ports = 2;  // empty = all ports; else restrict dports (tcp+udp)
+}
+
+message ApplyEgressCommand {
+  CommandHeader header  = 1;
+  string rollout_id     = 2;
+  string container_id   = 3;
+  repeated EgressAllowEntry allow = 4;  // empty = block all external egress
+  string dns_resolver   = 5;            // optional: allow :53 to this CIDR; empty = none
+}
+
+message ApplyEgressReply {
+  // Empty — success is the OK status on the wrapping CommandReply.
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// P1.7.A.2 — Raw-GC reconciler reverse query
+//
+// Symmetric to ``ListSandboxesCommand`` (case-1 GC layer 3) but for
+// raw containers. The control-plane reconciler periodically asks
+// each connected node "which raw containers do you currently
+// have?" and diffs the reply against
+// ``RawContainerCoordinator.list_sessions()`` to detect orphans.
+//
+// Two orphan classes:
+//
+// - **Node-only**: container present on docker (label-filtered
+//   ``xrlenv.session_kind=raw``) but not in the coordinator's
+//   in-memory session set → destroy via the privileged
+//   ``ForceDestroyContainerCommand`` (the regular
+//   ``DestroyContainerCommand`` would refuse on the node-side
+//   ownership check, since the coordinator has no record of the
+//   orphan's rollout_id). Most common cause: control-plane
+//   restart wiped the in-memory session map; pre-restart raw
+//   containers are now node-orphans the reconciler tidies up.
+//
+// - **Coordinator-only**: coordinator session whose container_id
+//   isn't in the node's reply → harness ``docker rm``-ed it
+//   directly, or docker daemon lost it. Drop the coordinator
+//   session (no rollout-row to seal — raw rollouts don't have
+//   one in P1.7.A.1).
+// ──────────────────────────────────────────────────────────────────────────────
+
+message ListRawContainersCommand {
+  CommandHeader header = 1;
+  // Optional backend filter; empty = all backends. Phase-1
+  // always docker.
+  string backend = 2;
+  // P1.7.C.2 / audit H11 — when true, ``containers`` also lists EVERY
+  // xrlenv-managed container (any ``xrlenv.rollout_id`` label), including
+  // compose SIDECARS (``xrlenv.session_kind=compose``), each tagged with its
+  // ``session_kind``. ``container_ids`` stays raw-only regardless (the raw-GC
+  // orphan diff depends on that). Lets readopt-on-connect detect a sidecar-only
+  // compose survivor (main gone, sidecars alive) and quarantine the node rather
+  // than admit it with uncharged work. Default false = the raw-only sweep.
+  bool include_all_managed = 3;
+}
+
+message ListRawContainersReply {
+  // Flat list of container_ids on this node carrying the
+  // ``xrlenv.session_kind=raw`` label. Order is not significant;
+  // the reconciler treats it as a set.
+  repeated string container_ids = 1;
+  // Audit P3 — recently node-autonomously-reaped rollouts and WHY
+  // (rollout_id -> reason). The node disk-pressure guard force-destroys
+  // a runaway container out-of-band; the control plane would otherwise
+  // seal that rollout with a generic teardown message. The reconciler
+  // reads this so the coordinator-only orphan gets sealed with the real
+  // "disk guard killed the largest writable-layer offender" diagnostic.
+  // Bounded + best-effort on the node side; empty on older nodes.
+  map<string, string> reaped_reasons = 2;
+  // P1.7.C.2 — per-container correlation labels (same set as ``container_ids``,
+  // the ``xrlenv.session_kind=raw`` containers). Lets the raw-GC reconciler
+  // recognise a compose PROJECT's ``main`` container (``compose_project`` set)
+  // and (a) rebuild the compose session from the persisted project row after a
+  // CP restart, correlated by ``rollout_id``; (b) route an orphaned compose-main
+  // to a whole-project ``docker compose down`` instead of a single-container
+  // ``docker rm`` (which would leak the sidecars). Empty ``compose_project`` = an
+  // ordinary single raw container. Empty on older nodes.
+  repeated RawContainerInfo containers = 3;
+  // audit H11 — capability ACK: set true ONLY by a node that honoured
+  // ``include_all_managed`` (so ``containers`` is the BROAD managed set incl compose
+  // sidecars). An older node that ignores the request field leaves this false (proto3
+  // default), so the control plane can tell "clean, fully-inventoried" apart from
+  // "old agent returned raw-only" and fail reconnect CLOSED rather than admit a
+  // node whose sidecar-only survivors it could not see.
+  bool all_managed_supported = 4;
+}
+
+message RawContainerInfo {
+  string container_id  = 1;
+  string rollout_id    = 2;  // ``xrlenv.rollout_id`` label ("" if unlabeled)
+  string compose_project = 3;  // ``xrlenv.compose_project`` label ("" = not compose)
+  // ``xrlenv.session_kind`` label: "raw" (single container / compose main, on
+  // the raw-GC diff) or "compose" (a compose SIDECAR, off the raw diff). Empty
+  // on older nodes and on entries from a raw-only sweep (include_all_managed=false).
+  string session_kind  = 4;
+}
+
+// ForceDestroyContainerCommand: privileged ``docker rm -f`` that
+// bypasses the per-rollout ownership check enforced by
+// ``DestroyContainerCommand``. Used **only** by the raw-GC
+// reconciler to clean up node-only orphans (the orphan's
+// ``rollout_id`` is unrecoverable post-CP-restart, so the
+// regular destroy path is unreachable).
+//
+// Internal-only: NOT exposed on ``rollout_control.proto``, so
+// consumers can't reach it. The control plane is the only entity
+// that can issue spec-21 commands; the reconciler runs there.
+message ForceDestroyContainerCommand {
+  CommandHeader header  = 1;
+  string container_id   = 2;
+}
+
+// Reply reuses ``DestroyReply`` (empty).
+
+// ──────────────────────────────────────────────────────────────────────────────
+// P1.7.A.2 — Streaming exec for long-running runs (swebench eval
+// scripts, terminal-bench 1-2 hour tasks).
+//
+// Required because a single 30 min-2 hour batched gRPC reply is
+// fragile across the full path:
+//
+// - Cloud LBs / NAT / SSH tunnel hops drop idle TCP at 60s-10min.
+// - gRPC HTTP/2 keepalive helps but isn't universally honored.
+// - Memory: hundreds of MB of test output can't all sit in node
+//   memory until the exec finishes.
+// - swebench's ``exec_run_with_timeout`` reads off a streaming
+//   socket for real-time watchdog cancellation.
+//
+// Wire shape: ONE ``StreamContainerExecCommand`` ControlMsg
+// elicits MULTIPLE ``CommandReply`` NodeMsgs all sharing the
+// same ``command_id``. Each reply carries a
+// ``ContainerExecChunk`` payload with stdout/stderr bytes that
+// arrived since the prior chunk. The terminator chunk has
+// ``done=true`` + ``exit_code``; consumers drain until they see
+// it. The control-plane reader half routes every chunk for the
+// command_id to a queue (parallel to the single-Future map used
+// by the batched commands); the reader closes the queue on
+// terminator OR on ``ReplyStatus=FAILED`` (in which case the
+// final non-chunk CommandReply carries the error_kind /
+// error_message in the standard places).
+// ──────────────────────────────────────────────────────────────────────────────
+
+message StreamContainerExecCommand {
+  CommandHeader header = 1;
+  string rollout_id    = 2;
+  string container_id  = 3;
+  repeated string cmd  = 4;
+  // Wall-clock cap on the entire exec. The node's own
+  // ``asyncio.wait_for`` enforces it; on timeout the terminator
+  // chunk carries ``timed_out=true`` + the partial bytes
+  // collected so far.
+  double timeout_s     = 5;
+  string cwd           = 6;
+  map<string, string> env = 7;
+  string user          = 8;
+}
+
+message ContainerExecChunk {
+  // Bytes that arrived since the prior chunk. Either may be
+  // empty (e.g. an stderr-only chunk). The terminator chunk
+  // typically has both empty (it just signals end-of-stream).
+  bytes stdout         = 1;
+  bytes stderr         = 2;
+  // Terminator flag. Set on exactly one chunk per stream — the
+  // last one. Consumers use it to know when to stop iterating.
+  bool done            = 3;
+  // Only meaningful when ``done=true``.
+  int32 exit_code      = 4;
+  bool timed_out       = 5;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Slice 7b — FetchTrajectoryCommand (spec 17 §"Fetch")
+//
+// The trajectory viewer + admin /rollouts/<id> page request a sealed
+// trajectory body from whichever node ran the rollout. The reply rides a
+// single CommandReply today (range:WHOLE / SUMMARY_ONLY); range:STEP_RANGE
+// uses [start, end) semantics so the renderer can lazy-fetch the visible
+// window. include_binary toggles BlobRef resolution (phase-1 lazy-binary
+// is not yet wired; in this slice the platform-jsonl reader does not
+// inline binary bodies regardless, so the flag is informational).
+// ──────────────────────────────────────────────────────────────────────────────
+
+enum FetchRangeKind {
+  FETCH_RANGE_UNSPECIFIED = 0;
+  WHOLE                   = 1;  // entire trajectory in one reply
+  SUMMARY_ONLY            = 2;  // omit step bodies; just metadata + step_count
+  STEP_RANGE              = 3;  // [step_start, step_end)
+}
+
+message FetchTrajectoryCommand {
+  CommandHeader header  = 1;
+  string rollout_id     = 2;
+  FetchRangeKind range  = 3;
+  uint32 step_start     = 4;  // inclusive; only honored when range = STEP_RANGE
+  uint32 step_end       = 5;  // exclusive; 0 = end-of-trajectory
+  bool include_binary   = 6;  // resolve BlobRef payloads inline (phase 1)
+}
+
+message TrajectoryReply {
+  // Spec-17 normalized wire shape: the entire trajectory.json body the
+  // PlatformJsonlSink stores on disk, projected through Trajectory's
+  // pydantic model_dump_json. SUMMARY_ONLY omits ``steps`` from the body.
+  string body_json     = 1;
+  uint32 step_count    = 2;
+  bool   summary_only  = 3;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Heartbeat (NodeMsg)
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Stage-1 admission/capacity observability (notes/admission-stage-1-
+// observability.md). Per-node docker-operation health, computed by the
+// node-side NodeHealthCollector and carried on every heartbeat. Every
+// field defaults to 0 on a node-agent that predates this message.
+message NodeHealthStats {
+  uint32 window_s             = 1;  // rolling window the stats cover
+  double create_p50_ms        = 2;  // docker-run call latency, median
+  double create_p95_ms        = 3;  // docker-run call latency, p95
+  uint32 create_count         = 4;  // completed docker-run calls in window
+  uint32 docker_error_count   = 5;  // node-side docker failures in window
+  uint32 docker_timeout_count = 6;  // subset of docker_error_count
+  uint32 create_inflight      = 7;  // create-gate permits currently in use
+  uint32 create_queued        = 8;  // acquires waiting on the create gate
+}
+
+message Heartbeat {
+  // Node-side monotonic clock value (seconds since some epoch — node-private).
+  // The control plane only uses it for ordering; freshness is judged by the
+  // control plane's own wall clock at receive time.
+  double node_monotonic_s = 1;
+  // Lightweight per-node resource snapshot (not per-sandbox; per-sandbox
+  // stats ride the StatsRequest/StatsReport pair).
+  uint32 sandboxes_running = 2;
+  double cpu_load_1m       = 3;
+  uint64 mem_used_bytes    = 4;
+  // Issue #14 — disk pressure visibility + scheduler placement gate.
+  // ``free_disk_bytes`` is the live ``shutil.disk_usage(DockerRootDir).free``
+  // from the node's image-cache backend; the control plane uses it to mark
+  // pressured nodes "disk:pressured" in the admin /capacity view and to
+  // refuse placement on nodes below a critical free-disk threshold (the
+  // sweep can fail to keep up if pins cover most of the cache, non-image
+  // disk consumption explodes, or burst rate exceeds sweep cadence).
+  // Both fields default to 0 when the node hasn't reported yet; (0, 0)
+  // means "unknown" and the gate treats the node as healthy until the
+  // first heartbeat arrives.
+  uint64 free_disk_bytes   = 5;
+  uint64 total_disk_bytes  = 6;
+  // Stage-1 — per-node docker-operation health. Absent on a pre-Stage-1
+  // node-agent; the control plane treats a missing field as "unknown".
+  NodeHealthStats health   = 7;
+  // P6 (§8.6, R6) — live pinned-CPU accounting for the scheduler's future
+  // pinned-capacity predicate + pending reservations. ``pinned_cpus_total`` is
+  // the node's cap on how many logical CPUs may be cpuset-pinned (the §8.8
+  // floor derives the shared minimum from it); ``pinned_cpus_free`` is how many
+  // remain unreserved right now (from the node's core ledger). Both default 0
+  // on agents predating these fields; (0, 0) reads as "unknown" and the
+  // scheduler makes no pinned-capacity decision until a real report arrives.
+  uint32 pinned_cpus_free  = 8;
+  uint32 pinned_cpus_total = 9;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Reply
+// ──────────────────────────────────────────────────────────────────────────────
+
+enum ReplyStatus {
+  REPLY_STATUS_UNSPECIFIED = 0;
+  OK                       = 1;
+  FAILED                   = 2;
+  CANCELLED                = 3;
+}
+
+message CommandReply {
+  string command_id   = 1;
+  ReplyStatus status  = 2;
+  // Mode-specific reply payload (one filled per command type).
+  oneof payload {
+    CreateSandboxReply  create  = 10;
+    DestroyReply        destroy = 11;
+    EnvReply            env     = 12;
+    ExecReply           exec    = 13;  // Slice 3.5 — RunInSandbox result
+    StatsReply          stats   = 14;  // Slice 3.5 — StatsRequest result
+    TrajectoryReply     trajectory = 15;  // Slice 7b — FetchTrajectoryCommand result
+    PutArchiveReply     put_archive = 16;  // D12 stage 1 — PutArchiveCommand result
+    ListSandboxesReply  list_sandboxes = 17;  // A3 / D15 — GC layer 3 reverse query
+    QueryImageReply     query_image = 18;  // A1 / D18+D19 (P1.2) — image-affinity + pre-flight check
+    ReportImagesReply   report_images = 19;  // B7.6 (P1.2.c) — admin /images cache snapshot
+    BuildImagesReply    build_images = 20;  // P1.6.c — control-plane-driven image builds
+    EnsurePresentReply  ensure_present = 21; // P1.6.g — lazy image lifecycle async pre-fetch
+    AcquireContainerReply acquire_container = 22;  // P1.7.A.1 — raw container reply
+    ContainerGetArchiveReply container_get_archive = 23;  // P1.7.A.2 — raw get_archive
+    ListRawContainersReply list_raw_containers = 24;      // P1.7.A.2 — raw-GC list
+    ContainerExecChunk container_exec_chunk = 25;         // P1.7.A.2 — streaming exec chunk
+    BuildImageReply  build_image           = 26;          // source-build dispatch (per-image-ref)
+    CancelBuildImageReply cancel_build_image = 27;        // operator-driven mid-build cancel
+    ApplyEgressReply apply_egress          = 28;          // spec 07 — egress restriction
+    EvictImageReply  evict_image           = 29;          // operator-driven node-cache eviction
+    ContainerGetArchiveChunk container_get_archive_chunk = 30;  // chunked get_archive (oversized-reply fix)
+    AcquireComposeProjectReply acquire_compose_project = 31;  // P1.7.C.2 — multi-service compose up
+    RegisterScratchSourceReply register_scratch_source = 32;  // scratch build-on-demand registration ack
+    // ContainerExecCommand reuses ExecReply (tag 13).
+    // DestroyContainerCommand reuses DestroyReply (tag 11).
+    // ContainerPutArchiveCommand reuses PutArchiveReply (tag 16).
+    // ForceDestroyContainerCommand reuses DestroyReply (tag 11).
+    // DestroyComposeProjectCommand reuses DestroyReply (tag 11).
+  }
+  // Populated when status != OK.
+  string error_kind    = 90;
+  string error_message = 91;
+}
+
+message CreateSandboxReply {
+  SandboxHandle sandbox = 1;
+}
+
+message DestroyReply {
+  // Empty — destroy is idempotent and carries no payload.
+}
+
+message EnvReply {
+  // JSON-encoded body for env_setup / env_step / env_teardown.
+  // For env_setup: {obs, capabilities}.
+  // For env_step:  {obs, reward, done, truncated, info}.
+  // For env_teardown: {status}.
+  string body_json = 1;
+}
+
+message ExecReply {
+  int32  exit_code = 1;
+  bytes  stdout    = 2;
+  bytes  stderr    = 3;
+  bool   timed_out = 4;
+}
+
+message StatsReply {
+  ResourceUsage usage = 1;
+}
+
+message ResourceUsage {
+  double cpu_seconds = 1;
+  uint64 rss_bytes   = 2;
+  uint64 disk_bytes  = 3;
+  uint64 rx_bytes    = 4;
+  uint64 tx_bytes    = 5;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Shared shapes
+// ──────────────────────────────────────────────────────────────────────────────
+
+message TemplateRef {
+  string name   = 1;
+  string image  = 2;
+  string digest = 3;
+}
+
+message MountSpec {
+  string host_path    = 1;
+  string sandbox_path = 2;
+  bool   readonly     = 3;
+}
+
+message ResourceSpec {
+  double cpu_request       = 1;
+  double cpu_limit         = 2;
+  uint64 mem_request_bytes = 3;
+  uint64 mem_limit_bytes   = 4;
+  uint64 disk_request_bytes = 5;
+  bool   gpu_required      = 6;
+  repeated MountSpec mounts = 7;
+  string cpu_isolation     = 8;  // P6 CpuIsolation: '' (=off) | 'best_effort' | 'required'
+}
+
+// P0b (cluster-resource-isolation-plan) — container-shape limits that
+// do NOT affect scheduling (kept separate from ResourceSpec, which
+// does). The node applies only the fields the harness set; an unset
+// field (proto3 default) means "docker default — do not constrain".
+message RuntimeLimits {
+  int64  pids_limit       = 1;  // docker --pids-limit; 0 = unset
+  uint64 shm_size_bytes   = 2;  // docker --shm-size;   0 = unset
+  map<string, string> tmpfs = 3;  // docker --tmpfs: path -> options
+  bool   readonly_rootfs  = 4;  // docker --read-only
+  bool   cpu_pinning      = 5;  // opt-in cpuset pin; false = quota-only (harbor-faithful)
+}
+
+message SandboxHandle {
+  string id            = 1;
+  string backend       = 2;
+  string backend_ref   = 3;
+  string stub_endpoint = 4;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Service
+// ──────────────────────────────────────────────────────────────────────────────
+
+service NodeControl {
+  // Single bidirectional stream the node initiates outbound to the control
+  // plane. All node↔control traffic for the lifetime of the stream rides
+  // this RPC. There is no separate per-feature RPC (spec 00 invariant 7,
+  // spec 21).
+  rpc NodeControlStream(stream NodeMsg) returns (stream ControlMsg);
+}

@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}fair-share{% endblock %}
+{% block content %}
+<h1>Fair share</h1>
+
+{% if enabled %}
+  <p>
+    Fair-share is <strong>ENABLED</strong> —
+    default owner cap <strong>{{ capacity_basis }}</strong>.
+    Each owner can receive that many concurrent containers when cluster
+    resources are available. An owner cap overrides the default; an uncapped
+    owner bypasses fair-share; a blocked owner gets no <em>new</em> admissions.
+    Running jobs are never killed.
+  </p>
+{% else %}
+  <p>
+    Fair-share is <strong>DISABLED</strong> — every owner runs uncapped.
+    Enable it from the control-plane host:
+    <code>xrlenv fairshare set --default-cap &lt;N&gt;</code>.
+  </p>
+{% endif %}
+
+<p class="muted">
+  Tune live (no restart, running jobs untouched) with
+  <code>xrlenv fairshare set</code> on the control-plane host — e.g.
+  <code>--default-cap N</code>, <code>--owner alice --cap 64</code>,
+  <code>--owner bob --uncap</code>, <code>--owner carol --block</code>.
+  Changes apply on the next admission drain.
+</p>
+
+{% if not rows %}
+  <p>No active owners and no per-owner overrides.</p>
+{% else %}
+<table class="data">
+  <thead>
+    <tr>
+      <th>owner</th>
+      <th>running</th>
+      <th>effective cap</th>
+      <th>owner cap</th>
+      <th>uncapped</th>
+      <th>blocked</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.owner }}</td>
+      <td>{{ r.running }}</td>
+      <td>
+        {% if r.uncapped %}uncapped{% elif r.cap is none %}—{% else %}{{ r.cap }}{% endif %}
+      </td>
+      <td>{% if r.owner_cap is none %}—{% else %}{{ r.owner_cap }}{% endif %}</td>
+      <td>{% if r.uncapped %}yes{% else %}—{% endif %}</td>
+      <td>{% if r.blocked %}yes{% else %}—{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if enabled %}
+<p class="muted">
+  Caps shown are admission caps, not resource reservations. The scheduler still
+  admits only when node resources are available.
+</p>
+{% endif %}
+{% endif %}
+{% endblock %}

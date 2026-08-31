@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}nodes{% endblock %}
+{% block content %}
+<h1>Nodes</h1>
+<p class="page-subtitle">
+  Roster and connectivity. Per-node disk / cache usage lives in
+  <a href="/images/cache">node storage</a>; per-template capacity planning on
+  <a href="/capacity">capacity</a>.
+</p>
+
+{% if not rows %}
+  <p>No nodes recorded yet. Start <code>xrlenv-node serve</code>
+  against this control plane and reload.</p>
+{% else %}
+<table class="data">
+  <thead>
+    <tr>
+      <th>id</th>
+      <th>status</th>
+      <th>last seen</th>
+      <th>rostered?</th>
+      <th>cloud</th>
+      <th>expected address</th>
+      <th>cpu isolation</th>
+      <th>cache</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td><code>{{ row.id }}</code></td>
+      <td class="status-{{ row.status }}">{{ row.status }}</td>
+      <td>
+        {%- if row.last_seen_age_s is none -%}
+        -
+        {%- elif row.last_seen_age_s < 60 -%}
+        {{ row.last_seen_age_s|round(0)|int }}s ago
+        {%- elif row.last_seen_age_s < 3600 -%}
+        {{ (row.last_seen_age_s / 60)|round(0)|int }}m ago
+        {%- else -%}
+        {{ (row.last_seen_age_s / 3600)|round(1) }}h ago
+        {%- endif %}
+      </td>
+      <td>{{ "yes" if row.rostered else "no" }}</td>
+      <td>{{ row.cloud or "-" }}</td>
+      <td>{{ row.expected_address or "-" }}</td>
+      {# P6 step-2c: advertised isolation capability + pinnable-CPU free/total #}
+      <td>
+        {{ "yes" if row.isolation_capable else "no" }}
+        {%- if row.pinned_cpus_total %} · {{ row.pinned_cpus_free }}/{{ row.pinned_cpus_total }} CPU{% endif %}
+      </td>
+      <td><a href="/images/nodes/{{ row.id|urlencode }}">cache detail</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if dist and dist.entries %}
+{# Geometry is inlined (not just in xrlenv.css) so the chart always renders,
+   even if a browser serves a stale cached stylesheet. #}
+<h2 class="section-h" style="margin-top:2rem;font-size:1.05rem;">Rollout distribution across nodes</h2>
+<p class="page-subtitle">
+  All-time raw rollouts assigned per node &mdash; a quick check on whether the
+  scheduler spreads work evenly.
+  <span class="dist-stats">
+    {{ dist.total }} rollouts &middot; {{ dist.node_count }} nodes &middot;
+    mean {{ dist.mean|round(1) }} &middot; min {{ dist.min }} &middot;
+    max {{ dist.max }} &middot; spread (CV) {{ dist.cv_pct|round(0)|int }}%
+    <span class="hint">(0% = perfectly uniform)</span>
+  </span>
+</p>
+<div class="distbars" style="max-width:820px;margin:.7rem 0 .4rem;">
+  {% for e in dist.entries %}
+  <div class="distbar-row"
+       style="display:grid;grid-template-columns:minmax(9rem,15rem) 1fr 6rem;align-items:center;gap:.6rem;margin:.3rem 0;">
+    <div class="distbar-label" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+      <code>{{ e.node }}</code>{% if not e.rostered %} <span class="hint">(gone)</span>{% endif %}
+    </div>
+    <div class="distbar-track"
+         style="position:relative;background:#e9e3d6;border-radius:5px;height:1.2rem;overflow:hidden;">
+      <div class="distbar-fill"
+           style="width:{{ e.bar_pct|round(1) }}%;height:100%;border-radius:5px;min-width:2px;background:{{ '#657386' if not e.rostered else '#315d7b' }};"></div>
+      {% if dist.mean_bar_pct and dist.entries|length > 1 %}
+      <div title="mean {{ dist.mean|round(1) }}"
+           style="position:absolute;top:0;bottom:0;left:{{ dist.mean_bar_pct|round(1) }}%;width:0;border-left:2px dashed #17202a66;"></div>
+      {% endif %}
+    </div>
+    <div class="distbar-value"
+         style="text-align:right;font-variant-numeric:tabular-nums;font-size:.85rem;">
+      {{ e.count }} <span class="hint">({{ e.pct|round(0)|int }}%)</span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% if dist.entries|length > 1 %}
+<p class="hint" style="margin-top:.1rem;">
+  bar length = share of the busiest node &middot;
+  <span style="border-left:2px dashed #17202a66;padding-left:.35rem;">dashed line = mean</span>
+</p>
+{% endif %}
+{% if dist.unassigned or dist.off_roster %}
+<p class="hint dist-note" style="margin-top:.3rem;">
+  {%- if dist.unassigned %}+ {{ dist.unassigned }} not yet assigned to a node{% endif -%}
+  {%- if dist.off_roster %}{% if dist.unassigned %} &middot; {% endif %}+ {{ dist.off_roster }} on nodes no longer in the roster{% endif -%}
+</p>
+{% endif %}
+{% endif %}
+{% endif %}
+{% endblock %}

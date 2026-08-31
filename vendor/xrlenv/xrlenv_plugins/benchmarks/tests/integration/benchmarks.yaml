@@ -1,0 +1,89 @@
+# Benchmark suite config for xrlenv_plugins/benchmarks/tests/integration/run_benchmarks.py.
+#
+#   python xrlenv_plugins/benchmarks/tests/integration/run_benchmarks.py --profile full   # whole green set per benchmark
+#   python xrlenv_plugins/benchmarks/tests/integration/run_benchmarks.py --profile ci     # a deterministic k-task sample
+#
+# Both modes run ONLY `present − EXCLUDE`: each benchmark's own run_full_sweep.sh owns
+# its EXCLUDE / blacklist (the single source of known-failing tasks), and the runner
+# reads that green set via `bash <benchmark>/run_full_sweep.sh --list-green`. The
+# `sample` mode picks k tasks DETERMINISTICALLY (seeded — same set every run; change the
+# seed to rotate coverage), so a CI run is reproducible.
+
+
+# Scheduling budget: benchmarks run concurrently while the SUM of their REAL
+# concurrency — min(task-count, `workers`) each — stays <= this. So a 500-task/
+# 8-worker swebench costs 8 (not 500) and overlaps the others instead of running alone
+# at the end; a benchmark whose cost exceeds the budget runs alone. 0 = sequential.
+# Overridable per profile (`max_concurrent_tasks:` under a profile) and via
+# --max-concurrent-tasks (precedence: CLI > profile > this top-level > 64).
+max_concurrent_tasks: 64
+
+defaults:
+  content_retries: 0   # per-task reward-0 re-run rounds (run_full_sweep.sh's own layer); change to 1 if you think the tests are flaky
+  seed: 0              # deterministic k-sample seed (change to rotate the sampled set)
+
+# Per-benchmark defaults (shared across profiles; override per profile via a
+# profile-level key or its `overrides:`):
+#   workers  trial concurrency (also the benchmark's budget cost — see above).
+#   retries  `run_oracle_sweep.py --retries N` — infra-transient ONLY (CapacityExhausted
+#            / node loss; never re-rolls an eval outcome). `null` omits the flag.
+benchmarks:
+  deep_swe:           { workers: 32, retries: 6 }
+  lhtb:               { workers: 32, retries: 6 }
+  seta:               { workers: 32, retries: 6 }
+  terminal_bench_2_1: { workers: 32, retries: 6 }
+  terminalworld:      { workers: 32, retries: 6 }
+  swebench_verified:   { workers: 32, retries: 6 }  
+  swebench_pro:        { workers: 32, retries: 6 }   # harbor golden path; 731 prebuilt Docker Hub images (mean 1.5 GB)
+
+profiles:
+  # Any profile may set `max_concurrent_tasks:`, a profile-wide `workers:`, or per-
+  # benchmark `overrides:` (e.g. `overrides: { swebench_verified: { workers: 24 } }`).
+
+  # The manual full gate: whole green set (present − EXCLUDE) per benchmark.
+  full-prod:
+    mode: full
+    overrides:
+      max_concurrent_tasks: 192
+
+  # Fast CI/CD signal: a deterministic k-task sample per benchmark.
+  ci:
+    mode: sample
+    k: 2
+    # optional per-benchmark overrides (heavier suites sample fewer):
+    overrides:
+      swebench_verified:  { k: 3}    # just to show cases the usage
+
+  # A curated FULL sweep of just a picked subset  
+  # `only:` restricts which benchmarks the profile runs (config order is preserved; the CLI --benchmark
+  # still overrides it). Rename / re-pick freely
+  selected-coding-prod:
+    mode: full
+    only: [deep_swe, terminal_bench_2_1, terminalworld, swebench_verified]
+    overrides:
+      max_concurrent_tasks: 192
+
+  selected-coding-dev:
+    mode: full
+    only: [deep_swe, terminal_bench_2_1, terminalworld, swebench_verified]
+    overrides:
+      max_concurrent_tasks: 64
+
+  harbor-migration-dev:
+    mode: full
+    only: [terminal_bench_2_1, terminalworld, lhtb, seta]
+    overrides:
+      max_concurrent_tasks: 64
+  
+  cn-exp:
+    mode: full
+    only: [deep_swe, terminal_bench_2_1, swebench_verified]
+    # Profile-wide `workers:` overrides the per-benchmark 32 for all three (see
+    # _effective: profile keys beat benchmarks[name]). All three green sets are
+    # >40 tasks, so each costs the full 40 against the budget — hence 3*40=120,
+    # sized so the three actually OVERLAP rather than the third waiting for a
+    # slot. On cn's 5 workers that is 24 concurrent sandboxes/node, the same
+    # per-node density the previous 96-over-4-workers gave.
+    workers: 40
+    overrides:
+      max_concurrent_tasks: 120

@@ -1,0 +1,144 @@
+#!/bin/bash
+#
+#SBATCH --job-name=@{ control_job }@                # Job name
+#SBATCH --nodes=1                            # Number of nodes
+#SBATCH --nodelist=@{ control_plane }@
+#SBATCH --output=@{ checkout }@/slurm_logs/%x_%j.out         # Standard output log
+#SBATCH --error=@{ checkout }@/slurm_logs/%x_%j.err          # Standard error log
+#SBATCH --partition=@{ partition }@
+#SBATCH --account=@{ account }@
+
+echo "Control plane IP: $(hostname -I)"
+
+cd @{ checkout }@
+source .venv/bin/activate
+which python
+
+# Regenerate the roster from the worker Slurm script so the SBATCH
+# nodelist stays the single source of truth. Override either path when
+# running a different worker script or writing a different inventory.
+#
+# Sysbox pool (optional): XRLENV_SYSBOX_POOL (space-separated hostnames/ids,
+# set by the deploy orchestrator @{ deploy_script_name }@) marks `sysbox: true` +
+# permits `sysbox-runc` in policy.allowed_runtimes at generation time. Empty
+# (default) is a no-op. Sysbox is a container-escape surface — keep pools to
+# single-tenant nodes. See xrlenv_plugins/sysbox/README.md "Install order".
+XRLENV_NODE_SLURM_SCRIPT=@{ node_slurm_script }@
+XRLENV_NODES_YAML=@{ nodes_yaml }@
+_sysbox_args=()
+for _n in ${XRLENV_SYSBOX_POOL:-}; do _sysbox_args+=(--sysbox-node "$_n"); done
+[ "${#_sysbox_args[@]}" -gt 0 ] && _sysbox_args+=(--allowed-runtime sysbox-runc)
+# Per-node sysbox concurrency cap (sysbox-fs wedge prevention). Preserved per
+# node across regen; this stamps the default onto pool nodes lacking one.
+[ -n "${XRLENV_SYSBOX_MAX_CONCURRENT:-}" ] && \
+    _sysbox_args+=(--sysbox-max-concurrent "${XRLENV_SYSBOX_MAX_CONCURRENT}")
+# Allowed host bind paths (read-only host mounts, e.g. EvoClaw golden/data-root)
+# — one --allowed-host-path per non-empty line, additively merged into policy.
+while IFS= read -r _hp; do
+    [ -n "$_hp" ] && _sysbox_args+=(--allowed-host-path "$_hp")
+done <<< "${XRLENV_ALLOWED_HOST_PATHS:-}"
+xrlenv nodes-from-slurm \
+    --slurm-script "${XRLENV_NODE_SLURM_SCRIPT}" \
+    --output "${XRLENV_NODES_YAML}" \
+    ${_sysbox_args[@]+"${_sysbox_args[@]}"}
+
+lscpu | grep -E 'CPU\(s\)|Core\(s\) per socket|Socket\(s\)|Thread\(s\) per core'
+
+free -h
+@% if deploy_registry %@
+
+# deploy the registry mirror, private, and scratch (build-on-demand) registries
+bash deploy/registry/run-registry-mirror.sh
+bash deploy/registry/run-registry-private.sh
+bash deploy/registry/run-registry-scratch.sh
+@% endif %@
+
+# Firehose log goes to a STABLE, size-rotating file (50 MiB × 10 = ~500 MiB
+# ceiling) rather than the per-job Slurm --output capture, which has no
+# rotation and grows without bound for a long-running control plane. The path
+# is stable across restarts, so `tail -f` always targets the same file instead
+# of hunting for the current job id. With --log-file set, stdout (the Slurm
+# %x_%j.out below) keeps only WARNING+, so it stays small and still shows crashes.
+# On CP-box-LOCAL disk (clusters.yaml), NOT Lustre: the --log-file handler writes
+# synchronously on the asyncio event-loop thread, so a Lustre stall on it would
+# freeze the whole control plane and false-mark the fleet lost (2026-08-21).
+# `xrlenv up` additionally drains this file on a background thread.
+XRLENV_CONTROL_LOG=@{ control_log }@
+mkdir -p "$(dirname "$XRLENV_CONTROL_LOG")" 2>/dev/null || true
+
+# ---- Co-located registry: probe it over loopback ----------------------------
+# The tag->digest resolver (freshness model) probes the registry FROM this
+# control-plane process. When the registry runs ON this same box, the box can
+# reach its own docker-published port over loopback (127.0.0.1) but typically
+# NOT via its own external name/IP — host->own-port hairpin NAT is unreliable
+# (notably under docker 29). Remote worker nodes reach the external name fine,
+# so the image ref must keep it; we redirect only the control plane's manifest
+# probe to loopback. The returned digest ref is unchanged, so nodes still pull
+# the external address + pinning is preserved. Built from THIS box's own names
+# so it's self-correcting: if the registry is on a DIFFERENT box (a cluster
+# pointing at a shared registry), no image ref names this box as its registry
+# host and these entries never match (harmless) — the CP dials the shared
+# registry's external name directly, which works cross-box. Covers private
+# (:@{ registry_private_port }@), mirror (:@{ registry_mirror_port }@) + scratch (:@{ registry_scratch_port }@).
+_hostmap=""
+for _n in "$(hostname -s)" "$(hostname -I | awk '{print $1}')"; do
+    for _p in @{ registry_private_port }@ @{ registry_mirror_port }@ @{ registry_scratch_port }@; do
+        _hostmap="${_hostmap:+$_hostmap,}${_n}:${_p}=127.0.0.1:${_p}"
+    done
+done
+export XRLENV_REGISTRY_RESOLVE_HOST_MAP="$_hostmap"
+echo "registry resolve host-map: $XRLENV_REGISTRY_RESOLVE_HOST_MAP"
+
+# Enable Python's fault handler so a FATAL signal (e.g. SIGBUS from a SQLite
+# mmap fault on a network-backed state.db) dumps the crashing thread's stack to
+# stderr (the Slurm .err) instead of dying silently. Cheap insurance; it only
+# fires on fatal signals (SIGSEGV/SIGBUS/SIGFPE/SIGABRT).
+export PYTHONFAULTHANDLER=1
+
+# state.db on CP-box-LOCAL disk (NOT Lustre). Previously it lived on /fsx and had to run
+# TRUNCATE (rollback-journal): WAL's mmap'd -shm faults with a FATAL SIGBUS on a Lustre
+# hiccup (took down both clusters 2026-07-30). But TRUNCATE on Lustre is ~38 ms/commit,
+# and the CP commits synchronously in its event loop — under high concurrency those blocking
+# commits serialize the loop and node commands (list_sandbox_ids/exec/heartbeat) time out
+# (the Aug-03 cascade). Local disk fixes BOTH: no network-backed mmap → WAL is SIGBUS-safe,
+# and WAL on local is ~0.01 ms/commit (non-blocking reads too). Only state.db moves; the rest
+# of $XRLENV_HOME (secrets/, runs/, config) stays on /fsx. It lives on the box's local 500 GB
+# NVMe (/opt/sagemaker — the docker data-root volume), which survives reboots and CP restarts;
+# lost only on box stop/reprovision (that loses the fleet too; state rebuilds on restart). NOT
+# /tmp (systemd-tmpfiles-cleared). @{ deploy_script_name }@ pre-creates this dir user-owned (sudo
+# mkdir + chown), so the mkdir below is an idempotent no-op. Redis StateStore remains
+# the long-term high-throughput answer.
+# @{ deploy_script_name }@ is the single source: it propagates its STATE_DB into this job via
+# `sbatch --export=ALL,XRLENV_STATE_DB_PATH=...`, so this honors that value. The default
+# below applies ONLY to a bare `sbatch @{ control_script_name }@` (no deploy) — keep it in sync
+# with @{ deploy_script_name }@'s STATE_DB (a mismatch there only affects a manual, non-deploy restart).
+export XRLENV_STATE_DB_PATH="${XRLENV_STATE_DB_PATH:-@{ state_db }@}"
+mkdir -p "$(dirname "$XRLENV_STATE_DB_PATH")" 2>/dev/null || true
+export XRLENV_SQLITE_JOURNAL_MODE=WAL
+
+# `exec` so this Python process REPLACES the bash script and becomes the job
+# step's main process. scancel's SIGTERM then reaches `xrlenv up` directly,
+# which runs its graceful shutdown — drain in-flight rollouts, then close the
+# state store, which checkpoints the SQLite WAL and removes state.db-{wal,shm}.
+# Without exec, bash is the job's main process and does NOT forward SIGTERM to
+# this child, so the control plane is SIGKILL'd and leaves an un-checkpointed
+# state.db-wal behind. (No `sleep` keepalive needed: `xrlenv up` blocks until
+# signalled.)
+exec xrlenv up \
+    --log-file "${XRLENV_CONTROL_LOG}" \
+    --grpc-host @{ control_plane }@  --grpc-port @{ grpc_port }@ \
+    --admin-host 0.0.0.0 --admin-port 8080 --admin-allow-public \
+    --admin-nodes-yaml "${XRLENV_NODES_YAML}" \
+    --adaptive-admission --aimd-initial-limit 64 --aimd-p95-threshold-s 900 --aimd-max-limit 80 \
+    --audit-retention-days 7 --raw-rollout-retention-days 180
+# Retention (overrides the spec-20 defaults of audit=30 / raw_rollouts=14):
+#   audit=7   — the audit table is what bloats state.db (per-auth rows); with
+#               auth.token_used auditing off it barely grows, and a tight 7-day
+#               window keeps the DB small on the Lustre-backed store (the SIGBUS
+#               root cause was a large WAL on Lustre — keep state.db lean).
+#   raw_rollouts=180 — rollout metadata is TINY (~20k rows ≈ a few MB) and is the
+#               per-user accounting source behind /users, so keep ~6 months of
+#               history instead of silently dropping it after 14 days.
+
+# on the login node — exposes control-plane:8080 at login-node:@{ tunnel_admin }@ (shared)
+# scancel --name=@{ control_job }@ && sbatch @{ control_script }@ && ssh -fN -L @{ tunnel_admin }@:localhost:8080 -L @{ tunnel_metrics }@:localhost:9090 @{ control_plane }@

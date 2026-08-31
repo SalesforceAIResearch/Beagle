@@ -1,0 +1,70 @@
+version: 1
+name: frontier-swe-7-task
+replication: 1
+budget:
+  reserved_runtime_gb: 30
+  buffer_gb: 10
+entries:
+- image_ref: ghcr.io/proximal-labs/frontier-swe/dart-style-haskell:v4
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 4000000000
+    size_hint_source: heuristic
+  pinned: false
+  priority: 0
+- image_ref: ghcr.io/proximal-labs/frontier-swe/dependent-type-checker:v4
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 4000000000
+    size_hint_source: heuristic
+  pinned: false
+  priority: 0
+- image_ref: ghcr.io/proximal-labs/frontier-swe/ffmpeg-swscale-rewrite:v4
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 4000000000
+    size_hint_source: heuristic
+  pinned: false
+  priority: 0
+- image_ref: ghcr.io/proximal-labs/frontier-swe/git-to-zig:v4
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 4000000000
+    size_hint_source: heuristic
+  pinned: false
+  priority: 0
+- image_ref: ghcr.io/proximal-labs/frontier-swe/libexpat-to-x86asm:v4
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 4000000000
+    size_hint_source: heuristic
+  pinned: false
+  priority: 0
+- image_ref: ghcr.io/proximal-labs/frontier-swe/notebook-compression:v5
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 4000000000
+    size_hint_source: heuristic
+  pinned: false
+  priority: 0
+- image_ref: ghcr.io/proximal-labs/frontier-swe/revideo-perf-opt:v4
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 4000000000
+    size_hint_source: heuristic
+  pinned: false
+  priority: 0

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}sandboxes{% endblock %}
+{% block content %}
+<h1>Sandboxes</h1>
+<p class="page-subtitle">
+  Containers backing template (gym/step) rollouts. Raw-container workloads don't
+  create sandboxes — their runs live under
+  <a href="/rollouts/raw">raw containers</a>.
+</p>
+
+<form method="get" action="/sandboxes" class="filters">
+  <label>node
+    <input type="text" name="node" value="{{ node or '' }}" placeholder="(any)">
+  </label>
+  <label>template
+    <input type="text" name="template" value="{{ template or '' }}" placeholder="(any)">
+  </label>
+  <button type="submit">filter</button>
+</form>
+
+{% if not rows %}
+  <p>No active sandboxes match the current filters. Raw-container workloads
+  don't create sandboxes — their runs live under
+  <a href="/rollouts/raw">raw containers</a>.</p>
+{% else %}
+<table class="data sandbox-table">
+  <colgroup>
+    <col>
+    <col>
+    <col>
+    <col class="sandbox-image-col">
+    <col>
+    <col>
+    <col>
+    <col>
+  </colgroup>
+  <thead>
+    <tr>
+      <th>sandbox_id</th>
+      <th>node</th>
+      <th>template</th>
+      <th>image</th>
+      <th>rollout</th>
+      <th>backend</th>
+      <th>status</th>
+      <th>age</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td><code>{{ r.sandbox_id[:16] }}</code></td>
+      <td>{{ r.node_id }}</td>
+      <td>{{ r.template }}</td>
+      <td class="image-cell">
+        {% set image_ref = r.image or "-" %}
+        <code class="image-ref" title="{{ image_ref }}">{% if image_ref|length > 36 %}{{ image_ref[:33] }}...{% else %}{{ image_ref }}{% endif %}</code>
+      </td>
+      <td>
+        {% if r.rollout_id %}
+          <a href="/rollouts/{{ r.rollout_id }}"><code>{{ r.rollout_id[:16] }}</code></a>
+        {% else %}-{% endif %}
+      </td>
+      <td>{{ r.backend }}</td>
+      <td>{{ r.status }}</td>
+      <td>{{ "%.0f"|format(now - r.created_at) }}s</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

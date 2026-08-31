@@ -1,0 +1,72 @@
+# Monet-on-coding-benchmarks QC profile.
+#
+# Same GENERAL taxonomy and rule proposers as `default` — the only difference is
+# the LLM rubrics are tuned to the failure modes found empirically for monet on
+# SWE-bench / Terminal-Bench (analysis/evolve/monet_failure_analysis.md: G1
+# overconfident stopping, G3 shallow verification, multi-file under-scoping,
+# G2/G4 thrash-without-replan). This demonstrates the blog's point that the
+# taxonomy stays fixed while proposers are tuned per setting; it does NOT add
+# benchmark-specific thresholds.
+name: monet
+
+proposers:
+  - {name: tool_error, type: rule, rule: tool_error}
+  - {name: incomplete_run, type: rule, rule: incomplete_run}
+  - {name: early_truncation, type: rule, rule: early_truncation}
+  - {name: behavioral_loop, type: rule, rule: behavioral_loop}
+  - {name: premature_completion, type: rule, rule: premature_completion}
+
+  - name: instruction_not_followed_llm
+    type: llm
+    category: instruction_not_followed
+    chunk_size: 10
+    chunk_format: xml
+    context: {lm_response: true, tool_call: true, user_input: true, system_prompt: false}
+    rubric: >
+      The agent drops the user's actual task and does something else, or violates
+      an explicit instruction/constraint. (Stopping too early is
+      premature_completion, not this.)
+
+  - name: premature_completion_llm
+    type: llm
+    category: premature_completion
+    chunk_size: 10
+    chunk_format: xml
+    context: {lm_response: true, tool_call: true, user_input: true, system_prompt: false}
+    rubric: >
+      The agent stops while the task is not actually solved. Watch specifically
+      for: declaring success after validating only the issue's literal example
+      rather than the general specification (edge cases, empty/None/boundary
+      inputs, every branch touched); a confident "Done." with no real regression
+      check; and under-scoped fixes that change one site when sibling
+      implementations, callers, or other files needed the same change.
+
+  - name: fabricated_facts_llm
+    type: llm
+    category: fabricated_facts
+    chunk_size: 10
+    chunk_format: xml
+    context: {lm_response: true, tool_call: true, user_input: true, system_prompt: false}
+    rubric: >
+      The agent claims a fix works or tests pass without tool output that
+      actually shows it, or hard-codes/mocks values to make a check pass instead
+      of running the real code. Do not flag ordinary reasoning.
+
+  - name: no_progress
+    type: llm
+    category: behavioral_loop
+    chunk_size: 12
+    chunk_format: xml
+    context: {lm_response: true, tool_call: true, user_input: false, system_prompt: false}
+    rubric: >
+      The agent is thrashing: many turns of re-reading and re-editing the same
+      files, repeated failing commands, growing context, with no convergence and
+      no step-back to re-plan. Flag the turn where it should have changed approach.
+
+filters:
+  - {name: failing_tests_are_normal, type: rule}
+  - {name: fake_dates, type: rule}
+  - {name: irrelevant_search_results, type: rule}
+
+issue_mergers:
+  - {name: dedup}

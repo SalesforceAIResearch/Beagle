@@ -1,0 +1,43 @@
+# xrlenv SCRATCH registry (:5012) — registry:3 (distribution 3.x) in normal
+# *writable* mode, backed by FSx. This is the ephemeral, quota-bounded, GC'd
+# home for build-on-demand images (`image_build:` — bring-your-own-
+# Dockerfile). Nodes build the content-addressed ref and push it here; peers
+# pull it over the LAN. Unlike the PRIVATE registry (:5011, durable), scratch
+# content is reclaimable at any time by the GC, so nothing here is authoritative.
+#
+# Three registries run side by side on the control-plane box and do NOT overlap:
+#   - PROXY   (:5010, config.yml)          — pull-through cache of docker.io.
+#   - PRIVATE (:5011, config-private.yml)  — curated, durable, operator-pushed.
+#   - SCRATCH (:5012, this file)           — build-on-demand, ephemeral, GC'd.
+#
+# A named ref like `<cp-host>:5012/scratch/<input_digest>` is served only by
+# this registry; it has NO fallback. The scratch-registry GC
+# (`deploy/registry/scratch_registry_gc.py`) reclaims refs by TTL + per-namespace quota,
+# NEVER reclaiming a digest an active run still references.
+#
+# Storage is the `filesystem` driver on the FSx/Lustre bind-mount (single writer
+# = the one registry process). This is NOT the dockerd data-root.
+version: 0.1
+log:
+  level: info
+  fields:
+    service: xrlenv-registry-scratch
+storage:
+  filesystem:
+    rootdirectory: /var/lib/registry
+  cache:
+    blobdescriptor: inmemory
+  # Deletes ON — REQUIRED: the GC deletes manifests then reclaims blobs with
+  # `registry garbage-collect`. Without this the scratch store grows unbounded,
+  # which is the exact failure this registry exists to avoid.
+  delete:
+    enabled: true
+http:
+  addr: :5000
+  headers:
+    X-Content-Type-Options: [nosniff]
+health:
+  storagedriver:
+    enabled: true
+    interval: 10s
+    threshold: 3

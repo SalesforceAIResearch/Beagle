@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}rollouts (raw){% endblock %}
+{% block content %}
+<h1>Raw container rollouts</h1>
+<p class="muted">
+  Case-2/3 evaluation harnesses driving the docker-py drop-in
+  (<code>xrlenv.from_env()</code>). Status is what the cluster knows
+  natively from the spec-21 acquire/exec/destroy wire; per-rollout
+  log files live on the consumer machine at the displayed
+  <code>artifact_path</code> (rendered inline on the detail page if
+  reachable on this host's filesystem; otherwise shown as a string).
+</p>
+
+{% set current_page = page|default(1) %}
+{% set current_page_size = page_size|default(32) %}
+{% set size_options = page_size_options|default([32, 64, 128, 256]) %}
+
+<form method="get" action="/rollouts/raw" class="filters">
+  <input type="hidden" name="page_size" value="{{ current_page_size }}">
+  <label>status
+    <select name="raw_status">
+      <option value="">(any)</option>
+      {% for s in raw_statuses %}
+        <option value="{{ s }}" {% if s == raw_status %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>since
+    <input type="text" name="since" value="{{ since or '' }}" placeholder="5m / 2h / 1d">
+  </label>
+  <label>task_key
+    <input type="text" name="task_key" value="{{ task_key or '' }}" placeholder="instance_id">
+  </label>
+  <label>group_id
+    <input type="text" name="group_id" value="{{ group_id or '' }}" placeholder="run-id">
+  </label>
+  <button type="submit">filter</button>
+</form>
+
+<div class="pagination">
+  <div class="pagination-summary">
+    <span>Page {{ current_page }} - showing {{ records|length }}{% if has_next %}+{% endif %} records</span>
+    <form method="get" action="/rollouts/raw" class="page-size-form">
+      <input type="hidden" name="raw_status" value="{{ raw_status or '' }}">
+      <input type="hidden" name="since" value="{{ since or '' }}">
+      <input type="hidden" name="task_key" value="{{ task_key or '' }}">
+      <input type="hidden" name="group_id" value="{{ group_id or '' }}">
+      <input type="hidden" name="page" value="1">
+      <label> | per page
+        <select name="page_size" onchange="this.form.submit()">
+          {% for option in size_options %}
+            <option value="{{ option }}" {% if option == current_page_size %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+  </div>
+  <span class="pagination-links">
+    {% if has_prev %}
+      <a class="btn pagination-arrow" href="{{ prev_page_url }}" aria-label="previous page" title="previous page">&larr;</a>
+    {% else %}
+      <span class="btn disabled pagination-arrow" aria-label="previous page" title="previous page">&larr;</span>
+    {% endif %}
+    {% if has_next %}
+      <a class="btn pagination-arrow" href="{{ next_page_url }}" aria-label="next page" title="next page">&rarr;</a>
+    {% else %}
+      <span class="btn disabled pagination-arrow" aria-label="next page" title="next page">&rarr;</span>
+    {% endif %}
+  </span>
+  <form method="get" action="/rollouts/raw" class="pagination-jump">
+    <input type="hidden" name="raw_status" value="{{ raw_status or '' }}">
+    <input type="hidden" name="since" value="{{ since or '' }}">
+    <input type="hidden" name="task_key" value="{{ task_key or '' }}">
+    <input type="hidden" name="group_id" value="{{ group_id or '' }}">
+    <input type="hidden" name="page_size" value="{{ current_page_size }}">
+    <label>go to page
+      <input type="number" name="page" value="{{ current_page }}" min="1">
+    </label>
+    <button type="submit">go</button>
+  </form>
+</div>
+
+{% if not records %}
+  <p>No raw rollouts match the current filters on this page.</p>
+{% else %}
+<table class="data raw-rollouts-table">
+  <thead>
+    {# The rollout_id and container_id columns were dropped from this
+       list (they're uuid prefixes — not useful for at-a-glance
+       scanning). Both values remain visible in full on each rollout's
+       detail page (raw_rollout_detail.html). #}
+    <tr>
+      <th>name</th>
+      <th>status</th>
+      <th>task_key</th>
+      <th>group_id</th>
+      <th>node</th>
+      <th>image</th>
+      <th>duration</th>
+      <th>age</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in records %}
+    {% set displayed = r.displayed_name or r.rollout_id[:16] %}
+    <tr class="status-{{ r.status }}">
+      <td class="truncate" title="{{ displayed }} (rollout_id={{ r.rollout_id }})">
+        <a href="/raw-rollouts/{{ r.rollout_id }}"><code>{{ displayed }}</code></a>
+      </td>
+      <td>{{ r.status }}</td>
+      <td class="truncate" title="{{ r.task_key or '' }}">
+        {% if r.task_key %}<code>{{ r.task_key }}</code>{% else %}-{% endif %}
+      </td>
+      <td class="truncate" title="{{ r.group_id or '' }}">
+        {% if r.group_id %}<code>{{ r.group_id }}</code>{% else %}-{% endif %}
+      </td>
+      {# rollout_id + container_id intentionally omitted here —
+         they're the row's "name" anchor (the link target carries
+         rollout_id) and visible on the detail page. #}
+      <td class="truncate" title="{{ r.node_id or '' }}">{{ r.node_id or "-" }}</td>
+      <td class="truncate" title="{{ r.image }}">
+        <code>{{ r.image }}</code>
+      </td>
+      {# Duration: finished - created for terminal rows; now - created for in-flight, with "live" tag. #}
+      {% set is_terminal = r.status in ("released", "cancelled", "failed", "reaped", "capacity_rejected") %}
+      {% set duration_end = r.finished_at if is_terminal and r.finished_at else now %}
+      {% set duration_s = duration_end - r.created_at %}
+      <td>
+        {{ "%.1f"|format(duration_s / 60) }} min
+        {% if not is_terminal %}
+          <span class="muted">live</span>
+        {% endif %}
+      </td>
+      {% set age_total_s = (now - r.created_at)|int %}
+      <td>{{ "%02d:%02d:%02d"|format(age_total_s // 3600, (age_total_s // 60) % 60, age_total_s % 60) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

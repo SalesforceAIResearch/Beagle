@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}overview{% endblock %}
+{% block content %}
+<h1>Cluster overview</h1>
+<p class="page-subtitle">
+  What is happening now. Use <a href="/health">health</a> for triage,
+  <a href="/rollouts">rollouts</a> for execution history, and
+  <a href="/images/cache">node storage</a> for disk/cache pressure.
+</p>
+
+{% if not state_db_present %}
+  <p class="warn">No <code>state.db</code> found at the configured path.
+  Start the control plane (<code>xrlenv up</code>) to populate it.</p>
+{% endif %}
+
+{% if nodes_lost and nodes_lost > 0 %}
+  <p class="warn" style="border-left:4px solid #c0392b;background:#fdecea;color:#611a15;padding:.6em .8em;font-weight:600;">
+  ⚠ {{ nodes_lost }} rostered node{{ 's' if nodes_lost != 1 }} not connected
+  ({{ node_connected }} / {{ node_rostered }} connected). If they all dropped at
+  once, suspect a control-plane stall — see <a href="/health">health</a> and the
+  <code>xrlenv_control_loop_lag_seconds</code> metric before restarting the fleet.</p>
+{% endif %}
+
+<section class="cards">
+  <div class="card">
+    <h2>{{ node_active }} / {{ node_count }}</h2>
+    <p><a href="/nodes">nodes (active / known)</a></p>
+    {% if nodes_lost and nodes_lost > 0 %}
+    <p style="color:#c0392b;font-weight:600;margin-top:.3em;">
+      <a href="/nodes" style="color:#c0392b;">{{ nodes_lost }} lost / absent</a></p>
+    {% endif %}
+  </div>
+  <div class="card">
+    <h2>{{ container_count }}</h2>
+    <p><a href="/rollouts/raw?raw_status=running">containers</a></p>
+  </div>
+  <div class="card">
+    <h2>{{ rollout_running }}</h2>
+    <p><a href="/rollouts?raw_status=running">rollouts running</a></p>
+  </div>
+</section>
+<section class="cards">
+  <div class="card">
+    <h2>{{ rollout_finished_1h }}</h2>
+    <p>finished in last hour</p>
+  </div>
+  <div class="card">
+    <h2 class="bad">{{ rollout_failed_1h }}</h2>
+    <p><a href="/health">failed in last hour</a></p>
+  </div>
+  <div class="card">
+    <h2>{{ rollout_capacity_rejected_1h }}</h2>
+    <p><a href="/rollouts/raw?raw_status=capacity_rejected"
+          title="Acquires the scheduler declined to place within queue_timeout_s (pool at capacity). Backpressure, not failures — the consumer typically retries. Raise queue_timeout_s to wait longer for a slot.">capacity-paced in last hour</a></p>
+  </div>
+  <div class="card">
+    {% set uptime_total_s = uptime_s|int %}
+    <h2>{{ "%02d:%02d:%02d"|format(uptime_total_s // 3600, (uptime_total_s // 60) % 60, uptime_total_s % 60) }}</h2>
+    <p>admin server uptime</p>
+  </div>
+</section>
+
+{% if cluster_info and cluster_info.any_set %}
+<section class="cluster-info">
+  <h2>Cluster</h2>
+  <dl>
+    {% if cluster_info.control_plane_endpoint %}
+    <dt>control plane</dt>
+    <dd><code>{{ cluster_info.control_plane_endpoint }}</code>
+      <span class="hint">node agents dial this for the control stream</span></dd>
+    {% endif %}
+    {% if cluster_info.registry_mirror %}
+    <dt>registry mirror</dt>
+    <dd><code>{{ cluster_info.registry_mirror }}</code>
+      <span class="hint">pull-through cache</span></dd>
+    {% endif %}
+    {% if cluster_info.private_registry %}
+    <dt>private registry</dt>
+    <dd><code>{{ cluster_info.private_registry }}</code>
+      <span class="hint">custom build push / pull</span></dd>
+    {% endif %}
+  </dl>
+</section>
+{% endif %}
+{% endblock %}

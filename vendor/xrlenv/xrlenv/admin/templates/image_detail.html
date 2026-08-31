@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}image — {{ image_ref }}{% endblock %}
+{% block content %}
+<p><a href="/images/catalog">← image coverage</a></p>
+<h1>Image: <code>{{ image_ref }}</code></h1>
+
+{% if not node_lookup_wired %}
+  <p class="muted">
+    No live node-lookup wired. Run admin alongside <code>xrlenv up</code>
+    to inspect image placement.
+  </p>
+{% elif image %}
+  <section class="image-summary-grid" aria-label="Image placement summary">
+    <article class="image-summary-card">
+      <span class="metric-label">best tier</span>
+      <strong>{{ image.best_tier }}</strong>
+    </article>
+    <article class="image-summary-card">
+      <span class="metric-label">nodes</span>
+      <strong>{{ image.node_count }}</strong>
+    </article>
+    <article class="image-summary-card">
+      <span class="metric-label">replicated bytes</span>
+      <strong>{{ "%.1f"|format(image.total_bytes / (1024 ** 3)) }} GiB</strong>
+    </article>
+    <article class="image-summary-card">
+      <span class="metric-label">max single-node size</span>
+      <strong>{{ "%.1f"|format(image.max_size_bytes / (1024 ** 3)) }} GiB</strong>
+    </article>
+    <article class="image-summary-card">
+      <span class="metric-label">in-use refs</span>
+      <strong>{{ image.in_use_count }}</strong>
+    </article>
+    <article class="image-summary-card">
+      <span class="metric-label">pinned nodes</span>
+      <strong>{{ image.pinned_count }}</strong>
+    </article>
+  </section>
+
+  <table class="data image-table-dense">
+    <thead>
+      <tr>
+        <th>node</th>
+        <th>pressure</th>
+        <th>tier</th>
+        <th class="num">size</th>
+        <th class="num">in-use</th>
+        <th>pinned</th>
+        <th class="num">free disk</th>
+        <th class="num">last-used clock</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for inst in instances %}
+        <tr class="image-pressure-{{ inst.pressure }}">
+          <td><a href="{{ inst.node_detail_url }}"><code>{{ inst.node_id }}</code></a></td>
+          <td><span class="tier-badge tier-{{ inst.pressure }}">{{ inst.pressure_label }}</span></td>
+          <td><span class="tier-badge tier-{{ inst.tier }}">{{ inst.tier }}</span></td>
+          <td class="num">{{ "%.1f"|format(inst.size_bytes / (1024 ** 3)) }} GiB</td>
+          <td class="num">{% if inst.in_use_count %}{{ inst.in_use_count }}{% else %}—{% endif %}</td>
+          <td>{% if inst.pinned %}yes{% else %}no{% endif %}</td>
+          <td class="num">{{ "%.1f"|format(inst.free_disk_bytes / (1024 ** 3)) }} GiB</td>
+          <td class="num">{% if inst.last_used_at is not none %}{{ "%.0f"|format(inst.last_used_at) }}{% else %}—{% endif %}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+{% endblock %}

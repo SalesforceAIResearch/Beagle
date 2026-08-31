@@ -1,0 +1,306 @@
+{% extends "base.html" %}
+{% block title %}{% if view == "nodes" %}node storage{% else %}image coverage{% endif %}{% endblock %}
+{% block content %}
+<h1>{% if view == "nodes" %}Node storage{% else %}Image coverage{% endif %}</h1>
+<p class="page-subtitle">
+  {% if view == "nodes" %}
+    Shows live Docker image-cache disk usage on each connected node.
+    Use this page to find nodes near disk pressure, cold cached data,
+    and space reserved by operator-pinned images. Cluster-wide image
+    availability lives in <a href="/images/catalog">image coverage</a>.
+  {% else %}
+    Shows which images are already present in the cluster and how widely
+    they are replicated. Use this page to check whether an image is warm
+    before scheduling, which nodes have it, and whether it is in use or
+    pinned. Per-node disk pressure lives in <a href="/images/cache">node storage</a>.
+  {% endif %}
+</p>
+
+{% if not node_lookup_wired %}
+  <p class="muted">
+    No live node-lookup wired. The <code>/images</code> view fans out a
+    <code>ReportImagesCommand</code> to each connected node via the
+    embedded-runtime callback; standalone admin processes (running
+    against a state DB only) do not have that path. Run admin alongside
+    <code>xrlenv up</code> to populate this page.
+  </p>
+{% elif not rows %}
+  <p>No connected nodes — bring up at least one data-plane node and reload.</p>
+{% else %}
+
+<section class="image-summary-grid" aria-label="Image cache summary">
+  {% if view == "nodes" %}
+  <article class="image-summary-card">
+    <span class="metric-label">reachable nodes</span>
+    <strong>{{ summary.reachable_nodes }} / {{ summary.connected_nodes }}</strong>
+  </article>
+  <article class="image-summary-card">
+    <span class="metric-label">cached copies</span>
+    <strong>{{ summary.total_instances }}</strong>
+  </article>
+  <article class="image-summary-card">
+    <span class="metric-label">cached bytes</span>
+    <strong>{{ "%.1f"|format(summary.total_bytes / (1024 ** 3)) }} GiB</strong>
+  </article>
+  <article class="image-summary-card">
+    <span class="metric-label">cold bytes</span>
+    <strong>{{ "%.1f"|format(summary.cold_bytes / (1024 ** 3)) }} GiB</strong>
+  </article>
+  <article class="image-summary-card">
+    <span class="metric-label">pinned bytes</span>
+    <strong>{{ "%.1f"|format(summary.pinned_bytes / (1024 ** 3)) }} GiB</strong>
+  </article>
+  <article class="image-summary-card">
+    <span class="metric-label">lowest free disk</span>
+    {% if summary.lowest_free_disk_node %}
+      <strong>{{ "%.1f"|format(summary.lowest_free_disk_node.free_disk_bytes / (1024 ** 3)) }} GiB</strong>
+      <span class="muted">{{ summary.lowest_free_disk_node.node_id }}</span>
+    {% else %}
+      <strong>—</strong>
+    {% endif %}
+  </article>
+  {% else %}
+  <article class="image-summary-card">
+    <span class="metric-label">distinct images</span>
+    <strong>{{ summary.distinct_images }}</strong>
+  </article>
+  <article class="image-summary-card">
+    <span class="metric-label">copied bytes</span>
+    <strong>{{ "%.1f"|format(summary.total_bytes / (1024 ** 3)) }} GiB</strong>
+  </article>
+  <article class="image-summary-card">
+    <span class="metric-label">pinned bytes</span>
+    <strong>{{ "%.1f"|format(summary.pinned_bytes / (1024 ** 3)) }} GiB</strong>
+  </article>
+  <article class="image-summary-card">
+    <span class="metric-label">nodes reporting</span>
+    <strong>{{ summary.reachable_nodes }} / {{ summary.connected_nodes }}</strong>
+  </article>
+  {% endif %}
+</section>
+
+{% if risks %}
+  <section class="image-risk-strip" aria-label="Image cache warnings">
+    {% for risk in risks %}
+      <p class="{{ risk.level }}">{{ risk.text }}</p>
+    {% endfor %}
+  </section>
+{% endif %}
+
+{% if image_snapshot_age_s is defined %}
+  <p class="muted small image-snapshot-age">
+    {% if image_snapshot_age_s < 1 %}
+      Data: fresh (just fetched).
+    {% else %}
+      Data as of {{ image_snapshot_age_s | round | int }}s ago.
+    {% endif %}
+    {% if image_snapshot_refreshing %}<span class="muted">refreshing…</span>{% endif %}
+    <span class="muted">Per-node snapshots are cached briefly so this page stays responsive during heavy builds.</span>
+  </p>
+{% endif %}
+
+<div class="image-view-tabs">
+  <a class="btn {% if view == 'nodes' %}active{% endif %}" href="{{ nodes_view_url }}">node storage</a>
+  <a class="btn {% if view == 'images' %}active{% endif %}" href="{{ images_view_url }}">image coverage</a>
+</div>
+
+<form method="get" action="{{ images_form_action }}" class="filters image-filters">
+  <input type="hidden" name="page" value="1">
+  <label>search
+    <input type="text" name="q" value="{{ q or '' }}" placeholder="{% if view == 'nodes' %}node id{% else %}image ref{% endif %}">
+  </label>
+  <label>tier
+    <select name="tier">
+      <option value="">(any)</option>
+      {% for option in tier_options %}
+        <option value="{{ option }}" {% if tier == option %}selected{% endif %}>{{ option }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>pinned
+    <select name="pinned">
+      <option value="">(any)</option>
+      <option value="yes" {% if pinned == "yes" %}selected{% endif %}>yes</option>
+      <option value="no" {% if pinned == "no" %}selected{% endif %}>no</option>
+    </select>
+  </label>
+  {% if view == "nodes" %}
+    <label>pressure
+      <select name="pressure">
+        <option value="">(any)</option>
+        {% for option in pressure_options %}
+          <option value="{{ option }}" {% if pressure == option %}selected{% endif %}>{{ option }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>sort
+      <select name="sort">
+        {% for option in ["pressure", "free", "size", "images", "cold", "pinned", "node"] %}
+          <option value="{{ option }}" {% if sort == option %}selected{% endif %}>{{ option }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  {% else %}
+    <label>sort
+      <select name="sort">
+        {% for option in ["operational", "coverage", "size", "tier", "pinned", "name"] %}
+          <option value="{{ option }}" {% if sort == option %}selected{% endif %}>{{ option }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>include
+      <select name="include">
+        <option value="default" {% if hide_intermediate and xrlenv_only %}selected{% endif %}>xrlenv only</option>
+        <option value="intermediates" {% if not hide_intermediate and xrlenv_only %}selected{% endif %}>+ intermediates</option>
+        <option value="foreign" {% if hide_intermediate and not xrlenv_only %}selected{% endif %}>+ foreign images</option>
+        <option value="all" {% if not hide_intermediate and not xrlenv_only %}selected{% endif %}>all images</option>
+      </select>
+    </label>
+  {% endif %}
+  <label>per page
+    <select name="page_size">
+      {% set active_page = node_page if view == "nodes" else image_page %}
+      {% for option in page_size_options %}
+        <option value="{{ option }}" {% if active_page.page_size == option %}selected{% endif %}>{{ option }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit">filter</button>
+</form>
+
+{% if view == "nodes" %}
+  {% set page_data = node_page %}
+  <div class="pagination">
+    <span class="pagination-summary">
+      Showing {{ page_data.first_index }}-{{ page_data.last_index }} of {{ page_data.total }} nodes
+    </span>
+    <span class="pagination-links">
+      {% if page_data.has_prev %}
+        <a class="btn pagination-arrow" href="{{ page_data.prev_page_url }}" aria-label="previous page">&larr;</a>
+      {% else %}
+        <span class="btn disabled pagination-arrow" aria-label="previous page">&larr;</span>
+      {% endif %}
+      {% if page_data.has_next %}
+        <a class="btn pagination-arrow" href="{{ page_data.next_page_url }}" aria-label="next page">&rarr;</a>
+      {% else %}
+        <span class="btn disabled pagination-arrow" aria-label="next page">&rarr;</span>
+      {% endif %}
+    </span>
+  </div>
+  <table class="data image-nodes image-table-dense">
+    <thead>
+      <tr>
+        <th>node</th>
+        <th>pressure</th>
+        <th class="num">free disk</th>
+        <th class="num" title="Disk actually used on the node's Docker data-root (capacity − free). This is the real disk consumption, unlike 'images size'.">disk used</th>
+        <th class="num" title="Total disk capacity of the node's Docker data-root">capacity</th>
+        <th class="num">images</th>
+        <th class="num" title="Sum of cached image sizes. Over-counts layers shared between images, and (on the containerd image store) omits the separate compressed content blobs — so this is NOT the disk used. Compare 'disk used' for true consumption.">images size</th>
+        <th class="num">in_use</th>
+        <th class="num">pinned</th>
+        <th class="num">recent</th>
+        <th class="num">cold</th>
+        <th class="num">operator-pinned</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in page_data.rows %}
+        <tr class="image-node-row image-pressure-{{ row.pressure }} {% if not row.reachable %}image-node-unreachable{% endif %}">
+          <td><a href="{{ row.detail_url }}"><code>{{ row.node_id }}</code></a></td>
+          <td><span class="tier-badge tier-{{ row.pressure }}">{{ row.pressure_label }}</span></td>
+          {% if row.reachable %}
+            <td class="num">{{ "%.1f"|format(row.disk_free_bytes / (1024 ** 3)) }} GiB</td>
+            <td class="num">{% if row.disk_total_bytes %}{{ "%.1f"|format(row.disk_used_bytes / (1024 ** 3)) }} GiB{% else %}—{% endif %}</td>
+            <td class="num">{% if row.disk_total_bytes %}{{ "%.1f"|format(row.disk_total_bytes / (1024 ** 3)) }} GiB{% else %}—{% endif %}</td>
+            <td class="num">{{ row.total_count }}</td>
+            <td class="num">{{ "%.1f"|format(row.total_bytes / (1024 ** 3)) }} GiB</td>
+            {% for option in ["in_use", "pinned", "recently_used", "cold"] %}
+              {% set bucket = row.histogram.get(option, {"count": 0, "bytes": 0}) %}
+              <td class="num">{% if bucket.count > 0 %}{{ bucket.count }}{% else %}—{% endif %}</td>
+            {% endfor %}
+            <td class="num">{% if row.pinned_count %}{{ row.pinned_count }}{% else %}—{% endif %}</td>
+          {% else %}
+            <td colspan="10" class="muted">unreachable: {{ row.error }}</td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+      {% if not page_data.rows %}
+        <tr><td colspan="12" class="muted">No nodes match the current filters.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+{% else %}
+  {% set page_data = image_page %}
+  <p class="muted small">
+    Cluster ownership breakdown:
+    <strong>{{ ownership_breakdown.xrlenv_final }}</strong> xrlenv final,
+    <strong>{{ ownership_breakdown.xrlenv_intermediate }}</strong> intermediate,
+    <strong>{{ ownership_breakdown.external }}</strong> external.
+    {% if ownership_breakdown.xrlenv_final == 0 and ownership_breakdown.xrlenv_intermediate == 0 and ownership_breakdown.external > 0 %}
+      <br><span class="bad">No xrlenv-owned images detected.</span>
+      The include filter is label-driven (<code>org.xrlenv.owned=true</code>);
+      images built before that label landed classify as <em>external</em>
+      and the default <em>xrlenv only</em> filter hides them all. Rebuild
+      via <code>xrlenv build apply --force</code> on each node so the
+      labels get baked in, or pick <em>all images</em> in the dropdown.
+    {% endif %}
+  </p>
+  {% if hide_intermediate or xrlenv_only %}
+    <p class="muted small">
+      Showing {{ ownership_visible }} of {{ ownership_total }} images cluster-wide — use the include dropdown above to add
+      {%- if hide_intermediate %} intermediates{% endif -%}
+      {%- if hide_intermediate and xrlenv_only %} +{% endif -%}
+      {%- if xrlenv_only %} foreign images{% endif -%}.
+    </p>
+  {% endif %}
+  <div class="pagination">
+    <span class="pagination-summary">
+      Showing {{ page_data.first_index }}-{{ page_data.last_index }} of {{ page_data.total }} images
+    </span>
+    <span class="pagination-links">
+      {% if page_data.has_prev %}
+        <a class="btn pagination-arrow" href="{{ page_data.prev_page_url }}" aria-label="previous page">&larr;</a>
+      {% else %}
+        <span class="btn disabled pagination-arrow" aria-label="previous page">&larr;</span>
+      {% endif %}
+      {% if page_data.has_next %}
+        <a class="btn pagination-arrow" href="{{ page_data.next_page_url }}" aria-label="next page">&rarr;</a>
+      {% else %}
+        <span class="btn disabled pagination-arrow" aria-label="next page">&rarr;</span>
+      {% endif %}
+    </span>
+  </div>
+  <table class="data image-catalog image-table-dense">
+    <thead>
+      <tr>
+        <th>image</th>
+        <th>best tier</th>
+        <th class="num">nodes</th>
+        <th class="num">copied size</th>
+        <th class="num">max size</th>
+        <th class="num">in-use</th>
+        <th class="num">pinned nodes</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for img in page_data.rows %}
+        <tr>
+          <td><a class="image-ref" href="{{ img.detail_url }}" title="{{ img.name }}"><code>{{ img.name }}</code></a></td>
+          <td><span class="tier-badge tier-{{ img.best_tier }}">{{ img.best_tier }}</span></td>
+          <td class="num">{{ img.node_count }}</td>
+          <td class="num">{{ "%.1f"|format(img.total_bytes / (1024 ** 3)) }} GiB</td>
+          <td class="num">{{ "%.1f"|format(img.max_size_bytes / (1024 ** 3)) }} GiB</td>
+          <td class="num">{% if img.in_use_count %}{{ img.in_use_count }}{% else %}—{% endif %}</td>
+          <td class="num">{% if img.pinned_count %}{{ img.pinned_count }}{% else %}—{% endif %}</td>
+        </tr>
+      {% endfor %}
+      {% if not page_data.rows %}
+        <tr><td colspan="7" class="muted">No images match the current filters.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+{% endif %}
+
+{% endif %}
+{% endblock %}

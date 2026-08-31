@@ -1,0 +1,85 @@
+[project]
+name = "beagle"
+version = "0.0.1"
+description = "A PyTorch-like framework for agent-harness evolution: agent factory + evolve algorithms + unified runner over vendored xrlenv rollout infra."
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+dependencies = [
+    # Rollout substrate: container/image lifecycle + drop-in benchmark harnesses.
+    # Vendored as a vendored copy under vendor/xrlenv and installed editable
+    # via [tool.uv.sources] below (or `pip install -e vendor/xrlenv`).
+    "xrlenv",
+    # Config + data plumbing shared across every module.
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+# Terminal-Bench / harbor-family benchmarks run through harbor's native trial
+# driver (the case-3 drop-in). Pinned exactly: the reference agent's behaviour
+# is part of what gets benchmarked, so version drift would silently move scores.
+# 0.20.0 matches the vendored xrlenv's pin — it adopts harbor's native, per-phase,
+# fail-closed network policy (``harbor.models.task.config.NetworkMode``), which the
+# xrlenv harbor plug-in imports; 0.8.0 lacks it and crashes the trial at network
+# setup. Keep this in lockstep with ``vendor/xrlenv``'s harbor pin.
+terminal-bench = ["harbor==0.20.0"]
+# SWE-bench-family benchmarks grade via the upstream swebench harness invoked
+# through xrlenv.from_env() (the case-2 drop-in).
+swe-bench = ["swebench>=4.1.0", "datasets>=4.8.5"]
+# DeepSWE runs through pier (datacurve-pier), a harbor fork — the PierHarness Job driver + the
+# xrlenv pier cluster environment. Pinned exactly (same rationale as harbor); keep in lockstep with
+# the vendored xrlenv's pin. NOTE: 0.3.0 predates pier#29 ([[verifier.collect]] support) — bump this
+# only alongside re-syncing the deep-swe corpus to the post-PR-74 (verifier.collect) task format.
+deep-swe = ["datacurve-pier==0.3.0"]
+# Model access for white-box / evolver agents that call an LLM directly.
+llm = ["litellm>=1.50"]
+dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.10"]
+# Offline results analysis — the Streamlit dashboard under experiments/scripts/ (reads run
+# artifacts; NOT needed to run evals). pandas is pulled in by streamlit but listed since the
+# dashboard imports it directly.
+analysis = ["streamlit>=1.40", "pandas>=2.0"]
+all = [
+    "beagle[terminal-bench,swe-bench,deep-swe,llm,dev,analysis]",
+]
+
+[project.scripts]
+# Unified runner CLI (thin wrapper over beagle.rollout.runner).
+beagle = "beagle.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["beagle"]
+
+# xrlenv lives in-tree as a vendored copy; install it editable from the vendor
+# path rather than from PyPI. `uv sync` picks this up automatically; plain-pip
+# users run `pip install -e vendor/xrlenv` before `pip install -e .`.
+[tool.uv.sources]
+xrlenv = { path = "vendor/xrlenv", editable = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# Vendored submodule is pinned external source, not ours to lint.
+extend-exclude = ["vendor"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# ``tests/smoke/`` houses real end-to-end runs against a live xrlenv cluster
+# (task-image pulls, harbor trials, multi-minute wall-clock, real cost).
+# Excluded from the default ``pytest -q`` so the unit tier stays fast and
+# hermetic; opt in explicitly via ``pytest tests/smoke/`` or run a smoke as a
+# script. ``importlib`` import-mode matches the vendored xrlenv suite and keeps
+# discovery independent of sys.path.
+addopts = "-ra --ignore=tests/smoke --import-mode=importlib"
+markers = [
+    "cluster: smoke test requiring a live xrlenv cluster + harbor cache (real cost)",
+    "docker: test requiring a running local Docker daemon",
+]
+
+[tool.mypy]
+python_version = "3.12"
+exclude = ["vendor"]

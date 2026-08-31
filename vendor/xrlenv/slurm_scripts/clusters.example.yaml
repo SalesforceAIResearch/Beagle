@@ -1,0 +1,97 @@
+# EXAMPLE cluster inventory. Copy this file to `clusters.yaml`, replace the
+# placeholder hosts/paths below with your fleet's, then regenerate the
+# per-cluster deploy scripts:
+#
+#     python slurm_scripts/generate_deployment_script.py --cluster <name>
+#
+# `clusters.yaml` is the single source of truth for every cluster's deployment:
+# the generated deploy_<name>.sh and <name>_xrlenv_{node,control}.sh are a pure
+# function of it plus templates/. Never hand-edit the generated scripts —
+# `--check` fails if you do.
+#
+# Required per cluster: control_plane, registry, workers, sysbox_pool,
+# cpu_isolation_pool. `sysbox_pool` and `cpu_isolation_pool` are drawn from
+# `workers` and must NOT overlap (a node can't be both — CPU isolation v1 is
+# runc-only, sysbox runs DinD).
+#
+# CONVENTION: every cluster spells out its own state_db, control_log, checkout
+# and tunnel ports, even when they match what the generator would derive from the
+# cluster name. These name durable on-disk state, so being explicit means a
+# derivation change can't silently relocate a cluster's state.db.
+#
+# tunnel.{admin,metrics} are LOGIN-NODE ports; if clusters share a login node
+# they must be unique across clusters (the generator refuses overlaps, as it does
+# for state_db, control_log and job prefixes).
+
+# NOTE: allowed_host_paths is deliberately NOT in `defaults`. It is a security
+# allowlist (policy.allowed_host_paths) authorizing real read-only host mounts,
+# AND it is cluster-specific: different clusters mount their shared filesystem at
+# different paths (or not at all). Each cluster declares its own; default empty.
+defaults:
+  partition: your-slurm-partition
+  account: your-slurm-account
+  grpc_port: 50051
+  sysbox_max_concurrent: 4
+
+# A self-contained cluster that runs its own registry trio on the control-plane box.
+primary:
+  checkout: /path/to/your/xrlenv-checkout
+  control_plane: control-plane-host
+  registry:
+    mirror_host: registry-host
+    private_host: registry-host
+    scratch_host: registry-host
+    mirror_port: 5010
+    private_port: 5011
+    scratch_port: 5012
+  # EvoClaw's oracle bind-mounts its golden cache READ-ONLY into the container (a
+  # subdir under this root); prefix-matched, so one entry covers every per-task
+  # mount under it. Omit the key entirely if you need no host mounts.
+  allowed_host_paths:
+    - /path/to/shared/evoclaw_golden_cache
+  local_disk_root: /opt/sagemaker
+  # state_db + control_log MUST live on LOCAL disk, never a shared/network FS: the
+  # control plane writes its log synchronously on the event-loop thread, so a
+  # network-FS stall would freeze the whole control plane and false-mark the fleet
+  # lost. Co-locate with the local state.db directory.
+  state_db: /opt/sagemaker/xrlenv-primary/state.db
+  control_log: /opt/sagemaker/xrlenv-primary/logs/xrlenv-up-control.log
+  tunnel:
+    admin: 8080
+    metrics: 9090
+  workers:
+    - worker-host-1
+    - worker-host-2
+  sysbox_pool:
+    - worker-host-2
+  cpu_isolation_pool:
+    - worker-host-1
+
+# A cluster with NO registry of its own: it points at the shared trio on another
+# box, so its control job must NOT start one (deploy_registry: false).
+secondary:
+  checkout: /path/to/your/xrlenv-checkout
+  control_plane: control-plane-host-2
+  deploy_registry: false
+  registry:
+    mirror_host: shared-registry-host
+    private_host: shared-registry-host
+    scratch_host: shared-registry-host
+    mirror_port: 5010
+    private_port: 5011
+    scratch_port: 5012
+  allowed_host_paths:
+    - /path/to/shared/evoclaw_golden_cache
+  local_disk_root: /opt/sagemaker
+  state_db: /opt/sagemaker/xrlenv-secondary/state.db
+  control_log: /opt/sagemaker/xrlenv-secondary/logs/xrlenv-up-control.log
+  tunnel:
+    admin: 9080
+    metrics: 9190
+  workers:
+    - worker-host-3
+    - worker-host-4
+  sysbox_pool:
+    - worker-host-3
+  cpu_isolation_pool:
+    - worker-host-4

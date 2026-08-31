@@ -1,0 +1,80 @@
+{
+  "source_runs": {
+    "swe-bench-verified": "2026-06-12T00-34-55Z__gpt-5.5__monet__swe-bench-verified__2e689fb0",
+    "terminal-bench-v2.1": "2026-06-11T04-04-21Z__gpt-5.5__monet__terminal-bench-v2.1__363d2843"
+  },
+  "samples": [
+    {
+      "file": "astropy__astropy-7336.trajectory.jsonl",
+      "task_id": "astropy__astropy-7336",
+      "benchmark": "swe-bench-verified",
+      "resolved": true,
+      "num_turns": 13,
+      "size_kb": 63,
+      "note": "clean pass \u2014 no issues"
+    },
+    {
+      "file": "astropy__astropy-12907.trajectory.jsonl",
+      "task_id": "astropy__astropy-12907",
+      "benchmark": "swe-bench-verified",
+      "resolved": true,
+      "num_turns": 11,
+      "size_kb": 52,
+      "note": "clean pass \u2014 no issues"
+    },
+    {
+      "file": "astropy__astropy-8872.trajectory.jsonl",
+      "task_id": "astropy__astropy-8872",
+      "benchmark": "swe-bench-verified",
+      "resolved": false,
+      "num_turns": 10,
+      "size_kb": 79,
+      "note": "premature stop: claims success, last test red"
+    },
+    {
+      "file": "django__django-13112.trajectory.jsonl",
+      "task_id": "django__django-13112",
+      "benchmark": "swe-bench-verified",
+      "resolved": false,
+      "num_turns": 15,
+      "size_kb": 84,
+      "note": "tool error during the run"
+    },
+    {
+      "file": "astropy__astropy-14365.trajectory.jsonl",
+      "task_id": "astropy__astropy-14365",
+      "benchmark": "swe-bench-verified",
+      "resolved": false,
+      "num_turns": 9,
+      "size_kb": 58,
+      "note": "wrong-but-clean: only LLM proposers can catch it"
+    },
+    {
+      "file": "db-wal-recovery__s0.trajectory.jsonl",
+      "task_id": "db-wal-recovery__s0",
+      "benchmark": "terminal-bench-v2.1",
+      "resolved": false,
+      "num_turns": 6,
+      "size_kb": 26,
+      "note": "early truncation: trace ends with no terminal"
+    },
+    {
+      "file": "circuit-fibsqrt__s3.trajectory.jsonl",
+      "task_id": "circuit-fibsqrt__s3",
+      "benchmark": "terminal-bench-v2.1",
+      "resolved": false,
+      "num_turns": 15,
+      "size_kb": 78,
+      "note": "tool error + premature stop"
+    },
+    {
+      "file": "install-windows-3.11__s4.trajectory.jsonl",
+      "task_id": "install-windows-3.11__s4",
+      "benchmark": "terminal-bench-v2.1",
+      "resolved": false,
+      "num_turns": 46,
+      "size_kb": 355,
+      "note": "behavioral loop + tool error + premature stop"
+    }
+  ]
+}

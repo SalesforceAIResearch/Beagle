@@ -1,0 +1,1207 @@
+version: 1
+name: swebench-pro-subset-100
+replication: 1
+budget:
+  reserved_runtime_gb: 30
+  buffer_gb: 10
+entries:
+- image_ref: jefzda/sweap-images:nodebb.nodebb-NodeBB__NodeBB-f083cd559d69c16481376868c8da65172729c0ca
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 905102198
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_NodeBB__NodeBB-f083cd559d69c16481376868c8da65172729c0ca-vnan
+- image_ref: jefzda/sweap-images:nodebb.nodebb-NodeBB__NodeBB-51d8f3b195bddb13a13ddc0de110722774d9bb1b-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 835679434
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_NodeBB__NodeBB-51d8f3b195bddb13a13ddc0de110722774d9bb1b-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e
+- image_ref: jefzda/sweap-images:nodebb.nodebb-NodeBB__NodeBB-be43cd25974681c9743d424238b7536c357dc8d3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 823856268
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_NodeBB__NodeBB-be43cd25974681c9743d424238b7536c357dc8d3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e
+- image_ref: jefzda/sweap-images:nodebb.nodebb-NodeBB__NodeBB-6489e9fd9ed16ea743cc5627f4d86c72fbdb3a8a-v2c59007b1005cd5cd14cbb523ca5229db1fd2dd8
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 863143143
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_NodeBB__NodeBB-6489e9fd9ed16ea743cc5627f4d86c72fbdb3a8a-v2c59007b1005cd5cd14cbb523ca5229db1fd2dd8
+- image_ref: jefzda/sweap-images:nodebb.nodebb-NodeBB__NodeBB-05f2236193f407cf8e2072757fbd6bb170bc13f0-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 760790983
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_NodeBB__NodeBB-05f2236193f407cf8e2072757fbd6bb170bc13f0-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e
+- image_ref: jefzda/sweap-images:nodebb.nodebb-NodeBB__NodeBB-22368b996ee0e5f11a5189b400b33af3cc8d925a-v4fbcfae8b15e4ce5d132c408bca69ebb9cf146ed
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 854715267
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_NodeBB__NodeBB-22368b996ee0e5f11a5189b400b33af3cc8d925a-v4fbcfae8b15e4ce5d132c408bca69ebb9cf146ed
+- image_ref: jefzda/sweap-images:ansible.ansible-ansible__ansible-949c503f2ef4b2c5d668af0492a5c0db1ab86140-v0f01c69f1e2528b935359cfe578530722bca2c59
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 521006409
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_ansible__ansible-949c503f2ef4b2c5d668af0492a5c0db1ab86140-v0f01c69f1e2528b935359cfe578530722bca2c59
+- image_ref: jefzda/sweap-images:ansible.ansible-ansible__ansible-9142be2f6cabbe6597c9254c5bb9186d17036d55-v0f01c69f1e2528b935359cfe578530722bca2c59
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 526640303
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_ansible__ansible-9142be2f6cabbe6597c9254c5bb9186d17036d55-v0f01c69f1e2528b935359cfe578530722bca2c59
+- image_ref: jefzda/sweap-images:ansible.ansible-ansible__ansible-5f4e332e3762999d94af27746db29ff1729252c1-v0f01c69f1e2528b935359cfe578530722bca2c59
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 522137507
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_ansible__ansible-5f4e332e3762999d94af27746db29ff1729252c1-v0f01c69f1e2528b935359cfe578530722bca2c59
+- image_ref: jefzda/sweap-images:ansible.ansible-ansible__ansible-d72025be751c894673ba85caa063d835a0ad3a8c-v390e508d27db7a51eece36bb6d9698b63a5b638a
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 543835655
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_ansible__ansible-d72025be751c894673ba85caa063d835a0ad3a8c-v390e508d27db7a51eece36bb6d9698b63a5b638a
+- image_ref: jefzda/sweap-images:ansible.ansible-ansible__ansible-e0c91af45fa9af575d10fd3e724ebc59d2b2d6ac-v30a923fb5c164d6cd18280c02422f75e611e8fb2
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 521379584
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_ansible__ansible-e0c91af45fa9af575d10fd3e724ebc59d2b2d6ac-v30a923fb5c164d6cd18280c02422f75e611e8fb2
+- image_ref: jefzda/sweap-images:ansible.ansible-ansible__ansible-4c5ce5a1a9e79a845aff4978cfeb72a0d4ecf7d6-v1055803c3a812189a1133297f7f5468579283f86
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 499154799
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_ansible__ansible-4c5ce5a1a9e79a845aff4978cfeb72a0d4ecf7d6-v1055803c3a812189a1133297f7f5468579283f86
+- image_ref: jefzda/sweap-images:ansible.ansible-ansible__ansible-83909bfa22573777e3db5688773bda59721962ad-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 537621861
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_ansible__ansible-83909bfa22573777e3db5688773bda59721962ad-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5
+- image_ref: jefzda/sweap-images:ansible.ansible-ansible__ansible-5c225dc0f5bfa677addeac100a8018df3f3a9db1-v173091e2e36d38c978002990795f66cfc0af30ad
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 521752024
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_ansible__ansible-5c225dc0f5bfa677addeac100a8018df3f3a9db1-v173091e2e36d38c978002990795f66cfc0af30ad
+- image_ref: jefzda/sweap-images:ansible.ansible-ansible__ansible-a26c325bd8f6e2822d9d7e62f77a424c1db4fbf6-v0f01c69f1e2528b935359cfe578530722bca2c59
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 533005187
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_ansible__ansible-a26c325bd8f6e2822d9d7e62f77a424c1db4fbf6-v0f01c69f1e2528b935359cfe578530722bca2c59
+- image_ref: jefzda/sweap-images:ansible.ansible-ansible__ansible-39bd8b99ec8c6624207bf3556ac7f9626dad9173-v1055803c3a812189a1133297f7f5468579283f86
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 499403771
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_ansible__ansible-39bd8b99ec8c6624207bf3556ac7f9626dad9173-v1055803c3a812189a1133297f7f5468579283f86
+- image_ref: jefzda/sweap-images:ansible.ansible-ansible__ansible-fb144c44144f8bd3542e71f5db62b6d322c7bd85-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 538306597
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_ansible__ansible-fb144c44144f8bd3542e71f5db62b6d322c7bd85-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5
+- image_ref: jefzda/sweap-images:ansible.ansible-ansible__ansible-1ee70fc272aff6bf3415357c6e13c5de5b928d9b-v1055803c3a812189a1133297f7f5468579283f86
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 498107842
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_ansible__ansible-1ee70fc272aff6bf3415357c6e13c5de5b928d9b-v1055803c3a812189a1133297f7f5468579283f86
+- image_ref: jefzda/sweap-images:ansible.ansible-ansible__ansible-489156378c8e97374a75a544c7c9c2c0dd8146d1-v390e508d27db7a51eece36bb6d9698b63a5b638a
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 544796511
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_ansible__ansible-489156378c8e97374a75a544c7c9c2c0dd8146d1-v390e508d27db7a51eece36bb6d9698b63a5b638a
+- image_ref: jefzda/sweap-images:element-hq.element-element-hq__element-web-53b42e321777a598aaf2bb3eab22d710569f83a8
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1084119019
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_element-hq__element-web-53b42e321777a598aaf2bb3eab22d710569f83a8-vnan
+- image_ref: jefzda/sweap-images:element-hq.element-element-hq__element-web-459df4583e01e4744a52d45446e34183385442d6
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1107869894
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_element-hq__element-web-459df4583e01e4744a52d45446e34183385442d6-vnan
+- image_ref: jefzda/sweap-images:element-hq.element-element-hq__element-web-a692fe21811f88d92e8f7047fc615e4f1f986b0f
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1087439602
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_element-hq__element-web-a692fe21811f88d92e8f7047fc615e4f1f986b0f-vnan
+- image_ref: jefzda/sweap-images:element-hq.element-element-hq__element-web-ca58617cee8aa91c93553449bfdf9b3465a5119b
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1098031366
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_element-hq__element-web-ca58617cee8aa91c93553449bfdf9b3465a5119b-vnan
+- image_ref: jefzda/sweap-images:element-hq.element-element-hq__element-web-f63160f38459fb552d00fcc60d4064977a9095a6
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1139398014
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_element-hq__element-web-f63160f38459fb552d00fcc60d4064977a9095a6-vnan
+- image_ref: jefzda/sweap-images:element-hq.element-element-hq__element-web-7c63d52500e145d6fff6de41dd717f61ab88d02f
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1107824160
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_element-hq__element-web-7c63d52500e145d6fff6de41dd717f61ab88d02f-vnan
+- image_ref: jefzda/sweap-images:element-hq.element-element-hq__element-web-aec454dd6feeb93000380523cbb0b3681c0275fd
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1097115164
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_element-hq__element-web-aec454dd6feeb93000380523cbb0b3681c0275fd-vnan
+- image_ref: jefzda/sweap-images:flipt-io.flipt-flipt-io__flipt-e5fe37c379e1eec2dd3492c5737c0be761050b26
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1775083932
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_flipt-io__flipt-e5fe37c379e1eec2dd3492c5737c0be761050b26
+- image_ref: jefzda/sweap-images:flipt-io.flipt-flipt-io__flipt-3d5a345f94c2adc8a0eaa102c189c08ad4c0f8e8
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1741446026
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_flipt-io__flipt-3d5a345f94c2adc8a0eaa102c189c08ad4c0f8e8
+- image_ref: jefzda/sweap-images:flipt-io.flipt-flipt-io__flipt-756f00f79ba8abf9fe53f3c6c818123b42eb7355
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 548242233
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_flipt-io__flipt-756f00f79ba8abf9fe53f3c6c818123b42eb7355
+- image_ref: jefzda/sweap-images:flipt-io.flipt-flipt-io__flipt-2ce8a0331e8a8f63f2c1b555db8277ffe5aa2e63
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1730134446
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_flipt-io__flipt-2ce8a0331e8a8f63f2c1b555db8277ffe5aa2e63
+- image_ref: jefzda/sweap-images:flipt-io.flipt-flipt-io__flipt-292fdaca9be39e6a921aaa8874c011d0fdd3e874
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 548243012
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_flipt-io__flipt-292fdaca9be39e6a921aaa8874c011d0fdd3e874
+- image_ref: jefzda/sweap-images:flipt-io.flipt-flipt-io__flipt-8bd3604dc54b681f1f0f7dd52cbc70b3024184b6
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2226959843
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_flipt-io__flipt-8bd3604dc54b681f1f0f7dd52cbc70b3024184b6
+- image_ref: jefzda/sweap-images:flipt-io.flipt-flipt-io__flipt-b4bb5e13006a729bc0eed8fe6ea18cff54acdacb
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1851871406
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_flipt-io__flipt-b4bb5e13006a729bc0eed8fe6ea18cff54acdacb
+- image_ref: jefzda/sweap-images:flipt-io.flipt-flipt-io__flipt-cd2f3b0a9d4d8b8a6d3d56afab65851ecdc408e8
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1774692673
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_flipt-io__flipt-cd2f3b0a9d4d8b8a6d3d56afab65851ecdc408e8
+- image_ref: jefzda/sweap-images:flipt-io.flipt-flipt-io__flipt-e91615cf07966da41756017a7d571f9fc0fdbe80
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 611010682
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_flipt-io__flipt-e91615cf07966da41756017a7d571f9fc0fdbe80
+- image_ref: jefzda/sweap-images:future-architect.vuls-future-architect__vuls-8d5ea98e50cf616847f4e5a2df300395d1f719e9
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1196039868
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_future-architect__vuls-8d5ea98e50cf616847f4e5a2df300395d1f719e9
+- image_ref: jefzda/sweap-images:future-architect.vuls-future-architect__vuls-aaea15e516ece43978cf98e09e52080478b1d39f
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1517137823
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_future-architect__vuls-aaea15e516ece43978cf98e09e52080478b1d39f
+- image_ref: jefzda/sweap-images:future-architect.vuls-future-architect__vuls-8659668177f1feb65963db7a967347a79c5f9c40
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 823174456
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_future-architect__vuls-8659668177f1feb65963db7a967347a79c5f9c40
+- image_ref: jefzda/sweap-images:future-architect.vuls-future-architect__vuls-e4728e388120b311c4ed469e4f942e0347a2689b-v264a82e2f4818e30f5a25e4da53b27ba119f62b5
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1441025641
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_future-architect__vuls-e4728e388120b311c4ed469e4f942e0347a2689b-v264a82e2f4818e30f5a25e4da53b27ba119f62b5
+- image_ref: jefzda/sweap-images:future-architect.vuls-future-architect__vuls-e52fa8d6ed1d23e36f2a86e5d3efe9aa057a1b0d
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1362380191
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_future-architect__vuls-e52fa8d6ed1d23e36f2a86e5d3efe9aa057a1b0d
+- image_ref: jefzda/sweap-images:future-architect.vuls-future-architect__vuls-6682232b5c8a9d08c0e9f15bd90d41bff3875adc
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1022942216
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_future-architect__vuls-6682232b5c8a9d08c0e9f15bd90d41bff3875adc
+- image_ref: jefzda/sweap-images:future-architect.vuls-future-architect__vuls-d576b6c6c15e56c47cc3e26f5878867677d4a9ea
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1484668679
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_future-architect__vuls-d576b6c6c15e56c47cc3e26f5878867677d4a9ea
+- image_ref: jefzda/sweap-images:future-architect.vuls-future-architect__vuls-bff6b7552370b55ff76d474860eead4ab5de785a-v1151a6325649aaf997cd541ebe533b53fddf1b07
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1533293429
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_future-architect__vuls-bff6b7552370b55ff76d474860eead4ab5de785a-v1151a6325649aaf997cd541ebe533b53fddf1b07
+- image_ref: jefzda/sweap-images:future-architect.vuls-future-architect__vuls-b8db2e0b74f60cb7d45f710f255e061f054b6afc
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1808298195
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_future-architect__vuls-b8db2e0b74f60cb7d45f710f255e061f054b6afc
+- image_ref: jefzda/sweap-images:future-architect.vuls-future-architect__vuls-cc63a0eccfdd318e67c0a6edeffc7bf09b6025c0
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 946174899
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_future-architect__vuls-cc63a0eccfdd318e67c0a6edeffc7bf09b6025c0
+- image_ref: jefzda/sweap-images:gravitational.teleport-gravitational__teleport-3587cca7840f636489449113969a5066025dd5bf
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2206512858
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_gravitational__teleport-3587cca7840f636489449113969a5066025dd5bf
+- image_ref: jefzda/sweap-images:gravitational.teleport-gravitational__teleport-0ac7334939981cf85b9591ac295c3816954e287e
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2337402213
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_gravitational__teleport-0ac7334939981cf85b9591ac295c3816954e287e
+- image_ref: jefzda/sweap-images:gravitational.teleport-gravitational__teleport-e6681abe6a7113cfd2da507f05581b7bdf398540-v626ec2a48416b10a88641359a169d99e935ff03
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2417854926
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_gravitational__teleport-e6681abe6a7113cfd2da507f05581b7bdf398540-v626ec2a48416b10a88641359a169d99e935ff037
+- image_ref: jefzda/sweap-images:gravitational.teleport-gravitational__teleport-ac2fb2f9b4fd1896b554d3011df23d3d71295779
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2380437619
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_gravitational__teleport-ac2fb2f9b4fd1896b554d3011df23d3d71295779
+- image_ref: jefzda/sweap-images:gravitational.teleport-gravitational__teleport-007235446f85b1cbaef92664c3b3867517250f21
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2388426785
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_gravitational__teleport-007235446f85b1cbaef92664c3b3867517250f21
+- image_ref: jefzda/sweap-images:gravitational.teleport-gravitational__teleport-0ecf31de0e98b272a6a2610abe1bbedd379a38a3-vce94f93ad1030e3136852817f2423c1b3ac37bc
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2797678764
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_gravitational__teleport-0ecf31de0e98b272a6a2610abe1bbedd379a38a3-vce94f93ad1030e3136852817f2423c1b3ac37bc4
+- image_ref: jefzda/sweap-images:gravitational.teleport-gravitational__teleport-c782838c3a174fdff80cafd8cd3b1aa4dae8beb2
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2387651341
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_gravitational__teleport-c782838c3a174fdff80cafd8cd3b1aa4dae8beb2
+- image_ref: jefzda/sweap-images:gravitational.teleport-gravitational__teleport-59d39dee5a8a66e5b8a18a9085a199d369b1fba8-v626ec2a48416b10a88641359a169d99e935ff03
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2385610166
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_gravitational__teleport-59d39dee5a8a66e5b8a18a9085a199d369b1fba8-v626ec2a48416b10a88641359a169d99e935ff037
+- image_ref: jefzda/sweap-images:gravitational.teleport-gravitational__teleport-c335534e02de143508ebebc7341021d7f8656e8f
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2425401483
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_gravitational__teleport-c335534e02de143508ebebc7341021d7f8656e8f
+- image_ref: jefzda/sweap-images:gravitational.teleport-gravitational__teleport-bb562408da4adeae16e025be65e170959d1ec492-vee9b09fb20c43af7e520f57e9239bbcf46b7113
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2944637457
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_gravitational__teleport-bb562408da4adeae16e025be65e170959d1ec492-vee9b09fb20c43af7e520f57e9239bbcf46b7113d
+- image_ref: jefzda/sweap-images:gravitational.teleport-gravitational__teleport-b5d8169fc0a5e43fee2616c905c6d32164654dc6
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2388323018
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_gravitational__teleport-b5d8169fc0a5e43fee2616c905c6d32164654dc6
+- image_ref: jefzda/sweap-images:gravitational.teleport-gravitational__teleport-e6895d8934f6e484341034869901145fbc025e72-vce94f93ad1030e3136852817f2423c1b3ac37bc
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 2839501427
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_gravitational__teleport-e6895d8934f6e484341034869901145fbc025e72-vce94f93ad1030e3136852817f2423c1b3ac37bc4
+- image_ref: jefzda/sweap-images:internetarchive.openlibrary-internetarchive__openlibrary-a7b7dc5735a1b3a9824376b1b469b556dd413981-va4315b5dc369c1ef66ae22f9ae426
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1161806321
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_internetarchive__openlibrary-a7b7dc5735a1b3a9824376b1b469b556dd413981-va4315b5dc369c1ef66ae22f9ae4267aa3114e1b3
+- image_ref: jefzda/sweap-images:internetarchive.openlibrary-internetarchive__openlibrary-7cbfb812ef0e1f9716e2d6e85d538a96fcb79d13-vfa6ff903cb27f336e17654595dd90
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 685561552
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_internetarchive__openlibrary-7cbfb812ef0e1f9716e2d6e85d538a96fcb79d13-vfa6ff903cb27f336e17654595dd900fa943dcd91
+- image_ref: jefzda/sweap-images:internetarchive.openlibrary-internetarchive__openlibrary-de6ae10512f1b5ef585c8341b451bc49c9fd4996-vfa6ff903cb27f336e17654595dd90
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 809184915
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_internetarchive__openlibrary-de6ae10512f1b5ef585c8341b451bc49c9fd4996-vfa6ff903cb27f336e17654595dd900fa943dcd91
+- image_ref: jefzda/sweap-images:internetarchive.openlibrary-internetarchive__openlibrary-f343c08f89c772f7ba6c0246f384b9e6c3dc0add-v08d8e8889ec945ab821fb156c04c7
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1182024767
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_internetarchive__openlibrary-f343c08f89c772f7ba6c0246f384b9e6c3dc0add-v08d8e8889ec945ab821fb156c04c7d2e2810debb
+- image_ref: jefzda/sweap-images:internetarchive.openlibrary-internetarchive__openlibrary-5c6c22f3d2edf2f1b10f5dc335e32cb6a5f40341-v76304ecdb3a5954fcf13feb710e8c
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1125871060
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_internetarchive__openlibrary-5c6c22f3d2edf2f1b10f5dc335e32cb6a5f40341-v76304ecdb3a5954fcf13feb710e8c40fcf24b73c
+- image_ref: jefzda/sweap-images:internetarchive.openlibrary-internetarchive__openlibrary-3f580a5f244c299d936d73d9e327ba873b6401d9-v0f5aece3601a5b4419f7ccec1dbda
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 931970173
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_internetarchive__openlibrary-3f580a5f244c299d936d73d9e327ba873b6401d9-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4
+- image_ref: jefzda/sweap-images:internetarchive.openlibrary-internetarchive__openlibrary-c4eebe6677acc4629cb541a98d5e91311444f5d4-v13642507b4fc1f8d234172bf81299
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 955030900
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_internetarchive__openlibrary-c4eebe6677acc4629cb541a98d5e91311444f5d4-v13642507b4fc1f8d234172bf8129942da2c2ca26
+- image_ref: jefzda/sweap-images:internetarchive.openlibrary-internetarchive__openlibrary-5069b09e5f64428dce59b33455c8bb17fe577070-v8717e18970bcdc4e0d2cea3b15277
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1208477299
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_internetarchive__openlibrary-5069b09e5f64428dce59b33455c8bb17fe577070-v8717e18970bcdc4e0d2cea3b1527752b21e74866
+- image_ref: jefzda/sweap-images:internetarchive.openlibrary-internetarchive__openlibrary-c12943be1db80cf1114bc267ddf4f9933aca9b28-v2c55207218fb8a0138425cbf7d967
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 998148113
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_internetarchive__openlibrary-c12943be1db80cf1114bc267ddf4f9933aca9b28-v2c55207218fb8a0138425cbf7d9675272e240b90
+- image_ref: jefzda/sweap-images:internetarchive.openlibrary-internetarchive__openlibrary-111347e9583372e8ef91c82e0612ea437ae3a9c9-v2d9a6c849c60ed19fd0858ce9e40b
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 796940878
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_internetarchive__openlibrary-111347e9583372e8ef91c82e0612ea437ae3a9c9-v2d9a6c849c60ed19fd0858ce9e40b7cc8e097e59
+- image_ref: jefzda/sweap-images:internetarchive.openlibrary-internetarchive__openlibrary-308a35d6999427c02b1dbf5211c033ad3b352556-ve8c8d62a2b60610a3c4631f5f23ed
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 776993252
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_internetarchive__openlibrary-308a35d6999427c02b1dbf5211c033ad3b352556-ve8c8d62a2b60610a3c4631f5f23ed866bada9818
+- image_ref: jefzda/sweap-images:internetarchive.openlibrary-internetarchive__openlibrary-9bdfd29fac883e77dcbc4208cab28c06fd963ab2-v76304ecdb3a5954fcf13feb710e8c
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1087571989
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_internetarchive__openlibrary-9bdfd29fac883e77dcbc4208cab28c06fd963ab2-v76304ecdb3a5954fcf13feb710e8c40fcf24b73c
+- image_ref: jefzda/sweap-images:navidrome.navidrome-navidrome__navidrome-669c8f4c49a7ef51ac9a53c725097943f67219eb
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1076147221
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_navidrome__navidrome-669c8f4c49a7ef51ac9a53c725097943f67219eb
+- image_ref: jefzda/sweap-images:navidrome.navidrome-navidrome__navidrome-66b74c81f115c78cb69910b0472eeb376750efc4
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 763405889
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_navidrome__navidrome-66b74c81f115c78cb69910b0472eeb376750efc4
+- image_ref: jefzda/sweap-images:navidrome.navidrome-navidrome__navidrome-31799662706fedddf5bcc1a76b50409d1f91d327
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1044131511
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_navidrome__navidrome-31799662706fedddf5bcc1a76b50409d1f91d327
+- image_ref: jefzda/sweap-images:navidrome.navidrome-navidrome__navidrome-ee21f3957e0de91624427e93c62b8ee390de72e3
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1083499597
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_navidrome__navidrome-ee21f3957e0de91624427e93c62b8ee390de72e3
+- image_ref: jefzda/sweap-images:navidrome.navidrome-navidrome__navidrome-d5df102f9f97c21715c756069c9e141da2a422dc
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 875224322
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_navidrome__navidrome-d5df102f9f97c21715c756069c9e141da2a422dc
+- image_ref: jefzda/sweap-images:navidrome.navidrome-navidrome__navidrome-23bebe4e06124becf1000e88472ae71a6ca7de4c
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 999328586
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_navidrome__navidrome-23bebe4e06124becf1000e88472ae71a6ca7de4c
+- image_ref: jefzda/sweap-images:navidrome.navidrome-navidrome__navidrome-dfa453cc4ab772928686838dc73d0130740f054e
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 985832797
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_navidrome__navidrome-dfa453cc4ab772928686838dc73d0130740f054e
+- image_ref: jefzda/sweap-images:navidrome.navidrome-navidrome__navidrome-3853c3318f67b41a9e4cb768618315ff77846fdb
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 971357262
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_navidrome__navidrome-3853c3318f67b41a9e4cb768618315ff77846fdb
+- image_ref: jefzda/sweap-images:protonmail.webclients-protonmail__webclients-cba6ebbd0707caa524ffee51c62b197f6122c902
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 5141630001
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_protonmail__webclients-cba6ebbd0707caa524ffee51c62b197f6122c902
+- image_ref: jefzda/sweap-images:protonmail.webclients-protonmail__webclients-cb8cc309c6968b0a2a5fe4288d0ae0a969ff31e1
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 4919411952
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_protonmail__webclients-cb8cc309c6968b0a2a5fe4288d0ae0a969ff31e1
+- image_ref: jefzda/sweap-images:protonmail.webclients-protonmail__webclients-1501eb765873b2884b6f1944fd242ecfc9d6b103
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 4304081562
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_protonmail__webclients-1501eb765873b2884b6f1944fd242ecfc9d6b103
+- image_ref: jefzda/sweap-images:protonmail.webclients-protonmail__webclients-715dbd4e6999499cd2a576a532d8214f75189116
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 4642071187
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_protonmail__webclients-715dbd4e6999499cd2a576a532d8214f75189116
+- image_ref: jefzda/sweap-images:protonmail.webclients-protonmail__webclients-dfe5604193d63bfcb91ce60d62db2f805c43bf11
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 5190827924
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_protonmail__webclients-dfe5604193d63bfcb91ce60d62db2f805c43bf11
+- image_ref: jefzda/sweap-images:protonmail.webclients-protonmail__webclients-708ed4a299711f0fa79a907cc5847cfd39c0fc71
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 5132035863
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_protonmail__webclients-708ed4a299711f0fa79a907cc5847cfd39c0fc71
+- image_ref: jefzda/sweap-images:protonmail.webclients-protonmail__webclients-1917e37f5d9941a3459ce4b0177e201e2d94a622
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 4658858365
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_protonmail__webclients-1917e37f5d9941a3459ce4b0177e201e2d94a622
+- image_ref: jefzda/sweap-images:protonmail.webclients-protonmail__webclients-7e54526774e577c0ebb58ced7ba8bef349a69fec
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 4044438925
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_protonmail__webclients-7e54526774e577c0ebb58ced7ba8bef349a69fec
+- image_ref: jefzda/sweap-images:qutebrowser.qutebrowser-qutebrowser__qutebrowser-5cef49ff3074f9eab1da6937a141a39a20828502-v02ad04386d5238fe2d1a1be450df257370de4
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 917397981
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_qutebrowser__qutebrowser-5cef49ff3074f9eab1da6937a141a39a20828502-v02ad04386d5238fe2d1a1be450df257370de4b6a
+- image_ref: jefzda/sweap-images:qutebrowser.qutebrowser-qutebrowser__qutebrowser-fea33d607fde83cf505b228238cf365936437a63-v9f8e9d96c85c85a605e382f1510bd08563afc
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 612190795
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_qutebrowser__qutebrowser-fea33d607fde83cf505b228238cf365936437a63-v9f8e9d96c85c85a605e382f1510bd08563afc566
+- image_ref: jefzda/sweap-images:qutebrowser.qutebrowser-qutebrowser__qutebrowser-e57b6e0eeeb656eb2c84d6547d5a0a7333ecee85-v2ef375ac784985212b1805e1d0431dc8f1b3c
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 691746217
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_qutebrowser__qutebrowser-e57b6e0eeeb656eb2c84d6547d5a0a7333ecee85-v2ef375ac784985212b1805e1d0431dc8f1b3c171
+- image_ref: jefzda/sweap-images:qutebrowser.qutebrowser-qutebrowser__qutebrowser-9b71c1ea67a9e7eb70dd83214d881c2031db6541-v363c8a7e5ccdf6968fc7ab84a2053ac780366
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 556558017
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_qutebrowser__qutebrowser-9b71c1ea67a9e7eb70dd83214d881c2031db6541-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d
+- image_ref: jefzda/sweap-images:qutebrowser.qutebrowser-qutebrowser__qutebrowser-8f46ba3f6dc7b18375f7aa63c48a1fe461190430-v2ef375ac784985212b1805e1d0431dc8f1b3c
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 687706826
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_qutebrowser__qutebrowser-8f46ba3f6dc7b18375f7aa63c48a1fe461190430-v2ef375ac784985212b1805e1d0431dc8f1b3c171
+- image_ref: jefzda/sweap-images:qutebrowser.qutebrowser-qutebrowser__qutebrowser-996487c43e4fcc265b541f9eca1e7930e3c5cf05-v2ef375ac784985212b1805e1d0431dc8f1b3c
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 687858275
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_qutebrowser__qutebrowser-996487c43e4fcc265b541f9eca1e7930e3c5cf05-v2ef375ac784985212b1805e1d0431dc8f1b3c171
+- image_ref: jefzda/sweap-images:qutebrowser.qutebrowser-qutebrowser__qutebrowser-3fd8e12949b8feda401930574facf09dd4180bba
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 560965998
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_qutebrowser__qutebrowser-3fd8e12949b8feda401930574facf09dd4180bba
+- image_ref: jefzda/sweap-images:qutebrowser.qutebrowser-qutebrowser__qutebrowser-66cfa15c372fa9e613ea5a82d3b03e4609399fb6-v363c8a7e5ccdf6968fc7ab84a2053ac780366
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 556588199
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_qutebrowser__qutebrowser-66cfa15c372fa9e613ea5a82d3b03e4609399fb6-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d
+- image_ref: jefzda/sweap-images:qutebrowser.qutebrowser-qutebrowser__qutebrowser-1943fa072ec3df5a87e18a23b0916f134c131016-vafb3e8e01b31319c66c4e666b8a3b1d8ba55d
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 716135047
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_qutebrowser__qutebrowser-1943fa072ec3df5a87e18a23b0916f134c131016-vafb3e8e01b31319c66c4e666b8a3b1d8ba55db24
+- image_ref: jefzda/sweap-images:qutebrowser.qutebrowser-qutebrowser__qutebrowser-fd6790fe8c02b144ab2464f1fc8ab3d02ce3c476-v2ef375ac784985212b1805e1d0431dc8f1b3c
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 690211200
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_qutebrowser__qutebrowser-fd6790fe8c02b144ab2464f1fc8ab3d02ce3c476-v2ef375ac784985212b1805e1d0431dc8f1b3c171
+- image_ref: jefzda/sweap-images:qutebrowser.qutebrowser-qutebrowser__qutebrowser-fec187c2cb53d769c2682b35ca77858a811414a8-v363c8a7e5ccdf6968fc7ab84a2053ac780366
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 555075132
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_qutebrowser__qutebrowser-fec187c2cb53d769c2682b35ca77858a811414a8-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d
+- image_ref: jefzda/sweap-images:qutebrowser.qutebrowser-qutebrowser__qutebrowser-52708364b5f91e198defb022d1a5b4b3ebd9b563-v2ef375ac784985212b1805e1d0431dc8f1b3c
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 687569209
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_qutebrowser__qutebrowser-52708364b5f91e198defb022d1a5b4b3ebd9b563-v2ef375ac784985212b1805e1d0431dc8f1b3c171
+- image_ref: jefzda/sweap-images:qutebrowser.qutebrowser-qutebrowser__qutebrowser-46e6839e21d9ff72abb6c5d49d5abaa5a8da8a81-v2ef375ac784985212b1805e1d0431dc8f1b3c
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 689466511
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_qutebrowser__qutebrowser-46e6839e21d9ff72abb6c5d49d5abaa5a8da8a81-v2ef375ac784985212b1805e1d0431dc8f1b3c171
+- image_ref: jefzda/sweap-images:tutao.tutanota-tutao__tutanota-befce4b146002b9abc86aa95f4d57581771815ce-vee878bb72091875e912c52fc32bc60ec3760227b
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1225972063
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_tutao__tutanota-befce4b146002b9abc86aa95f4d57581771815ce-vee878bb72091875e912c52fc32bc60ec3760227b
+- image_ref: jefzda/sweap-images:tutao.tutanota-tutao__tutanota-219bc8f05d7b980e038bc1524cb021bf56397a1b-vee878bb72091875e912c52fc32bc60ec3760227b
+  context_source:
+    type: registry
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 1182205551
+    size_hint_source: registry-probe
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: swebench-pro
+    xrlenv.instance_id: instance_tutao__tutanota-219bc8f05d7b980e038bc1524cb021bf56397a1b-vee878bb72091875e912c52fc32bc60ec3760227b

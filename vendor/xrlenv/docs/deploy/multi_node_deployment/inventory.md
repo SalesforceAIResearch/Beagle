@@ -1,0 +1,143 @@
+# Node inventory (`nodes.yaml`)
+
+Declare the set of expected nodes so the admin panel and `xrlenv
+nodes` CLI can roster connecting nodes by stable id rather than by
+raw IP. The inventory is operator-managed; nodes are not blocked by
+it. A node that connects with a valid token but isn't listed still
+attaches and surfaces in the admin `/nodes` page with the
+`rostered?` column showing `no`.
+
+```yaml
+nodes:
+  - id: gcp-1
+    host: <gcp-node-host>
+    provider: gcp
+    zone: us-central1-a
+  - id: aws-1
+    host: <aws-node-host>
+    provider: aws
+    zone: us-west-2a
+  - id: local-laptop
+    host: 127.0.0.1
+```
+
+Pass the inventory to `xrlenv up` via `--admin-nodes-yaml`:
+
+```bash
+xrlenv up --admin-nodes-yaml nodes.yaml
+```
+
+Or pass it to `xrlenv nodes` for cross-referencing against the live state:
+
+```bash
+xrlenv nodes --nodes-yaml nodes.yaml
+```
+
+## Per-node fields
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `id` | string | required | Stable node identity; used in the admin panel and CLI rosters. |
+| `host` / `address` | string | required | IP or hostname of the node. |
+| `provider` | string | — | Cloud provider label (`gcp`, `aws`); informational only. |
+| `zone` | string | — | Cloud zone label; informational only. |
+| `backends` | list | `[docker]` | Sandbox backends installed on this node. |
+| `sysbox` | bool | `false` | Mark this node as a member of the Sysbox node pool (see below). |
+
+## Cluster-wide policy
+
+The optional `policy:` block configures `KwargsPolicy` — cluster-wide admission
+rules applied to every `acquire_container` call:
+
+```yaml
+policy:
+  allowed_runtimes: []    # default: empty — all runtime overrides rejected
+```
+
+| Field | Default | Description |
+|---|---|---|
+| `allowed_runtimes` | `[]` (empty) | OCI runtimes that consumers may request via `container_runtime`. Empty by default — any non-`runc` runtime override is rejected with a `KwargsPolicyViolation`. Add `sysbox-runc` to permit the Sysbox pool. `runc` and `None` (Docker's default) are always allowed regardless of this list. |
+
+## Sysbox pool (`sysbox: true` + `allowed_runtimes`)
+
+To run containers that need Docker-in-Docker, `systemd` as PID 1, or privileged
+kernel namespaces, declare a Sysbox node pool. This requires two independent
+knobs working together:
+
+```yaml
+version: 1
+nodes:
+  - id: aws-sysbox-1
+    address: <sysbox-node-host>
+    backends: [docker]
+    sysbox: true           # (1) pool membership
+  - id: aws-worker-1
+    address: <worker-node-host>
+    backends: [docker]
+    # no sysbox: stays a normal Docker node
+
+policy:
+  allowed_runtimes: [sysbox-runc]  # (2) cluster policy opt-in
+```
+
+- **`sysbox: true`** — declares the node as a Sysbox pool member. Used by the
+  deploy toolkit (`deploy_sysbox_pool.sh`) to target the install. Placement is
+  ultimately driven by what Docker on each node actually advertises at connect
+  time (`NodeHello.supported_runtimes`), so a mis-marked node simply won't
+  attract sysbox work.
+- **`policy.allowed_runtimes: [sysbox-runc]`** — permits consumers to pass
+  `container_runtime="sysbox-runc"` to `acquire_container`. Without this, every
+  such request is rejected regardless of node capability.
+
+For the full build / install / deployment guide, see {doc}`sysbox_pool`.
+
+## Registry reconciliation on startup
+
+On every `xrlenv up`, after loading the `--admin-nodes-yaml` roster, the
+control plane automatically prunes stale node rows from `state.db`:
+
+- **Pruned:** rows with `status='lost'` whose `node_id` is NOT in the
+  current roster. These are decommissioned hosts — most commonly
+  IP-derived node IDs (e.g. `aws-<hostname>`) that were orphaned
+  by a cluster reboot that reassigned IP addresses.
+- **Kept:** rows for nodes that are `connected`, and rows for any
+  `node_id` still present in `nodes.yaml` (flapping-node history is
+  preserved for nodes you still run).
+- **Satellite rows also cleared:** per-node `node_health` and
+  `node_aimd_limit` rows are deleted alongside the main node row.
+  Rollout history in `raw_rollouts` is left intact (separate GC).
+- **Safe no-op when roster is empty:** if `nodes.yaml` fails to load or
+  is empty, reconciliation is skipped entirely — a bad roster never
+  nukes the whole registry.
+
+**Why this matters.** On Slurm/HyperPod clusters, node identities are
+IP-derived (`node_id = aws-<hostname>`), so each cluster reboot mints
+new node IDs and orphans the previous set. Without reconciliation,
+`xrlenv nodes` and the admin `/nodes` panel would accumulate `lost` rows
+from every reboot; with it, they always show only the current fleet at no
+operator cost.
+
+A `startup-prune` log line confirms the action:
+
+```text
+INFO startup-prune: reaped 4 unrostered lost node(s) from the registry:
+  aws-<hostname-1>, aws-<hostname-2>, ...
+```
+
+No log line means there was nothing to prune — both outcomes are normal.
+
+:::{note}
+On Slurm clusters the `nodes.yaml` roster is auto-generated by
+`xrlenv nodes-from-slurm` at control-plane startup. Its contents are
+derived from the topology declared in `slurm_scripts/clusters.yaml` — see
+{doc}`slurm_topology` for how to update that file after a reboot.
+:::
+
+## See also
+
+- {doc}`/deploy/multi_node_deployment/cloud_VM_providers/gcp` — bootstrap a GCP node.
+- {doc}`/deploy/multi_node_deployment/cloud_VM_providers/aws` — bootstrap an AWS node.
+- {doc}`sysbox_pool` — Sysbox node pool: build, install, and security posture.
+- {doc}`slurm_topology` — Slurm/HyperPod topology management (`clusters.yaml` + generator).
+- {doc}`/developer_guide/cli_reference` — `xrlenv nodes` and `xrlenv up` flag reference.
+- {doc}`/developer_guide/security` — security model and token scopes.

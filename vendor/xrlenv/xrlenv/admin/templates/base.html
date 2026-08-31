@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>XRLEnv admin — {% block title %}{% endblock %}</title>
+  {# Per-route ``refresh_s`` controls auto-refresh. Pages that want
+     it (overview, rollouts list, etc.) pass a positive number;
+     pages that DON'T want auto-refresh (rollout-detail when the
+     operator is inspecting a single trajectory) pass 0 and the
+     meta tag is omitted entirely. #}
+  {% if refresh_s and refresh_s > 0 %}
+  <meta http-equiv="refresh" content="{{ refresh_s }}{% if refresh_url %}; url={{ refresh_url }}{% endif %}">
+  {% endif %}
+  <link rel="stylesheet" href="/static/xrlenv.css?v=admin-ia-6">
+</head>
+<body>
+  <header>
+    <nav>
+      <a href="/" class="brand">xrlenv</a>
+      <a href="/" class="{% if active_page == 'overview' %}active{% endif %}">overview</a>
+      <a href="/health" class="{% if active_page == 'health' %}active{% endif %}">health</a>
+      <span class="nav-menu">
+        <button type="button" class="nav-menu-trigger {% if active_page in ['rollouts_raw', 'rollouts_template'] %}active{% endif %}">rollouts</button>
+        <div class="nav-menu-panel">
+          <a href="/rollouts/raw" class="{% if active_page == 'rollouts_raw' %}active{% endif %}">
+            <strong>raw containers</strong>
+            <span>evaluation harnesses (drop-in)</span>
+          </a>
+          <a href="/rollouts/template" class="{% if active_page == 'rollouts_template' %}active{% endif %}">
+            <strong>templates</strong>
+            <span>trainer-driven rollouts</span>
+          </a>
+        </div>
+      </span>
+      <a href="/sandboxes" class="{% if active_page == 'sandboxes' %}active{% endif %}">sandboxes</a>
+      <a href="/nodes" class="{% if active_page == 'nodes' %}active{% endif %}">nodes</a>
+      <span class="nav-menu">
+        <button type="button" class="nav-menu-trigger {% if active_page in ['images_cache', 'images_catalog'] %}active{% endif %}">images</button>
+        <div class="nav-menu-panel">
+          <a href="/images/cache" class="{% if active_page == 'images_cache' %}active{% endif %}">
+            <strong>storage</strong>
+            <span>disk pressure by node</span>
+          </a>
+          <a href="/images/catalog" class="{% if active_page == 'images_catalog' %}active{% endif %}">
+            <strong>coverage</strong>
+            <span>warm images by cluster</span>
+          </a>
+        </div>
+      </span>
+      <a href="/capacity" class="{% if active_page == 'capacity' %}active{% endif %}">capacity</a>
+      <a href="/fairshare" class="{% if active_page == 'fairshare' %}active{% endif %}">fair-share</a>
+      <a href="/builds" class="{% if active_page == 'builds' %}active{% endif %}">builds</a>
+      {# Operator-only page. On a loopback bind no identity is stashed (auth
+         bypassed → trusted), so the link shows there too; on a public bind it
+         appears only for an operator token. #}
+      {% if not request.state.identity or request.state.identity.role == 'operator' %}
+      <a href="/users" class="{% if active_page == 'users' %}active{% endif %}">users</a>
+      {% endif %}
+      <span class="nav-spacer" aria-hidden="true"></span>
+      {% if refresh_configurable %}
+      <label class="refresh-control" style="margin-left: auto;">auto-refresh
+        <select id="refresh-select">
+          <option value="off" {% if not refresh_s or refresh_s <= 0 %}selected{% endif %}>off</option>
+          {% for seconds in refresh_options_s %}
+            {% if seconds > 0 %}
+            <option value="{{ seconds }}" {% if refresh_s == seconds %}selected{% endif %}>{{ seconds }}s</option>
+            {% endif %}
+          {% endfor %}
+        </select>
+      </label>
+      <span class="refresh-note">default {% if refresh_default_s and refresh_default_s > 0 %}{{ refresh_default_s }}s{% else %}off{% endif %}</span>
+      {% elif refresh_s and refresh_s > 0 %}
+      <span class="refresh-note" style="margin-left: auto;">auto-refresh {{ refresh_s }}s</span>
+      {% endif %}
+      {# Identity + logout: only shown once a cookie session is established
+         (public bind). On a loopback bind auth is bypassed and no identity is
+         stashed, so the block stays hidden. #}
+      {% if request.state.identity %}
+      <span class="nav-auth{% if not (refresh_configurable or (refresh_s and refresh_s > 0)) %} nav-auth-pushed{% endif %}">
+        <span class="nav-identity" title="signed-in token">
+          {{ request.state.identity.display_name or request.state.identity.owner_id }} · {{ request.state.identity.role }}
+        </span>
+        <form method="post" action="/logout" class="logout-form">
+          <button type="submit">log out</button>
+        </form>
+      </span>
+      {% endif %}
+    </nav>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <script>
+  (function () {
+    var select = document.getElementById('refresh-select');
+    if (!select) return;
+    select.addEventListener('change', function () {
+      var url = new URL(window.location.href);
+      url.searchParams.set('refresh', select.value);
+      window.location.href = url.toString();
+    });
+  })();
+  </script>
+</body>
+</html>

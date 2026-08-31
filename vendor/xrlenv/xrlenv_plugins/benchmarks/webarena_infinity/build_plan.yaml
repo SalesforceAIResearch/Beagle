@@ -1,0 +1,52 @@
+# Build plan for the answer-free webarena-infinity substrate image.
+#
+# Consumed by the standard tool (the same path seta_env uses):
+#
+#   .venv/bin/python deploy/registry/build_and_push_images.py \
+#       --plan xrlenv_plugins/benchmarks/webarena_infinity/build_plan.yaml \
+#       --registry <XRLENV_PRIVATE_REGISTRY_HOST>:5011 --registry-scheme http --force
+#
+# `local` source: the Dockerfile already lives on the shared FS and clones
+# webarena + strips the answers itself, so there is nothing to fetch — it is
+# built in place. The default (last) Dockerfile stage is `substrate`
+# (answer-free). Build hosts must already be bootstrapped for the private
+# registry (insecure-registries); see
+# docs/deploy/multi_node_deployment/private_registry.md.
+#
+# TAG = `:dev` (channel tag, NOT the WAI commit). This image_ref is a stable
+# DISTRIBUTION channel, decoupled from the WAI source commit (pinned in the
+# Dockerfile's WEBARENA_REF). This bare ref is registry-AGNOSTIC on purpose (so
+# it's portable + matches calibrate). Consumers store this bare ref but PREPEND
+# the private-registry host from .env before dispatch (`<host>:5011/<ref>`); the
+# control plane resolves that REGISTRY-QUALIFIED ref → the current registry
+# digest at acquire (XRLENV_REGISTRY_DIGEST_RESOLVE) and pins it per run, so a
+# rebuilt+re-pushed `:dev` reaches nodes automatically. A bare ref with no host
+# is NOT resolved — see docs/.../webarena_infinity. Prod uses `:stable`. Re-push
+# needs `--force` (the tag already exists on the registry).
+version: 1
+name: webarena-infinity-substrate
+replication: 1
+budget:
+  reserved_runtime_gb: 30
+  buffer_gb: 10
+entries:
+- image_ref: xrlenv-webarena-infinity/substrate:dev
+  context_source:
+    type: local
+    # Absolute path to THIS plugin dir on your shared FS. `type: local` requires an
+    # absolute path that resolves identically on every build node (see `shared_fs`);
+    # replace <xrlenv-repo-root> with your checkout's absolute path before building.
+    path: <xrlenv-repo-root>/xrlenv_plugins/benchmarks/webarena_infinity
+    dockerfile: Dockerfile
+    shared_fs: hyperpod
+  placement:
+    preferred_home_count: 1
+    # Pre-calibration operator hint (~1 GiB on-disk for the shrunk image);
+    # `xrlenv build calibrate` refreshes it to the cluster-measured size once a
+    # node has materialized `:dev`.
+    size_hint_bytes: 1089748433
+    size_hint_source: heuristic
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: webarena-infinity

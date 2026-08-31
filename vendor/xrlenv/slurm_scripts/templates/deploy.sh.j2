@@ -1,0 +1,366 @@
+#!/usr/bin/env bash
+# @{ deploy_script_name }@ — one-command (re)deploy of the @{ name|upper }@ xrlenv cluster.
+#
+# Does, in order:
+#   1. restart the node job          (scancel + sbatch @{ node_script_name }@)
+#   2. restart the control job       (scancel + sbatch @{ control_script_name }@)
+#      + open the SSH tunnel to the control plane (admin :@{ tunnel_admin }@, metrics :@{ tunnel_metrics }@)
+#   3. configure + install the Sysbox node pool, IDEMPOTENTLY (skip any node
+#      whose docker already advertises sysbox-runc)
+#   4. enable the CPU-isolation pool, IDEMPOTENTLY (flip docker to cgroupfs +
+#      build a probe image so unpinned runc containers get complement-confined)
+#
+# GENERATED from slurm_scripts/clusters.yaml + slurm_scripts/templates/ —
+# do NOT hand-edit. Change the cluster's entry in clusters.yaml, then run
+# `python slurm_scripts/generate_deployment_script.py --cluster @{ name }@`.
+#
+# Run from anywhere on the login node:  bash @{ deploy_script }@
+# Idempotent: safe to re-run; a healthy cluster just gets bounced + re-tunnelled,
+# and already-installed sysbox nodes are skipped (no needless docker restart).
+
+set -euo pipefail
+
+# ─────────────────────────────────────────────────────────────────────────────
+# @{ name|upper }@ config — GENERATED from clusters.yaml; edit there, not here
+# ─────────────────────────────────────────────────────────────────────────────
+NODE_JOB="@{ node_job }@"
+CONTROL_JOB="@{ control_job }@"
+NODE_SBATCH="@{ node_script }@"
+CONTROL_SBATCH="@{ control_script }@"
+CP_NODE="@{ control_plane }@"                       # control-plane host
+CP_PORT=@{ grpc_port }@                                  # gRPC port (mirrors @{ node_script_name }@ XRLENV_GRPC_PORT default)
+STATE_DB="@{ state_db }@"@{ state_db_pad }@# CP registry — CP-box-LOCAL NVMe (matches @{ control_script_name }@ XRLENV_STATE_DB_PATH); liveness check reads it ON the CP box (XRLENV_VERIFY_CP_SSH_HOST)
+TUNNEL_FWDS=(-L @{ tunnel_admin }@:localhost:8080 -L @{ tunnel_metrics }@:localhost:9090)  # admin 8080, metrics 9090
+
+# Sysbox node pool — hostnames to install Sysbox on AND declare in nodes.yaml
+# (must be a subset of the node job's nodelist). Empty = no sysbox pool.
+# Sysbox is a container-escape surface: keep pools to single-tenant nodes,
+# and only after a security review (see xrlenv_plugins/sysbox/README.md).
+SYSBOX_POOL=(@{ sysbox_pool|join(' ') }@)
+# Per-node cap on concurrently RUNNING sysbox containers — bounds sysbox-fs load
+# so a create/exec storm can't wedge the FUSE daemon (2026-07-07 incident; see
+# notes/design-per-node-runtime-concurrency-cap.md). Stamped onto every
+# SYSBOX_POOL node at nodes.yaml generation; overflow queues in the admission
+# queue. Empty = unlimited. 8 leaves headroom below the ~22 that wedged the dev box.
+SYSBOX_MAX_CONCURRENT=@{ sysbox_max_concurrent }@
+# Host bind paths to allow (policy.allowed_host_paths) — authorizes real host
+# mounts on sysbox nodes. EvoClaw's oracle bind-mounts its golden
+# cache READ-ONLY into the container (EVOCLAW_GOLDEN_DIR, a subdir under this
+# root), so the cache root must be allowlisted here. This is the SHARED cache
+# (run_e2e_xrlenv.py default), not a personal home dir — prefix-matched, so this
+# one entry covers every per-task mount under it. Empty = no extra host paths.
+ALLOWED_HOST_PATHS=(@{ allowed_host_paths|join(' ') }@)
+# CPU-isolation pool — hostnames to make isolation-capable via
+# deploy/node/enable_cpu_isolation.sh (flip docker to the cgroupfs driver + build a
+# probe image, so the node's self-test passes and unpinned runc containers get
+# complement-confined off the pinned cores — notes/cluster-resource-isolation-plan.md
+# §8). NOT a nodes.yaml field: isolation_capable is self-test-discovered and
+# advertised on NodeHello. Enabling a node RESTARTS docker and KILLS its in-flight
+# containers — on a live cluster, only in a maintenance window. Idempotent below
+# (a node already on cgroupfs is skipped). CPU isolation v1 is runc-only, so do NOT overlap
+# with the SYSBOX_POOL above (a warning fires below). Empty = OFF.
+CPU_ISOLATION_POOL=(@{ cpu_isolation_pool|join(' ') }@)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# This script lives at slurm_scripts/generated/deploy_<n>.sh, so the repo root
+# is TWO levels up (…/generated/.. = slurm_scripts, …/../.. = the checkout).
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "${REPO_ROOT}"
+SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=10)
+log() { printf '\n==> %s\n' "$*"; }
+# Fail-closed pre/post-deploy safety gates (shared by every cluster's deploy
+# script; unit-tested in tests/unit/deploy/test_deploy_gates.py). They use
+# SSH_OPTS + XRLENV_DEPLOY_FORCE.
+# shellcheck source=../lib/_deploy_gates.sh
+source "${REPO_ROOT}/slurm_scripts/lib/_deploy_gates.sh"
+
+# ── Load this checkout's .env, exactly as the jobs do ─────────────────────────
+# The node + control jobs run ``set -a; source ./.env; set +a`` before starting,
+# so their runtime config comes from this file. The deploy-time preflights below
+# must read the SAME config, or they judge a different cluster than the one they
+# are about to bounce. Concretely: ``xrlenv_plugins/sysbox/pin.env`` (sourced by
+# the sysbox gate) reads ``$XRLENV_SYSBOX_VENDOR_DIR`` from the ENVIRONMENT, and
+# without this it aborted the deploy with "is not set" on a checkout whose .env
+# sets it perfectly well. The topology + registry gates escaped that only because
+# they grep the file instead of reading the environment — two mechanisms, and
+# just one of them happened to work without .env loaded.
+#
+# ``set -a`` exports, so these also reach the ssh/sbatch calls below — the same
+# values the jobs would have loaded for themselves. The file WINS over a variable
+# already set in your shell, deliberately: deploy-time and runtime have to agree,
+# so .env stays the single place to change one of these. Missing .env is left to
+# the topology gate immediately below, which reports it properly.
+if [ -f "${REPO_ROOT}/.env" ]; then
+    set -a
+    # shellcheck disable=SC1091  # operator-managed; not in the repo
+    source "${REPO_ROOT}/.env"
+    set +a
+fi
+
+# ── Pre-deploy topology gate: clusters.yaml is the source of truth ────────────
+# The node jobs source this checkout's .env for their runtime topology (control
+# plane + registry hosts/ports), and non-Slurm consumers read it via
+# xrlenv.from_env — so .env MUST match clusters.yaml. A drifted/stale .env
+# silently shadows clusters.yaml and the fleet dials the wrong CP / registry
+# (the reboot-.env-drift trap). deploy_check_topology fails closed on drift and
+# prints exactly what to sync; XRLENV_DEPLOY_FORCE=1 downgrades to a warning,
+# XRLENV_DEPLOY_SKIP_ENV_CHECK=1 skips it (e.g. CI already gated --check).
+log "verifying .env + generated scripts match clusters.yaml (@{ name }@)..."
+deploy_check_topology "@{ name }@" \
+    "${REPO_ROOT}/.venv/bin/python" slurm_scripts/generate_deployment_script.py \
+    || exit 1
+@% if deploy_registry %@
+
+# This cluster launches its own registries (deploy_registry: true), so their
+# blob-store paths must be set in .env — they have NO default (the /fsx pattern
+# isn't portable). Fail here, before bouncing jobs, not late in run-registry-*.sh.
+log "verifying registry storage paths are set (@{ name }@ launches its registries)..."
+deploy_check_registry_storage "${REPO_ROOT}/.env" \
+    "XRLENV_MIRROR_REGISTRY_STORAGE|XRLENV_REGISTRY_STORAGE" \
+    XRLENV_PRIVATE_REGISTRY_STORAGE \
+    XRLENV_SCRATCH_REGISTRY_STORAGE \
+    || exit 1
+@% endif %@
+
+# Normalize the pool: accept either space- OR comma-separated entries (a bash
+# array element like ``a,b`` is otherwise one literal token, which would silently
+# fail to match a hostname). Flattens ``(a,b)`` and ``(a b)`` both to ``(a b)``.
+_pool_norm=()
+if [ "${#SYSBOX_POOL[@]}" -gt 0 ]; then
+    for _e in "${SYSBOX_POOL[@]}"; do
+        IFS=', ' read -ra _parts <<< "${_e}"
+        _pool_norm+=("${_parts[@]}")
+    done
+fi
+SYSBOX_POOL=("${_pool_norm[@]}")
+
+_iso_norm=()
+if [ "${#CPU_ISOLATION_POOL[@]}" -gt 0 ]; then
+    for _e in "${CPU_ISOLATION_POOL[@]}"; do
+        IFS=', ' read -ra _parts <<< "${_e}"
+        _iso_norm+=("${_parts[@]}")
+    done
+fi
+CPU_ISOLATION_POOL=("${_iso_norm[@]}")
+
+# ── 0) pre-flight: sysbox vendored binaries must already exist ───────────────
+# The vendor root is PER-CLUSTER storage, so a brand-new cluster starts empty and
+# EVERY node's sysbox install fails — but only in step 3, after this script has
+# already scancelled and resubmitted both jobs. Check before touching anything,
+# and say exactly which command fixes it. (2026-08-08: cn hit precisely this, and
+# the failure surfaced as a per-node "install FAILED" buried in the deploy log.)
+if [ "${#SYSBOX_POOL[@]}" -gt 0 ]; then
+    # shellcheck source=../../xrlenv_plugins/sysbox/pin.env
+    source "${REPO_ROOT}/xrlenv_plugins/sysbox/pin.env"
+    # An unrecognized /fsx layout is worth calling out on its own: the build would
+    # otherwise land inside the checkout rather than shared storage, and the
+    # operator would only notice long after a 30-minute build.
+    if [ "${SYSBOX_VENDOR_SOURCE}" = "fallback" ]; then
+        echo "WARNING: no known shared vendor root on this host; falling back to ${SYSBOX_VENDOR_ROOT}" >&2
+        echo "         (add this cluster's path to _SYSBOX_VENDOR_CANDIDATES in xrlenv_plugins/sysbox/pin.env," >&2
+        echo "          or set XRLENV_SYSBOX_VENDOR_DIR, to keep the build on shared storage)" >&2
+    fi
+    if [ ! -f "${SYSBOX_VENDOR_DIR}/SHA256SUMS" ]; then
+        cat >&2 <<PREFLIGHT
+ERROR: no sysbox vendored binaries at ${SYSBOX_VENDOR_DIR}
+       (location chosen by: ${SYSBOX_VENDOR_SOURCE})
+
+SYSBOX_POOL is non-empty (${SYSBOX_POOL[*]}), so install_sysbox_node.sh will need
+the checksummed binaries it overlays onto the packaged sysbox-ce install — and
+they are not there. The vendor root is per-cluster storage, so a cluster that has
+never built them starts empty. This is expected the first time on a new cluster.
+
+Build them once on this cluster, then re-run this deploy:
+
+    bash ${REPO_ROOT}/xrlenv_plugins/sysbox/build_sysbox.sh
+
+(~15-30 min; needs docker + internet. Set XRLENV_SYSBOX_VENDOR_DIR if the
+binaries live somewhere other than the probed paths.)
+
+To deploy WITHOUT sysbox in the meantime, empty this cluster's sysbox_pool in
+slurm_scripts/clusters.yaml and regenerate. Nothing has been changed yet.
+PREFLIGHT
+        exit 1
+    fi
+    echo "==> sysbox vendored binaries present: ${SYSBOX_VENDOR_DIR}"
+fi
+
+# ── 1) restart the node job ──────────────────────────────────────────────────
+log "restarting nodes: ${NODE_JOB}"
+scancel --name="${NODE_JOB}" 2>/dev/null || true
+sleep 2
+sbatch "${NODE_SBATCH}"
+
+log "waiting for ${NODE_JOB} to be RUNNING (nodes reachable for sysbox install)..."
+deploy_wait_node_running "${NODE_JOB}"   # fail-closed on timeout (XRLENV_DEPLOY_FORCE=1 overrides)
+squeue --name="${NODE_JOB}" 2>/dev/null || true
+
+# ── 2) restart the control job (declare sysbox pool via env) + open tunnel ────
+log "restarting control: ${CONTROL_JOB} (sysbox pool: ${SYSBOX_POOL[*]:-none})"
+# The control job's nodes-from-slurm reads XRLENV_SYSBOX_POOL to mark
+# `sysbox: true` + permit sysbox-runc in policy.allowed_runtimes at generation
+# time (empty = no-op). sbatch --export=ALL propagates it into the job.
+export XRLENV_SYSBOX_POOL="${SYSBOX_POOL[*]:-}"
+# …and XRLENV_SYSBOX_MAX_CONCURRENT stamps the per-node sysbox concurrency cap
+# on those pool nodes at generation (empty = unlimited). Durable across regen: a
+# per-node value already in nodes.yaml is preserved and wins over this default.
+export XRLENV_SYSBOX_MAX_CONCURRENT="${SYSBOX_MAX_CONCURRENT:-}"
+# …and XRLENV_ALLOWED_HOST_PATHS (newline-separated) is merged into
+# policy.allowed_host_paths at generation, so the EvoClaw golden-mount allowlist
+# is an env knob here instead of a personal path baked into the committed roster.
+export XRLENV_ALLOWED_HOST_PATHS="$(printf '%s\n' "${ALLOWED_HOST_PATHS[@]:-}")"
+scancel --name="${CONTROL_JOB}" 2>/dev/null || true
+# Wait for the OLD control plane to FULLY exit before starting a new one — two
+# `xrlenv up` on one state.db corrupt the SQLite -shm / race the journal.
+log "waiting for ${CONTROL_JOB} to fully exit (avoid overlapping state.db open)..."
+deploy_wait_control_gone "${CONTROL_JOB}" "${CP_NODE}"   # fail-closed (XRLENV_DEPLOY_FORCE=1 overrides)
+# state.db lives on the CP box's local NVMe (/opt/sagemaker, root-owned). Pre-create its
+# parent dir user-owned so the control job (runs as us) can write it — passwordless sudo on
+# the box. Idempotent; survives across restarts on the local NVMe.
+log "ensuring local state.db dir on ${CP_NODE}: $(dirname "${STATE_DB}")"
+ssh "${SSH_OPTS[@]}" "${CP_NODE}" \
+    "sudo mkdir -p '$(dirname "${STATE_DB}")' && sudo chown \"\$(id -un):\$(id -gn)\" '$(dirname "${STATE_DB}")'" \
+    || { [ "${XRLENV_DEPLOY_FORCE:-}" = 1 ] || { echo "ERROR: could not create local state.db dir on ${CP_NODE}" >&2; exit 1; }; }
+# Propagate STATE_DB into the control job as XRLENV_STATE_DB_PATH (single source of truth for
+# where the CP writes state.db) — via --export so it can't drift from the liveness check +
+# dir-precreate above. `ALL,VAR=val` keeps the other propagated env (sysbox pool) too, and
+# avoids exporting it into THIS script's env (whose xrlenv calls run on the login box).
+sbatch --export="ALL,XRLENV_STATE_DB_PATH=${STATE_DB}" "${CONTROL_SBATCH}"
+sleep 3
+
+log "opening SSH tunnel to ${CP_NODE} (admin http://localhost:@{ tunnel_admin }@, metrics http://localhost:@{ tunnel_metrics }@)"
+# Drop any stale tunnel on these forwards, then open a fresh backgrounded one.
+pkill -f "ssh -fN.*${CP_NODE}" 2>/dev/null || true
+if ssh -fN "${SSH_OPTS[@]}" "${TUNNEL_FWDS[@]}" "${CP_NODE}"; then
+    echo "    tunnel up → http://localhost:@{ tunnel_admin }@ (admin), http://localhost:@{ tunnel_metrics }@ (metrics)"
+else
+    echo "    WARN: tunnel failed — the CP may still be starting. Re-run:"
+    echo "      ssh -fN ${TUNNEL_FWDS[*]} ${CP_NODE}"
+fi
+
+# ── 3) sysbox pool: idempotent install (skip nodes already advertising it) ────
+if [ "${#SYSBOX_POOL[@]}" -gt 0 ]; then
+    log "configuring sysbox pool (idempotent): ${SYSBOX_POOL[*]}"
+    for node in "${SYSBOX_POOL[@]}"; do
+        if ssh "${SSH_OPTS[@]}" "${node}" 'docker info 2>/dev/null | grep -qi sysbox-runc'; then
+            # Already present, and the bootstrap did NOT restart docker for it.
+            # The docker-ready NodeHello gate makes the bootstrap-started agent
+            # advertise sysbox-runc on its own — do NOT restart the agent here:
+            # that races the still-in-progress node-job bootstrap (pip install +
+            # service start) and wedges the process (Tasks:1 / 336K stub).
+            echo "    ${node}: sysbox-runc already registered — skip (hello gate re-advertises)"
+        else
+            echo "    ${node}: installing sysbox..."
+            # The repo + vendored binaries live on shared /fsx, reachable from
+            # the node, so the installer runs in place (no scp needed).
+            if ssh "${SSH_OPTS[@]}" "${node}" \
+                    "sudo bash ${REPO_ROOT}/xrlenv_plugins/sysbox/install_sysbox_node.sh"; then
+                echo "    ${node}: OK"
+                # The install just restarted docker AFTER the bootstrap started the
+                # agent, so its cached runtime set is stale and `Requires=` (not
+                # `BindsTo=`) docker.service won't re-probe. Restart the agent to
+                # re-advertise — but only once the bootstrap has finished STARTING
+                # it (wait for the unit to be active), else we race that start and
+                # wedge the process the same way.
+                echo "    ${node}: waiting for the agent to settle, then re-advertising..."
+                # Only restart once the bootstrap has the unit ACTIVE — if it
+                # never comes active (a slow or wedged bootstrap) we must NOT
+                # restart into that, so skip + warn rather than fall through.
+                # Distinct exit codes so the local warning tells the two failure
+                # modes apart: 2 = never became active; other = the restart itself
+                # failed after it was active (SSH/sudo/systemd).
+                if ssh "${SSH_OPTS[@]}" "${node}" '
+                        active=0
+                        for _ in $(seq 1 30); do
+                            if systemctl is-active --quiet xrlenv-node; then
+                                active=1; break
+                            fi
+                            sleep 5
+                        done
+                        if [ "$active" != 1 ]; then
+                            echo "agent never became active within the wait window" >&2
+                            exit 2
+                        fi
+                        sudo systemctl restart xrlenv-node'; then
+                    echo "    ${node}: node agent restarted (re-advertised)"
+                else
+                    rc=$?
+                    if [ "$rc" = 2 ]; then
+                        echo "    ${node}: WARN — agent never became active; re-advertise skipped"
+                    else
+                        echo "    ${node}: WARN — agent restart failed after it became active (rc=${rc})"
+                    fi
+                fi
+            else
+                echo "    ${node}: install FAILED (see output above)"
+            fi
+        fi
+    done
+else
+    log "no sysbox pool configured (SYSBOX_POOL empty) — skipping sysbox setup"
+fi
+
+# ── 4) CPU-isolation pool: idempotent enable (skip nodes already cgroupfs) ──
+if [ "${#CPU_ISOLATION_POOL[@]}" -gt 0 ]; then
+    log "configuring CPU-isolation pool (idempotent): ${CPU_ISOLATION_POOL[*]}"
+    for node in "${CPU_ISOLATION_POOL[@]}"; do
+        # Runc-only overlap guard: flipping a sysbox node to cgroupfs can break
+        # its DinD workloads (CPU isolation v1 only proves runc). Warn, but proceed.
+        for _sb in "${SYSBOX_POOL[@]:-}"; do
+            [ "${node}" = "${_sb}" ] && echo "    ${node}: WARN — also in SYSBOX_POOL; cgroupfs may break sysbox DinD (CPU isolation is runc-only)"
+        done
+        if ssh "${SSH_OPTS[@]}" "${node}" 'docker info --format "{{.CgroupDriver}}" 2>/dev/null | grep -qx cgroupfs'; then
+            echo "    ${node}: docker already on cgroupfs — running enable (idempotent, no docker bounce)"
+        else
+            echo "    ${node}: enabling CPU isolation (flips docker to cgroupfs → restarts docker + agent)..."
+        fi
+        # enable_cpu_isolation.sh lives on shared /fsx (reachable from the node);
+        # it restarts docker + the agent when it flips the driver. Same race as
+        # sysbox: don't restart into a still-bootstrapping agent — wait for the
+        # unit to be ACTIVE first, then run the enable. Distinct exit codes: 2 =
+        # agent never became active; other = the enable script itself failed.
+        if ssh "${SSH_OPTS[@]}" "${node}" '
+                active=0
+                for _ in $(seq 1 30); do
+                    if systemctl is-active --quiet xrlenv-node; then active=1; break; fi
+                    sleep 5
+                done
+                if [ "$active" != 1 ]; then
+                    echo "agent never became active within the wait window" >&2
+                    exit 2
+                fi
+                sudo bash '"${REPO_ROOT}"'/deploy/node/enable_cpu_isolation.sh'; then
+            echo "    ${node}: CPU isolation enabled — agent re-runs its self-test at NodeHello"
+        else
+            rc=$?
+            if [ "$rc" = 2 ]; then
+                echo "    ${node}: WARN — agent never became active; CPU-isolation enable skipped"
+            else
+                echo "    ${node}: WARN — enable_cpu_isolation.sh failed (rc=${rc}); node stays non-capable"
+            fi
+        fi
+    done
+    echo "    (check 'xrlenv nodes' CPU_ISOLATION column — expect 'yes …' once reconnected)"
+else
+    log "no CPU-isolation pool configured (CPU_ISOLATION_POOL empty) — skipping"
+fi
+
+# ── 5) post-bootstrap verification: catch nodes whose bootstrap silently died ──
+# A node whose srun bootstrap task exits non-zero (e.g. a flaky docker restart
+# during data-root relocation) is NOT surfaced by the RUNNING check above — it
+# keeps the PRIOR deploy's /etc/xrlenv/node.env, dials a dead control plane, and
+# shows up "absent" with no other signal. Sweep every allocated node and assert
+# its agent config points at THIS control plane; WARN loudly on any mismatch.
+# Two proofs, each FATAL unless XRLENV_DEPLOY_FORCE=1:
+#  (a) config — every allocated node's /etc/xrlenv/node.env points at THIS CP (a
+#      failed bootstrap keeps a stale env, dials a dead CP, shows up "absent");
+#  (b) LIVE   — every allocated node is 'connected' in the CP registry (a current
+#      NodeHello), not just correctly configured.
+log "verifying node agent config + live registration across the allocation..."
+# state.db is CP-box-local → the registration check must read it ON the CP box (ssh), since
+# it isn't on the shared FS anymore. deploy_verify_fleet honors this env; unset = read directly.
+export XRLENV_VERIFY_CP_SSH_HOST="${CP_NODE}"
+deploy_verify_fleet "${NODE_JOB}" "${CP_NODE}:${CP_PORT}" "${STATE_DB}" \
+    "${REPO_ROOT}/.venv/bin/xrlenv"   # fail-closed (XRLENV_DEPLOY_FORCE=1 overrides)
+
+log "@{ name }@ deploy complete."

@@ -1,0 +1,22 @@
+version: 1
+name: webarena-infinity-substrate
+replication: 1
+budget:
+  reserved_runtime_gb: 30
+  buffer_gb: 10
+entries:
+- image_ref: xrlenv-webarena-infinity/substrate:dev
+  context_source:
+    type: local
+    # Set <xrlenv-repo-root> to your checkout's absolute path (type: local needs absolute).
+    path: <xrlenv-repo-root>/xrlenv_plugins/benchmarks/webarena_infinity
+    dockerfile: Dockerfile
+    shared_fs: hyperpod
+  placement:
+    preferred_home_count: 1
+    size_hint_bytes: 826276767
+    size_hint_source: cluster-reported
+  pinned: false
+  priority: 0
+  labels:
+    xrlenv.benchmark: webarena-infinity
