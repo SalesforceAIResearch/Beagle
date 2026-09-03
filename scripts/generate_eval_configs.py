@@ -13,7 +13,7 @@ Flow::
     # 2. generate the configs (source filled from your manifests, matched on version)
     python scripts/generate_eval_configs.py
     # 3. run
-    beagle evaluate --config examples/evaluation/swe-bench-verified/opencode.yaml
+    beagle evaluate --config examples/evaluation/swe-bench-verified/opencode-1.18.16.yaml
 
 **Join key = version.** Each agent below pins a ``version``; the script fills its ``source`` from the
 manifest whose ``version`` matches (onboard's ``--version``). That's the ONLY thing that has to line
@@ -26,7 +26,10 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import random
+import re
 import sys
+import zlib
 from pathlib import Path
 
 import yaml
@@ -50,7 +53,12 @@ DEFAULTS = dict(
     provider="llm-gateway-express-local-proxy",
     effort="high",
     max_turns=150,
+    # LAST-RESORT agent wall clock, written into every generated config ON PURPOSE so the number is
+    # visible and attributable instead of hiding in the code. It applies ONLY to a benchmark that
+    # ships no agent budget of its own (the docker-drop-in path); a harbor-family task's task.toml
+    # [agent] timeout_sec always wins, per task. Scale a declared budget with timeout_multiplier.
     timeout=1800,
+    timeout_multiplier=1.0,
     runtime="xrlenv-cluster",
     run_dir="./results",
     parallelism=32,
@@ -61,66 +69,155 @@ DEFAULTS = dict(
     retry_infra=2,
 )
 
-#: Each agent (by its beagle `harness.name`): the `version` that joins it to a manifest, its own
-#: `extra_args` (the one agent-specific block), and the `smoke_dir` its `--smoke` configs land in.
+#: Each agent, keyed by its beagle `harness.name` (the ADAPTER). ``versions`` lists the experiment
+#: copies of it to generate for — the config schema keeps `harness.name` and `harness.version`
+#: separate precisely so two copies of one harness can coexist (baseline vs candidate), and each
+#: entry joins to a manifest on its version. Adapter-level facts (e.g. `extra_args`) are
+#: shared by every copy. A single-version agent generates exactly the filenames it always did;
+#: only a multi-version one gets the `<name>-<version>` disambiguator.
 AGENTS = {
     "monet": dict(
-        version="20260816",
+        versions=["20260826"],
         extra_args={"monet_args": [
             "--permissive-auto-approve", "--no-monet-md", "--output-format", "stream-json"]},
         note="monet_args: last two are REQUIRED by beagle's stream parser.",
-        smoke_dir="monet_code",
     ),
     "mini-swe": dict(
-        version="v2.4.6",
+        versions=["v2.4.6"],
         extra_args={"mini_swe_args": [{"config_path": "src/minisweagent/config/mini.yaml"}]},
         note="mini_swe_args.config_path is mini-swe's `-c` preset = the evolvable surface.",
-        smoke_dir="mini_swe_smoke",
     ),
     "opencode": dict(
-        version="1.18.16",
+        versions=["1.18.16"],
         extra_args={"opencode_args": ["--auto"]},
         note="opencode accepts max_turns for a uniform vocabulary but has no turn-cap flag (no-op).",
-        smoke_dir="opencode_smoke",
     ),
 }
 
 #: Each benchmark: a short tag for run.name, optional dataset/split, per-benchmark overrides (e.g.
 #: deep-swe's lower parallelism), and the `--smoke` filename + its curated 2-task subset.
 BENCHMARKS = {
-    "terminal_bench_2_1": dict(short="tb21", smoke_file="terminal_bench_2_1_smoke2.yaml",
-                               smoke_tasks=["bn-fit-modify", "adaptive-rejection-sampler"]),
+    "terminal_bench_2_1": dict(short="tb21"),
     "swe-bench-verified": dict(short="swebench_verified", dataset="SWE-bench/SWE-bench_Verified", split="test",
                                # two-phase: agents GENERATE patches (parallelism), then swebench
                                # batch-EVALUATES them in test containers — fan that out wider.
-                               parallelism_eval_patches=64,
-                               smoke_file="swebench-verified_smoke2.yaml",
-                               smoke_tasks=["django__django-11099", "sympy__sympy-13615"]),
+                               parallelism_eval_patches=64),
     "deep-swe": dict(short="deepswe", parallelism=8,
-                     note="pier / filtered-egress — needs the extra: uv pip install -e '.[deep-swe]'",
-                     smoke_file="deep-swe_smoke2.yaml",
-                     smoke_tasks=["abs-module-cache-flags", "abs-stepped-slices"]),
+                     note="pier / filtered-egress — needs the extra: uv pip install -e '.[deep-swe]'"),
+    "swe-rebench": dict(short="swerebench",
+                        note="860 SWE tasks, ~1.9 GB image each pulled on first acquire — pin a "
+                             "small, STABLE task subset per campaign so image affinity helps.",
+),
 }
 
-#: The smoke variants `--smoke` emits per (agent × benchmark). Each takes the first ``n_tasks`` of the
-#: benchmark's ``smoke_tasks`` and lands at ``filename(b)`` in the agent's smoke dir.
-#:   - ``smoke2`` — the original quick 2-task check on the shared DEFAULTS (gpt-5.5 / high / 150).
-#:   - ``smoke1-gpt56sol`` — mirrors the eval_baseline SWEEP knobs (gpt-5.6-sol / medium / 200) on a
-#:     SINGLE task, so a pre-sweep smoke exercises the same shape the baseline run will. Kept in sync
-#:     by ``--smoke`` (was a hand-maintained file that drifted).
+#: The 2 tasks each benchmark is gated on, SAMPLED (seeded) rather than hand-picked, and committed
+#: so a gate failure re-runs identically. Regenerate with ``--reseed-smoke-tasks`` (needs whatever
+#: each benchmark enumerates from: the benchmark cache, HuggingFace…). The seed is derived from the
+#: benchmark name and recorded in the file, so re-sampling is an explicit, reviewable act rather
+#: than something that quietly happens on every generation.
+SMOKE_TASKS_PATH = REPO_ROOT / "scripts" / "smoke_tasks.json"
+#: Tasks per benchmark in the gate — enough to catch plumbing breakage, few enough to stay cheap.
+SMOKE_TASKS_N = 2
+
+
+def smoke_tasks(bench: str) -> list[str]:
+    """The committed sample for ``bench`` (empty if it has never been sampled)."""
+    try:
+        return list(json.loads(SMOKE_TASKS_PATH.read_text(encoding="utf-8"))[bench]["tasks"])
+    except (OSError, ValueError, KeyError):
+        return []
+
+
+def _seed_for(bench: str) -> int:
+    """Deterministic per-benchmark seed — same corpus, same sample, on any machine."""
+    return zlib.crc32(bench.encode()) & 0xFFFFFFFF
+
+
+def reseed_smoke_tasks(benches: list[str] | None = None) -> dict[str, dict]:
+    """Re-sample the gate's tasks from each benchmark's own task list and rewrite the JSON.
+
+    Enumerating needs the real source (benchmark cache / HF dataset), so a benchmark that can't be
+    listed here keeps its existing entry rather than being silently emptied — losing coverage is
+    worse than a stale sample, and the reason is printed."""
+    import beagle as bgl
+    from beagle.benchmarks.base import BenchmarkSpec
+
+    try:
+        book = json.loads(SMOKE_TASKS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        book = {}
+    for bench in (benches or list(BENCHMARKS)):
+        try:
+            ids = sorted(t.task_id for t, _c in bgl.benchmarks.load_tasks(BenchmarkSpec(name=bench)))
+        except Exception as e:  # noqa: BLE001 — any enumeration failure keeps the old sample
+            print(f"  ! {bench}: cannot enumerate ({type(e).__name__}: {e}) — keeping "
+                  f"{book.get(bench, {}).get('tasks', [])}", file=sys.stderr)
+            continue
+        seed = _seed_for(bench)
+        picked = sorted(random.Random(seed).sample(ids, min(SMOKE_TASKS_N, len(ids))))
+        book[bench] = {"seed": seed, "sampled_from": len(ids), "tasks": picked}
+        print(f"  ✓ {bench}: {picked} (seed {seed}, from {len(ids)} tasks)")
+    SMOKE_TASKS_PATH.write_text(json.dumps(book, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return book
+
+
+#: The smoke variants `--smoke` emits per (copy × benchmark). Each takes the first ``n_tasks`` of the
+#: benchmark's ``smoke_tasks`` and lands at ``tests/smoke/<benchmark>/<label>_<variant>.yaml`` —
+#: the SAME shape as the eval configs (benchmark dir, copy-labelled file), so one spelling of each
+#: benchmark and one rule. Both used to name their own files (a per-benchmark ``smoke_file`` string
+#: and a per-variant lambda), which is why one directory held `terminal_bench_2_1_smoke2.yaml`
+#: next to `tb21_smoke1_gpt56sol.yaml`.
+#: ONE variant, ``smoke2``: the gate answers "does this harness × benchmark combination work at
+#: all", and one 2-task config per combination answers it. (There was a second, single-task variant
+#: mirroring the baseline sweep's knobs — that is the sweep's business, not the gate's.)
 SMOKE_VARIANTS = {
     "smoke2": dict(
         model=DEFAULTS["model"], effort=DEFAULTS["effort"], max_turns=DEFAULTS["max_turns"],
-        parallelism=2, n_tasks=2, name_suffix="smoke2",
-        filename=lambda b: b["smoke_file"]),
-    "smoke1-gpt56sol": dict(
-        model="gpt-5.6-sol", effort="medium", max_turns=200,
-        parallelism=1, n_tasks=1, name_suffix="smoke-gpt56sol",
-        filename=lambda b: f"{b['short']}_smoke1_gpt56sol.yaml"),
+        parallelism=2, n_tasks=2, name_suffix="smoke2"),
 }
 
 
-def build_config(agent: str, bench: str, manifest: dict, *, smoke: bool = False, variant: dict | None = None) -> dict:
+def _label(agent: str, version: str) -> str:
+    """The artifact name for one experiment copy: ALWAYS ``<harness>-<version>``.
+
+    Unconditional on purpose. Naming that depended on how many copies an agent happens to have
+    would mean adding a second version silently renames the first one's configs and run dirs, and
+    two agents in the same table would follow different rules. A name is a pure function of the
+    cell it describes."""
+    return f"{agent}-{version}"
+
+
+#: A version becomes a path component (config filename, smoke filename, run.name -> results dir),
+#: so it has to be safe as one. `release/1.2` would otherwise silently create a nested directory
+#: instead of one artifact.
+_SAFE_VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")   # \Z, not $: `$` also
+#: matches just before a trailing newline, so "1.2\n" would have become a filename.
+
+
+def agent_cells(agents: dict | None = None):
+    """Yield ``(harness_name, version, label)`` — one cell per experiment copy.
+
+    ``label`` (``<harness>-<version>``) names the generated artifact, so two copies of one harness
+    never overwrite each other's config or share a ``run.name`` — which would collide again in the
+    results dir. See :func:`_label` for why it is unconditional.
+    """
+    for name, a in (agents if agents is not None else AGENTS).items():
+        versions = a.get("versions", [a["version"]] if "version" in a else [])
+        if not versions:
+            raise SystemExit(
+                f"agent {name!r} lists no versions — give it `versions=[...]` with at least one "
+                f"experiment copy, or drop the entry. An empty list is silently zero configs.")
+        for v in [str(v) for v in versions]:
+            if not _SAFE_VERSION.fullmatch(v):
+                raise SystemExit(
+                    f"agent {name!r} has version {v!r}, which can't be a filename component: it "
+                    f"lands in the config name, the smoke name and run.name (hence the results "
+                    f"dir). Use [A-Za-z0-9._-] only — e.g. 'release-1.2', not 'release/1.2'.")
+            yield name, v, _label(name, v)
+
+
+def build_config(agent: str, bench: str, manifest: dict, *, smoke: bool = False,
+                 variant: dict | None = None, version: str | None = None) -> dict:
     """The canonical eval-config shape (one place). ``source`` is filled from ``manifest`` (the
     ``token_env`` line is included only when the manifest records one).
 
@@ -130,6 +227,7 @@ def build_config(agent: str, bench: str, manifest: dict, *, smoke: bool = False,
     if variant is None and smoke:
         variant = SMOKE_VARIANTS["smoke2"]
     a, b = AGENTS[agent], BENCHMARKS[bench]
+    version = str(version if version is not None else (a.get("versions") or [a["version"]])[0])
     source = {"repo": manifest["repo"], "ref": manifest["ref"]}
     if manifest.get("token_env"):
         source["token_env"] = manifest["token_env"]
@@ -138,23 +236,27 @@ def build_config(agent: str, bench: str, manifest: dict, *, smoke: bool = False,
         if b.get(k):
             data_entry[k] = b[k]
     if variant:
-        data_entry["tasks"] = list(b["smoke_tasks"][:variant["n_tasks"]])
+        data_entry["tasks"] = smoke_tasks(bench)[: variant["n_tasks"]]
     return {
         "run": {
             "dir": "./tmp" if variant else DEFAULTS["run_dir"],
             # smoke run-name uses the agent with its hyphen dropped (miniswe/monet/opencode)
-            "name": (f"{agent.replace('-', '')}-{b['short']}-{variant['name_suffix']}" if variant
-                     else f"eval-{agent}-{b['short']}"),
+            "name": (f"{agent.replace('-', '')}-{version}-{b['short']}-{variant['name_suffix']}"
+                     if variant
+                     else f"eval-{_label(agent, version)}-{b['short']}"),
             "runtime": DEFAULTS["runtime"],
             "parallelism": variant["parallelism"] if variant else b.get("parallelism", DEFAULTS["parallelism"]),
             # A two-phase benchmark (SWE-bench) fans patch EVAL out wider than patch generation.
             **({"parallelism_eval_patches": b["parallelism_eval_patches"]}
                if b.get("parallelism_eval_patches") else {}),
+            # Scales the TASK's own declared phase budgets. RUN-level, not under `retry`: it
+            # applies to the first attempt as much as to a re-run.
+            "timeout_multiplier": DEFAULTS["timeout_multiplier"],
             # Retry an infra-transient trial in a fresh container; never re-rolls content.
             "retry": {"infra": DEFAULTS["retry_infra"]},
         },
         "agent": {
-            "harness": {"name": agent, "version": a["version"], "source": source},
+            "harness": {"name": agent, "version": version, "source": source},
             "model": {"name": variant["model"] if variant else DEFAULTS["model"]},
             "provider": DEFAULTS["provider"],
             "effort": variant["effort"] if variant else DEFAULTS["effort"],
@@ -167,6 +269,32 @@ def build_config(agent: str, bench: str, manifest: dict, *, smoke: bool = False,
     }
 
 
+#: Comments attached to the two timeout knobs IN PLACE. A header note three lines up doesn't travel
+#: with the value: `timeout: 1800` on its own reads as a per-run wall clock, which is exactly the
+#: misreading the fallback design exists to prevent.
+_TIMEOUT_NOTE = (
+    "# LAST RESORT — used ONLY by a benchmark that ships no agent budget of its own.\n"
+    "# A harbor/pier task declares its own `[agent] timeout_sec`; that always wins and this\n"
+    "# value is then ignored. To make a declared budget longer/shorter, use timeout_multiplier.\n")
+_MULTIPLIER_NOTE = (
+    "# THE knob for run length: scales each task's OWN declared budget (agent + verifier).\n"
+    "# 1.0 = exactly what the benchmark declares. Prefer this over an absolute timeout.\n")
+
+
+def _annotate_timeouts(body: str) -> str:
+    """Insert the notes above ``agent.timeout`` / ``run.timeout_multiplier`` in the dump."""
+    out = []
+    for line in body.splitlines(keepends=True):
+        stripped = line.lstrip()
+        indent = line[: len(line) - len(stripped)]
+        if stripped.startswith("timeout:"):
+            out += [f"{indent}{ln}\n" for ln in _TIMEOUT_NOTE.strip().splitlines()]
+        elif stripped.startswith("timeout_multiplier:"):
+            out += [f"{indent}{ln}\n" for ln in _MULTIPLIER_NOTE.strip().splitlines()]
+        out.append(line)
+    return "".join(out)
+
+
 def _dump(agent: str, bench: str, cfg: dict, *, smoke: bool = False) -> str:
     kind = "smoke config" if smoke else "config"
     header = [f"# {agent} on {bench} — GENERATED {kind} by scripts/generate_eval_configs.py "
@@ -174,7 +302,8 @@ def _dump(agent: str, bench: str, cfg: dict, *, smoke: bool = False) -> str:
     for src in (AGENTS[agent].get("note"), BENCHMARKS[bench].get("note")):
         if src:
             header.append(f"# {src}")
-    body = yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False, width=100)
+    body = _annotate_timeouts(
+        yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False, width=100))
     return "\n".join(header) + "\n" + body
 
 
@@ -210,58 +339,55 @@ def _manifests_by_version(manifest_dir: Path) -> dict[str, dict]:
     return by_version
 
 
-def generate(*, manifest_dir: Path, out_root: Path, smoke_root: Path = SMOKE_ROOT,
-             smoke: bool = False, check: bool = False) -> tuple[int, list[str]]:
-    """Generate the runnable configs, filling ``source`` from each agent's onboarded manifest.
+def generate(*, manifest_dir: Path, smoke_root: Path = SMOKE_ROOT,
+             check: bool = False) -> tuple[int, list[str]]:
+    """Generate the smoke GATE — every experiment copy × every benchmark × each
+    :data:`SMOKE_VARIANTS` entry — into ``smoke_root/<benchmark>/<label>_<variant>.yaml``, with
+    ``source`` filled from each copy's onboarded manifest.
 
-    ``smoke=False`` (default) → one **eval** config per (agent × benchmark) into ``out_root``.
-    ``smoke=True`` → the **dev-smoke** configs only into ``smoke_root/<smoke_dir>/`` — every
-    :data:`SMOKE_VARIANTS` entry per (agent × benchmark), NOT the eval configs. Returns (written,
-    missing-agent names)."""
+    This is the whole output. The other two config trees are deliberately not generated here:
+    ``examples/evaluation/`` is hand-written teaching material (one file per USE CASE, not per
+    agent×benchmark cell), and full-benchmark runs come from
+    ``experiments/scripts/generate_eval_configs.py``. Returns (written, missing copy names)."""
     manifests = _manifests_by_version(manifest_dir)
-    missing = [f"{agent} (v{a['version']})" for agent, a in AGENTS.items()
-               if manifests.get(str(a["version"])) is None]
-    resolved = [(agent, a, manifests[str(a["version"])]) for agent, a in AGENTS.items()
-                if str(a["version"]) in manifests]
+    cells = list(agent_cells())
+    missing = [f"{label} (v{v})" for _n, v, label in cells if manifests.get(v) is None]
+    resolved = [(name, v, label, manifests[v]) for name, v, label in cells if v in manifests]
     written = 0
-
-    if smoke:
-        print(f"[gen] smoke configs → {smoke_root}")
-        for agent, a, manifest in resolved:
-            if not a.get("smoke_dir"):
-                continue
-            for bench, b in BENCHMARKS.items():
-                for variant in SMOKE_VARIANTS.values():
-                    _write(smoke_root / a["smoke_dir"] / variant["filename"](b),
-                           _dump(agent, bench, build_config(agent, bench, manifest, variant=variant), smoke=True),
-                           check=check)
-                    written += 1
-    else:
-        print(f"[gen] eval configs → {out_root}")
-        for agent, _a, manifest in resolved:
-            for bench in BENCHMARKS:
-                _write(out_root / bench / f"{agent}.yaml",
-                       _dump(agent, bench, build_config(agent, bench, manifest)), check=check)
+    print(f"[gen] smoke gate → {smoke_root}")
+    for agent, version, label, manifest in resolved:
+        for bench in BENCHMARKS:
+            for key, variant in SMOKE_VARIANTS.items():
+                _write(smoke_root / bench / f"{label}_{key}.yaml",
+                       _dump(agent, bench, build_config(agent, bench, manifest, variant=variant,
+                                                        version=version), smoke=True),
+                       check=check)
                 written += 1
     return written, missing
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Generate runnable eval configs from onboarded manifests")
-    ap.add_argument("--out", default=str(OUT_ROOT), metavar="DIR",
-                    help="output root (default: examples/evaluation)")
+    ap.add_argument("--out", default=str(SMOKE_ROOT), metavar="DIR",
+                    help=f"output root for the gate (default: {SMOKE_ROOT.name}/)")
     ap.add_argument("--manifest-dir", default=str(MANIFEST_DIR), metavar="DIR",
                     help="where onboard filed the manifests (default: .beagle/agents)")
-    ap.add_argument("--smoke", action="store_true",
-                    help="generate the dev-smoke configs under tests/smoke/<agent>_smoke/ (curated "
-                         "2-task subsets) INSTEAD of the eval configs — sourced from the same manifests")
+    ap.add_argument("--reseed-smoke-tasks", action="store_true", dest="reseed_smoke_tasks",
+                    help="re-sample the smoke gate's tasks from each benchmark's own task list "
+                         "(needs the benchmark cache / dataset access) and rewrite "
+                         "scripts/smoke_tasks.json, then exit")
     ap.add_argument("--check", action="store_true",
                     help="report what WOULD generate (and which agents aren't onboarded); write "
                          "nothing; exit non-zero if any agent in the matrix has no matching manifest")
     args = ap.parse_args(argv)
 
-    written, missing = generate(manifest_dir=Path(args.manifest_dir), out_root=Path(args.out),
-                                smoke_root=SMOKE_ROOT, smoke=args.smoke, check=args.check)
+    if args.reseed_smoke_tasks:
+        print(f"[gen] re-sampling smoke tasks → {SMOKE_TASKS_PATH}")
+        reseed_smoke_tasks()
+        return 0
+
+    written, missing = generate(manifest_dir=Path(args.manifest_dir),
+                                smoke_root=Path(args.out), check=args.check)
     print(f"[gen] {'would generate' if args.check else 'generated'} {written} config(s)")
     if missing:
         print(f"[gen] not onboarded (skipped): {', '.join(missing)} — onboard with the matching "

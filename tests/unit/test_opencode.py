@@ -160,7 +160,7 @@ def test_run_happy_path_clones_invokes_and_captures_base_head(monkeypatch) -> No
     )
     rt = _FakeRuntime(invoke_out=_combined(0, stream), diff="diff --git a/a.py b/a.py\n", base="basecommit")
     res = _agent().run(Task(task_id="t1", problem_statement="fix a.py"),
-                       TaskContext(image="img", repo_path="/testbed"), runtime=rt)
+                       TaskContext(image="img", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
 
     assert res.status is RolloutStatus.COMPLETED and res.resolved
     assert res.patch == "diff --git a/a.py b/a.py\n"              # base..HEAD, not the empty stream patch
@@ -192,7 +192,7 @@ def test_run_records_harbor_shaped_phase_timing(monkeypatch) -> None:
     stream = _stream({"type": "step_finish", "part": {"tokens": {"input": 5, "output": 1}}})
     rt = _FakeRuntime(invoke_out=_combined(0, stream), base="b")
     res = _agent().run(Task(task_id="t", problem_statement="x"),
-                       TaskContext(image="i", repo_path="/w"), runtime=rt)
+                       TaskContext(image="i", repo_path="/w", agent_timeout_s=1800), runtime=rt)
     assert set(res.timing) == {"environment_setup", "agent_setup", "agent_execution"}
     for span in res.timing.values():
         assert span["started_at"].endswith("Z") and span["finished_at"].endswith("Z")
@@ -204,7 +204,7 @@ def test_install_failure_result_still_carries_timing() -> None:
     # An install failure has environment_setup + agent_setup but no agent_execution (never ran).
     rt = _FakeRuntime(fail="bun install")
     res = _agent().run(Task(task_id="t", problem_statement="x"),
-                       TaskContext(image="i", repo_path="/w"), runtime=rt)
+                       TaskContext(image="i", repo_path="/w", agent_timeout_s=1800), runtime=rt)
     assert res.status is RolloutStatus.FAILED and "install failed" in (res.error or "")
     assert set(res.timing) == {"environment_setup", "agent_setup"}
     assert res.trajectory.format == "opencode-json"   # _install_error_result attaches the stream ref
@@ -214,7 +214,7 @@ def test_run_reports_opencode_nonzero_exit_as_failed() -> None:
     rt = _FakeRuntime(invoke_out=_combined(1, _stream({"type": "text", "part": {"id": "t", "text": "x"}})),
                       base="b")
     res = _agent().run(Task(task_id="t", problem_statement="x"),
-                       TaskContext(image="i", repo_path="/w"), runtime=rt)
+                       TaskContext(image="i", repo_path="/w", agent_timeout_s=1800), runtime=rt)
     assert res.status is RolloutStatus.FAILED and not res.resolved
     assert res.error and "opencode exited rc=1" in res.error
 
@@ -223,7 +223,7 @@ def test_run_surfaces_stream_error(monkeypatch) -> None:
     stream = _stream({"type": "error", "error": {"message": "no provider configured"}})
     rt = _FakeRuntime(invoke_out=_combined(0, stream), base="b")
     res = _agent().run(Task(task_id="t", problem_statement="x"),
-                       TaskContext(image="i", repo_path="/w"), runtime=rt)
+                       TaskContext(image="i", repo_path="/w", agent_timeout_s=1800), runtime=rt)
     assert res.status is RolloutStatus.FAILED
     assert res.error == "stream_error: no provider configured"
 
@@ -231,7 +231,7 @@ def test_run_surfaces_stream_error(monkeypatch) -> None:
 def test_install_raises_on_clone_failure() -> None:
     rt = _FakeRuntime(fail="git fetch")   # the clone argv's fetch step (git_clone_argv)
     res = _agent().run(Task(task_id="t", problem_statement="x"),
-                       TaskContext(image="i", repo_path="/w"), runtime=rt)
+                       TaskContext(image="i", repo_path="/w", agent_timeout_s=1800), runtime=rt)
     assert res.status is RolloutStatus.FAILED and "git clone failed" in (res.error or "")
     assert rt.destroyed
 
@@ -239,7 +239,7 @@ def test_install_raises_on_clone_failure() -> None:
 def test_install_raises_on_build_failure() -> None:
     rt = _FakeRuntime(fail="bun install")
     res = _agent().run(Task(task_id="t", problem_statement="x"),
-                       TaskContext(image="i", repo_path="/w"), runtime=rt)
+                       TaskContext(image="i", repo_path="/w", agent_timeout_s=1800), runtime=rt)
     assert res.status is RolloutStatus.FAILED and "install failed" in (res.error or "")
 
 
@@ -250,7 +250,7 @@ def test_install_run_in_split_for_pier(monkeypatch) -> None:
     stream = _stream({"type": "step_finish", "part": {"tokens": {"input": 5, "output": 1}}})
     rt = _FakeRuntime(invoke_out=_combined(0, stream), diff="diff --git a/y b/y\n", base="b")
     agent = _agent()
-    ctx = TaskContext(image="i", repo_path="/work")
+    ctx = TaskContext(image="i", repo_path="/work", agent_timeout_s=1800)
     agent.install("H", ctx, runtime=rt)
     res = agent.run_in("H", Task(task_id="t", problem_statement="x"), ctx, runtime=rt)
     assert res.status is RolloutStatus.COMPLETED and res.patch == "diff --git a/y b/y\n"

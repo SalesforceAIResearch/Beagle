@@ -208,12 +208,23 @@ class RetryPolicy(_Base):
     * ``content`` — re-run UNRESOLVED tasks up to N times; a task counts solved if ANY attempt
       passes. Absorbs flakes (e.g. a rate-limited agent). Owned by the Runner (harness-agnostic).
 
-    ``timeout_multiplier`` scales the harness agent/verifier timeouts (harbor path).
+    ``timeout_multiplier`` used to live here; it is a RUN-level knob (it scales the task's phase
+    budgets whether or not anything is ever retried), so it moved to :attr:`RunConfig.timeout_multiplier`.
     """
 
     infra: int = Field(default=0, ge=0)
     content: int = Field(default=0, ge=0)
-    timeout_multiplier: float = Field(default=1.0, gt=0)
+    #: Accepted only to fail with a message that names the new home — see the class docstring.
+    timeout_multiplier: float | None = Field(default=None, exclude=True)
+
+    @model_validator(mode="after")
+    def _reject_moved_timeout_multiplier(self) -> "RetryPolicy":
+        if self.timeout_multiplier is not None:
+            raise ValueError(
+                "run.retry.timeout_multiplier moved to run.timeout_multiplier — it scales each "
+                "task's declared agent/verifier budget and applies whether or not anything is "
+                "retried, so it was never a retry knob.")
+        return self
 
 
 class AlgorithmConfig(_Base):
@@ -257,6 +268,12 @@ class RunConfig(_Base):
     #: batch-evaluates patches reads it (SWE-bench → swebench's ``max_workers``); other graders
     #: ignore it. ``None`` → fall back to ``parallelism``.
     parallelism_eval_patches: int | None = Field(default=None, ge=1)
+    #: Scales each task's OWN declared phase budgets (harbor/pier: ``task.toml`` ``[agent]`` /
+    #: ``[verifier] timeout_sec``), rather than replacing them — 1.5 gives every task half again
+    #: its own time, whatever that is. This is the knob for making a run longer or shorter; an
+    #: absolute ``agent.timeout`` is only the fallback for a benchmark that declares no budget.
+    #: Run-level, not retry-level: it applies to the first attempt as much as to a re-run.
+    timeout_multiplier: float = Field(default=1.0, gt=0)
     retry: RetryPolicy = Field(default_factory=RetryPolicy)
 
     @model_validator(mode="after")

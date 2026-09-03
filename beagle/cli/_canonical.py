@@ -212,9 +212,19 @@ def build_evaluation(raw: dict) -> tuple[RunConfig, Path]:
         "model": raw["agent"]["model"],
         "agent": agent_dict(raw["agent"]),
         "benchmark": benchmark_dict(raw["data"][0]),
+        # A mixture is several `data` entries; each keeps its OWN task selection, so it can't be
+        # flattened into one longer task list. `benchmark` stays data[0] (the primary) and
+        # `benchmarks` carries the whole list — dropping data[1:] here silently scored a mixture
+        # config on its first benchmark only.
+        "benchmarks": ([benchmark_dict(g) for g in raw["data"]]
+                       if len(raw.get("data") or []) > 1 else None),
         "runtime": {"kind": run.get("runtime", "xrlenv-cluster")},
         "parallelism": run.get("parallelism", 1),
         "parallelism_eval_patches": run.get("parallelism_eval_patches"),   # None → falls back to parallelism
-        "retry": run.get("retry", {}),      # {infra, content, timeout_multiplier}; default = no retry
+        # Scales each task's OWN declared phase budgets; run-level, since it applies to the first
+        # attempt as much as to a re-run (it briefly lived under `retry`, which is why RetryPolicy
+        # rejects the key with a pointer here).
+        "timeout_multiplier": run.get("timeout_multiplier", 1.0),
+        "retry": run.get("retry", {}),      # {infra, content}; default = no retry
     })
     return cfg, run_dir

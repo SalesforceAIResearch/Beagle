@@ -18,7 +18,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from beagle.agents.core.base import Agent, EditResult, Editor
+from beagle.agents.core.base import Agent, Editor, EditResult
+
+#: Wall clock for ONE ``edit()`` call, in seconds. This is an editor/evolver operation, not a
+#: benchmark rollout: there is no task and therefore no task-declared budget to honour, so the
+#: number is the editor's own knob (``agent.config.timeout``, or ``timeout_s=`` at the call site).
+#: Rollout budgets are resolved separately — see ``resolve_agent_timeout``.
+_EDIT_TIMEOUT_S = 1800
 from beagle.agents.core.edit_driver import run_cli
 from beagle.agents.core.registry import register
 from beagle.types import Transparency
@@ -193,7 +199,7 @@ class CursorAgent(Agent, Editor):
             argv += ["--mode", "plan"]
         argv += list(extra_args or []) + list(cfg.get("extra_args") or [])
 
-        timeout = int(timeout_s or cfg.get("timeout", 1800))
+        timeout = int(timeout_s or cfg.get("timeout") or _EDIT_TIMEOUT_S)
         max_attempts = max(1, int(cfg.get("max_attempts", 4)))
         backoff = float(cfg.get("backoff_base_s", 8.0))
         Path(workspace).mkdir(parents=True, exist_ok=True)

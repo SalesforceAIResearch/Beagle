@@ -36,14 +36,19 @@ here** and **do** run on `pytest -q` (collected via the `xrlenv_plugins` testpat
 ## Coverage
 
 `run_benchmarks.py` drives every benchmark that ships the `run_full_sweep.sh` /
-`run_oracle_sweep.py` sweep contract: the 6 harbor/pier plug-ins (`deep_swe`,
-`lhtb`, `seta`, `terminal_bench_2_1`, `terminalworld`, `swebench_pro`) **and**
-`swebench_verified` (a docker-py drop-in — swebench's own harness, cache-backed, wearing
-the same flag interface and `resolved`-based gate). `swebench_pro` is the harbor golden
-path over 731 prebuilt Docker Hub images; its cache is built with
+`run_oracle_sweep.py` sweep contract: the 7 harbor/pier plug-ins (`deep_swe`,
+`lhtb`, `seta`, `terminal_bench_2_1`, `terminalworld`, `swebench_pro`,
+`swe_rebench`) **and** `swebench_verified` (a docker-py drop-in — swebench's own
+harness, cache-backed, wearing the same flag interface and `resolved`-based gate).
+`swebench_pro` is the harbor golden path over 731 prebuilt Docker Hub images; its
+cache is built with
 `python xrlenv_plugins/benchmarks/swebench_pro/build_cache.py --all` (needs
 `SWEBENCH_PRO_PARQUET` + `SWEBENCH_PRO_HARNESS`, see its README) and its pass rule keys on
-the `reward` field only.
+the `reward` field only. `swe_rebench` is likewise golden-path, green set 856 of
+860 present; its cache comes from
+`python xrlenv_plugins/benchmarks/swe_rebench/build_cache.py` (no token, no
+clone — harbor's own Hub client downloads it) and it uses the DEFAULT pass rule,
+every reward `> 0`.
 
 `evoclaw` + `webarena-infinity` are plug-ins with bespoke entrypoints and are run
 manually (not wired into the runner yet).

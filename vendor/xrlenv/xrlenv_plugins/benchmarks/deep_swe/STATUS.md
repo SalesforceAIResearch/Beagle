@@ -9,8 +9,11 @@ its reward ceiling is 0 → poison for RL.
 ## Gate config (current)
 
 Each task runs at its **native `timeout_sec`** (no `--timeout-multiplier`),
-concurrency **32**, and the two default retry layers — `--retries 6` (per-trial,
-infra-transient only) + `--content-retries 2` (per-task, outcome-keyed). See the README
+concurrency **32**, and the retry layers — `--retries 6` (per-trial,
+infra-transient only) + `--content-retries 2` (per-task, outcome-keyed).
+**The gate default is now `--content-retries 0`**; this run predates that and
+used 2, so the reproduce command below passes it explicitly. `result.json`
+recorded `n_retries = 0`, so the result did not actually depend on it. See the README
 §"Two retry layers — and why". Launch via the [Reproduce](#reproduce) command below.
 
 ## Full sweep — **113 / 113 GREEN** at **native timeout budget** (2026-07-21)
@@ -51,11 +54,13 @@ set -a; . ./.env; set +a                 # XRLENV_GRPC_HOST + tokens
 
 # Full gate via the entrypoint — (re)builds the cache, then runs all 113 at NATIVE
 # timeout budget (no --timeout-multiplier), concurrency 32, with both default retry
-# layers (--content-retries 2, --retries 6). Images lazy-pull on first acquire (no
-# pre-warm needed). Run under nohup/background: a SWE oracle+verifier trial exceeds a
-# foreground shell/tool timeout; the whole sweep is ~25-30 min.
+# layers. --content-retries is passed EXPLICITLY: the gate default is now 0, and this
+# result was recorded with 2 (n_retries was 0, so it did not depend on them). Images
+# lazy-pull on first acquire (no pre-warm needed). Run under nohup/background: a SWE
+# oracle+verifier trial exceeds a foreground shell/tool timeout; the sweep is ~25-30 min.
 nohup bash xrlenv_plugins/benchmarks/deep_swe/run_full_sweep.sh \
-    --max-workers 32 --job-id deepswe-native-113 > tmp/native113.log 2>&1 &
+    --max-workers 32 --content-retries 2 \
+    --job-id deepswe-native-113 > tmp/native113.log 2>&1 &
 
 # (Low-level equivalent, if you want to bypass the wrapper's content-retry loop:)
 #   nohup .venv/bin/python xrlenv_plugins/benchmarks/deep_swe/run_oracle_sweep.py \

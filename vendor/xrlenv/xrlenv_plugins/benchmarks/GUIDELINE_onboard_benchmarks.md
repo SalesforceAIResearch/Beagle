@@ -279,7 +279,7 @@ retries to `run_oracle_sweep.py`.** It (1) sources `./.env` for CP host + token,
 (2) (re)builds the cache, (3) computes the run set as **present tasks minus an
 EXCLUDE list** (exclusion, not inclusion — so a re-populate auto-picks up new
 tasks), and (4) invokes `run_oracle_sweep.py --tasks <green> --content-retries N`
-**once**, trusting its exit code. Under `set -e`, a persistent failure aborts the
+**once** (N defaults to 0), trusting its exit code. Under `set -e`, a persistent failure aborts the
 wrapper with `run_oracle_sweep`'s own exit code + its `X/N solved` + failed-list
 summary; the wrapper only prints its GREEN line on success. It does **not**
 re-implement the retry loop (a past version did — the bash `_failed_tasks` reader
@@ -292,13 +292,22 @@ pass the flags:
 | Layer | Granularity | Retries on | Purpose |
 |---|---|---|---|
 | `--retries` (default 6) | per-**trial**, in `run_oracle_sweep.py` | the 4 infra exceptions only | absorb capacity pacing; **cannot** mask a flaky task |
-| `--content-retries` (default 2) | per-**task**, in `run_oracle_sweep.py` | a reward-0 *outcome* (re-runs ONLY the non-passing tasks) | catch a one-off environmental flake that surfaced as reward-0 rather than a typed exception |
+| `--content-retries` (**default 0**) | per-**task**, in `run_oracle_sweep.py` | a reward-0 *outcome* (re-runs ONLY the non-passing tasks) | **off in the gate.** Available to investigate a suspected flake — never to green a run |
 
-A `--content-retries` re-run is **visible** as a `<job-id>-retryN` sibling artifact dir, and
-STATUS.md records which tasks only passed on a re-run — so a flaky task is surfaced, not
-silently greened. (Note: the summary JSON reports the pass/resolve outcome, not a separate
-retry-count field — read the per-round `<job-id>*` dirs for the retry history.) Pass
-`--content-retries 0` for a zero-tolerance gate. **Timeouts run at native budget**
+**`--content-retries` defaults to 0 — the gate is zero-tolerance.** A task that only
+passes on a re-run is a **finding**, not a pass: non-deterministic reward is noise an RL
+run inherits, and an oracle gate exists to expose corpus defects, not absorb them. Every
+kit ships `CONTENT_RETRIES=0` (the sole exception is `swebench_pro`, whose recorded green
+predates this rule and depends on 8 retried tasks — it will move once re-run and
+re-triaged). Raise the flag to *confirm* a suspected flake, then record the flake; never
+to reach a green number.
+
+A re-run is **visible** as a `<job-id>-retryN` sibling artifact dir, folded back into the
+main dir afterwards. Note the sharp edge that motivated the default: consolidation must
+repoint each folded trial's recorded `trials_dir`, or harbor's native resume of that job
+dir dies with `Existing trial config does not match planned job config.` — `trials_dir` is
+part of `TrialConfig.__eq__`. `_sweep_retry.consolidate_retry_dirs` handles this; at
+`--content-retries 0` no round runs and the whole path is inert. **Timeouts run at native budget**
 (no `--timeout-multiplier` in the gate) — a task whose own reference solution
 can't fit its own `timeout_sec` should fail loud, not be rescued by inflated
 headroom.
@@ -775,7 +784,7 @@ the shared helpers in `xrlenv_plugins/harbor/compose.py`.
       the non-passing tasks by the pass gate).
 - [ ] **`run_full_sweep.sh`** — a THIN wrapper: build → green-set-by-exclusion →
       invoke `run_oracle_sweep.py --content-retries N` **once** (delegates both
-      retries — no bash retry loop); native-budget timeouts; a **uniform flag
+      retries — no bash retry loop); `CONTENT_RETRIES=0`; native-budget timeouts; a **uniform flag
       interface** (`--max-workers` / `--content-retries` / `--job-id` / `--jobs-dir`
       / `--skip-build-cache` — run knobs never via env) including `--list-green`
       (print the green set + exit) for the CI sampler.

@@ -22,16 +22,18 @@
 #   --jobs-dir DIR        per-trial artifact root (default: ./tmp/sanity-checks)
 #   --skip-build-cache    skip step 1
 #   --list-green          print the green set (selection − EXCLUDE) and exit; read-only (implies --skip-build-cache,
-#                         does not source .env — export XRLENV_BENCHMARK_CACHE + SWEBENCH_PRO_PARQUET yourself)
+#                         does not source .env — export XRLENV_BENCHMARK_CACHE yourself)
 #   --dest / --cache      REJECTED: the cache root is XRLENV_BENCHMARK_CACHE only (audit H9)
 #   --filtered / --subset-100   the other two configurations (above)
 #   --smoke               the first 8 rows of the dataset (a quick plumbing check; one task: scripts/run_smoke_one.sh)
 #   --instances IDS       an explicit comma list of instance ids
 #   --ids-file PATH       an explicit id manifest
 #   <anything else>       forwarded to run_oracle_sweep.py (e.g. --timeout-multiplier 1.5)
-# Env (this repo's .env is sourced; nothing here has a default location):
+# Env (this repo's .env is sourced):
 #   XRLENV_BENCHMARK_CACHE   cache ROOT — tasks live in <root>/swebench-pro/<instance_id>/
-#                            (or <root>/swebench-pro/golden_patches/<instance_id>/)
+#                            (or <root>/swebench-pro/golden_patches/<instance_id>/)  [REQUIRED]
+#   The dataset and the upstream kit are FETCHED when unset (both public + ungated), so neither of
+#   the two below is required; set one only to pin a local copy, and it is then used verbatim:
 #   SWEBENCH_PRO_PARQUET     the dataset parquet, or the directory of a ScaleAI/SWE-bench_Pro snapshot
 #   SWEBENCH_PRO_HARNESS     a checkout of https://github.com/scaleapi/SWE-bench_Pro-os
 #   XRLENV_GRPC_HOST/_PORT/_TOKEN   the cluster;  XRLENV_PY  interpreter override (default: this repo's .venv)

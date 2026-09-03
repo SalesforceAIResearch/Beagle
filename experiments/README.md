@@ -24,7 +24,7 @@ include `terminal_bench_2_1 → tb21`, `deep-swe → deepswe`, and
 `swe-bench-verified → swebench_verified`.
 
 Evaluations timestamp that base name by default, producing a fresh directory such as
-`monet_tb21_gpt-5.6-sol_medium_200-20260825-102200`. The `run.json` inside it also
+`monet-20260826_tb21_gpt-5.6-sol_medium_200-20260825-102200`. The `run.json` inside it also
 records beagle's collision-safe run ID and config hash.
 
 ## Generate baseline configs
@@ -42,11 +42,11 @@ Or drive the generator directly — every knob is a flag:
 
 ```bash
 # one config
-.venv/bin/python experiments/scripts/generate_eval_configs.py --agents monet --benches deep-swe
+.venv/bin/python experiments/scripts/generate_eval_configs.py --agents monet-20260826 --benches deep-swe
 
 # a different sweep (new model/effort/turns → new filenames, no collision)
 .venv/bin/python experiments/scripts/generate_eval_configs.py \
-    --agents monet opencode --benches terminal_bench_2_1 deep-swe swe-bench-verified \
+    --agents monet-20260826 opencode-1.18.16 --benches terminal_bench_2_1 deep-swe swe-bench-verified \
     --model gpt-5.6-sol --effort medium --max-turns 200
 
 .venv/bin/python experiments/scripts/generate_eval_configs.py --help   # all flags
@@ -65,7 +65,7 @@ credentials, and the version-to-manifest join come from the canonical
 
 ```bash
 source .venv/bin/activate
-beagle evaluate --config experiments/configs/eval_baseline/monet_tb21_gpt-5.6-sol_medium_200.yaml
+beagle evaluate --config experiments/configs/eval_baseline/monet-20260826_tb21_gpt-5.6-sol_medium_200.yaml
 ```
 
 The config's `run.dir` selects `experiments/results/` as the results root and `run.name`
@@ -90,7 +90,7 @@ To continue a specific interrupted run, pass its directory explicitly:
 
 ```bash
 beagle evaluate \
-  --config experiments/configs/eval_baseline/monet_tb21_gpt-5.6-sol_medium_200.yaml \
+  --config experiments/configs/eval_baseline/monet-20260826_tb21_gpt-5.6-sol_medium_200.yaml \
   --resume --run-dir experiments/results/<config-stem>-<timestamp>
 ```
 

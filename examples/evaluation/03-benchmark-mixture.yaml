@@ -1,0 +1,27 @@
+# 3. SCORE ONE AGENT ON SEVERAL BENCHMARKS IN ONE RUN.
+#
+# Each `data` entry keeps its own task selection, so a mixture is not "a longer task list" — the
+# runner groups tasks by benchmark, dispatches each group to that benchmark's OWN native harness
+# (harbor trial / docker drop-in), and writes a benchmark-keyed run.json. The first entry is the
+# primary: algorithms that predate mixtures read it and still get a real member of the mixture.
+run:
+  dir: ./results
+  name: eval-mixture
+  runtime: xrlenv-cluster
+  parallelism: 8
+
+agent:
+  harness:
+    name: opencode
+    version: 1.18.16
+    source: {repo: https://github.com/<your-org>/opencode_v1.18.16, ref: <baseline-commit-sha>}
+  model: {name: gpt-5.5}
+  forward_env: [OPENAI_API_KEY]
+
+data:
+  - benchmark: terminal_bench_2_1        # harbor family, in-band verifier reward
+    tasks: [code-from-image, distribution-search]
+  - benchmark: swe-rebench               # harbor family too, but its own corpus + budgets
+    tasks: [ag2ai__faststream-2701]
+  - benchmark: swe-bench-verified        # docker drop-in + upstream swebench grading
+    tasks: [django__django-14534]

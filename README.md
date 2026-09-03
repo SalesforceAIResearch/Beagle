@@ -13,8 +13,9 @@
 
 <p align="center">
   <a href="#setup">Setup</a> ·
-  <a href="#run">Run</a> ·
-  <a href="#details--advanced">Details</a>
+  <a href="#evaluate">Evaluate</a> ·
+  <a href="#evolve">Evolve</a> ·
+  <a href="#more">More</a>
 </p>
 
 <table width="100%">
@@ -31,7 +32,6 @@
 </td>
 </tr>
 </table>
-
 
 
 ## Setup
@@ -121,103 +121,96 @@ without `--reseed` to refresh.
 
 Batch option: `scripts/onboard_all_agents.sh`.
 
-### Generate eval configs
+Later: `git -C <your-checkout> fetch upstream` to sync from upstream.
 
-Configs under `examples/evaluation/<benchmark>/<agent>.yaml` are **generated** from
-your `.beagle/agents/<profile>.json` manifests:
-
-```bash
-python scripts/generate_eval_configs.py            # → examples/evaluation/<bench>/<agent>.yaml
-python scripts/generate_eval_configs.py --smoke    # → tests/smoke/<agent>_smoke/*_smoke2.yaml
-python scripts/generate_eval_configs.py --check    # dry-run: onboarded vs missing
-```
-
-```bash
-beagle evaluate --config examples/evaluation/swe-bench-verified/opencode.yaml --dry-run
-```
-
-Only `version` must line up (matrix `version` ↔ onboard `--version`). Edit `AGENTS` /
-`BENCHMARKS` / `DEFAULTS` in the script to change the matrix, then regenerate.
-
-One `config.yaml` drives both modes — evaluation just drops `evolver` + `algorithm`:
-
-- **evolution** → [examples/quick-start/config.yaml](examples/quick-start/config.yaml)
-- **pure eval** → [examples/evaluation/](examples/evaluation/) (generated)
-
-```yaml
-run:      {dir, name, runtime, parallelism}
-evolvee:                                    # θ — harness under evolution
-  agent:  {name, version, source}           # type + version + INLINE source
-  model:  {name}
-  provider / forward_env                    # LLM routing (provider + key(s) to forward)
-  effort / max_turns / timeout / extra_args # agent knobs (extra_args = CLI)
-evolver:  {agent: {name, version}, model}   # proposer (e.g. cursor-agent)
-algorithm: {name: darwinx, hparams: {…}}    # optimizer + typed knobs
-data:     [{benchmark, tasks}]              # benchmark + tasks
-```
-
-**Derive** `evolvee.agent.source` from the onboard manifest (`.beagle/agents/<profile>.json`,
-written by onboarding) — don't hand-write it. For the mini-swe copy onboarded above:
-
-```json
-{
-  "profile": "mini_swe_agent_v2.4.6",
-  "version": "v2.4.6",
-  "repo": "https://github.com/<your-org>/mini_swe_agent_v2.4.6",
-  "ref": "<baseline commit>",
-  "branch": "baseline",
-  "token_env": "GH_TOKEN",
-  "upstream": "https://github.com/SWE-agent/mini-swe-agent",
-  "upstream_ref": "a83fcae…",
-  "dir": "../beagle-experiments/mini_swe_agent_v2.4.6"
-}
-```
-
-Paste `repo` / `ref` / `token_env` / `dir` 1:1 into `evolvee.agent.source.*`.
-Add `agent.name` (adapter — `mini-swe`) and `agent.version` (label). LLM routing
-(`forward_env`) and CLI flags live on the **agent** block, not the model block.
-
-Validate with `python -m beagle.config <file>` (`extra=forbid` — unknown fields hard-error).
-
-- `data.tasks: [...]` selects by id; omit to run the whole suite. No `limit` / first-N.
-- **Version gate.** Black-box agents check `agent.version` against the installed CLI
-  and fail loud on mismatch; source-versioned agents (pinned by `source.ref`) are exempt.
 
 ---
 
-## Run
+## Evaluate
 
-Preview with `--dry-run` first (resolve + plan + version gate — no spend), then drop the flag:
+Score an agent harness on a benchmark. Each task rolls through the benchmark's **own** runner
+(harbor, pier, raw container path, ect) → graded → `run.json`; beagle does not reimplement scoring.
+
+### Supported benchmarks
+
+| Registry name | Tasks | Harness | Grading | Needs |
+|---|---|---|---|---|
+| `terminal_bench_2_1` | 89 (88 green) | harbor trial driver | in-band verifier reward | `beagle[terminal-bench]`, benchmark cache |
+| `swe-rebench` | 860 (856 green) | harbor trial driver | in-band verifier reward (0/1) | `beagle[terminal-bench]`, benchmark cache |
+| `deep-swe` | 113 (113 green) | pier trial driver (harbor fork) | in-band verifier reward | `beagle[deep-swe]`, benchmark cache |
+| `swe-bench-verified` | 500 | docker drop-in | upstream swebench evaluator on the patch | `beagle[swe-bench]`, HuggingFace |
+
+**More benchmarks are to be added soon.**
+
+`beagle` runs **whatever the benchmark's corpus contains**. It does not filter tasks for you: a task's oracle
+can give you zero reward if upstream dependencies are missing, changed or broken [**docs/benchmark-remarks.md**](docs/benchmark-remarks.md) lists them per benchmark
+with the measured evidence; exclude them per run with `exclude_task_ids`. See the documentation for more details.
+
+### Generate eval configs
+
+Three config trees, three purposes:
+
+| Tree | What it is | Written by |
+|---|---|---|
+| `examples/evaluation/*.yaml` | one file per **use case** (subset, mixture, pass@k, timeouts, retries), committed, `<your-org>` placeholders | hand-written |
+| `experiments/configs/eval_baseline/…` | full-benchmark **sweeps** at the baseline knobs | `experiments/scripts/generate_eval_configs.py` |
+| `tests/smoke/<bench>/<harness>-<version>_<variant>.yaml` | the **gate**: every copy × benchmark on 2 seeded-sample tasks | `scripts/generate_eval_configs.py` |
+
+We only ship the `examples/evaluation/*.yaml` for user reference. The remaining two ties to your own agents's mainfest generated 
+after the onboarding in `.beagle/agents/<profile>.json`. You are encourged to generate these configs yourself or handwrite them.
 
 ```bash
-# EVOLUTION
-beagle evolve   --config examples/quick-start/config.yaml --dry-run
-beagle evolve   --config examples/quick-start/config.yaml
+# both read your onboarded manifests in .beagle/agents/<profile>.json
+python scripts/generate_eval_configs.py              # → tests/smoke/<bench>/<harness>-<version>_smoke2.yaml
+python experiments/scripts/generate_eval_configs.py  # → experiments/configs/eval_baseline/<harness>-<version>_<bench>_<model>_<effort>_<turns>.yaml
 
-# PURE EVALUATION (generate configs first)
-beagle evaluate --config examples/evaluation/swe-bench-verified/mini-swe.yaml --dry-run
-beagle evaluate --config examples/evaluation/swe-bench-verified/mini-swe.yaml
+# advanced — generate for one agent/benchmark, or at different knobs (each combination gets its own file)
+python experiments/scripts/generate_eval_configs.py --check                                   # list, write nothing
+python experiments/scripts/generate_eval_configs.py --agents opencode-1.18.16 --benches swe-rebench
+python experiments/scripts/generate_eval_configs.py --model gpt-5.6 --effort high --max-turns 150
 ```
 
-<table width="100%">
-<tr>
-<td width="50%" valign="top">
-<h4>Evolution</h4>
-<p>seed θ → baseline → evolver edit → candidate eval → keep/reject</p>
-<p>Lands the best node + a candidate branch on your experiment copy.</p>
-</td>
-<td width="50%" valign="top">
-<h4>Pure eval</h4>
-<p>clone <code>repo@sha</code> → native harness → score + per-task rewards</p>
-</td>
-</tr>
-</table>
+Both scripts fill in the part that is yours — the agent's repo and commit, read from the
+`.beagle/agents/<profile>.json` that onboarding wrote:
 
-Both write native `agent/` + `verifier/` + `run.json` under `<run.dir>/<run.name>/`.
+```yaml
+agent:
+  harness:
+    name: opencode          # which adapter runs it
+    version: 1.18.16        # WHICH COPY — the `--version` you onboarded with
+    source:                 # filled in for you, from that file
+      repo: https://github.com/<you>/opencode_v1.18.16
+      ref: a3647eb0…
+```
 
-Later: `git -C <your-checkout> fetch upstream` to sync from upstream.
+`version` is the link between the two. Each script lists the agents it generates for, with the
+version it expects; if you onboarded that agent under a different `--version`, there is nothing to
+link and the agent is skipped. `--check` prints what would be written, and what was skipped, without
+writing anything.
 
-### Evaluate — resume & retry
+To add an agent or a benchmark — or a second copy of an agent you already have — edit the tables at
+the top of `scripts/generate_eval_configs.py`; the sweep script reads the same ones. Files are named
+`<agent>-<version>`, so two copies of one agent (say, before and after a change) never overwrite each
+other.
+
+Two knobs decide how long a task may run. `--timeout-multiplier 1.5` gives every task 1.5x the time
+its benchmark allows; `--timeout` applies only to benchmarks that state no limit of their own — see
+[05-timeouts.yaml](examples/evaluation/05-timeouts.yaml).
+
+Whatever you generate or hand-write, `beagle evaluate --config <file> --dry-run` resolves it and
+prints the plan without spending anything.
+
+### Run an evaluation
+
+```bash
+beagle evaluate --config examples/evaluation/01-minimal.yaml --dry-run   # plan only, no spend
+beagle evaluate --config examples/evaluation/01-minimal.yaml
+```
+
+`clone repo@sha → native harness → score + per-task rewards`. Writes the native `agent/` +
+`verifier/` trees and `run.json` under `<run.dir>/<run.name>/`.
+
+### Resume & retry
 
 `beagle evaluate` reads each harness's **native** tree, so runs are resumable.
 Categories split on one signal: did the trial record an error?
@@ -252,7 +245,53 @@ Flags are **independent** — combine to union. Resolved tasks are never re-run.
 - `--force-resume` allows resume across a config change (records both hashes).
   In-run retry: `run.retry.infra` / `run.retry.content`.
 
-### Evolve
+---
+
+## Evolve
+
+Optimize the harness itself: an **evolver** agent edits the **evolvee**'s source, candidates are
+scored on the same benchmark surface as above, and what survives the gate lands on your experiment
+copy. Everything in **Evaluate** applies — evolution scores candidates the same way.
+
+### Config shape
+
+```yaml
+run:      {dir, name, runtime, parallelism}
+evolvee:                                    # θ — harness under evolution
+  agent:  {name, version, source}           # type + version + INLINE source
+  model:  {name}
+  provider / forward_env                    # LLM routing (provider + key(s) to forward)
+  effort / max_turns / timeout / extra_args # agent knobs (extra_args = CLI)
+evolver:  {agent: {name, version}, model}   # proposer (e.g. cursor-agent)
+algorithm: {name: darwinx, hparams: {…}}    # optimizer + typed knobs
+data:     [{benchmark, tasks}]              # benchmark + tasks
+```
+
+**Derive** `evolvee.agent.source` from the onboard manifest (`.beagle/agents/<profile>.json`,
+written by onboarding) — don't hand-write it. For the mini-swe copy from
+[Onboard agent experiment copies](#onboard-agent-experiment-copies):
+
+```json
+{
+  "profile": "mini_swe_agent_v2.4.6",
+  "version": "v2.4.6",
+  "repo": "https://github.com/<your-org>/mini_swe_agent_v2.4.6",
+  "ref": "<baseline commit>",
+  "branch": "baseline",
+  "token_env": "GH_TOKEN",
+  "upstream": "https://github.com/SWE-agent/mini-swe-agent",
+  "upstream_ref": "a83fcae…",
+  "dir": "../beagle-experiments/mini_swe_agent_v2.4.6"
+}
+```
+
+Paste `repo` / `ref` / `token_env` / `dir` 1:1 into `evolvee.agent.source.*`.
+Add `agent.name` (adapter — `mini-swe`) and `agent.version` (label). LLM routing
+(`forward_env`) and CLI flags live on the **agent** block, not the model block.
+
+Validate with `beagle evolve --config <file> --dry-run` (resolve + plan + version gate, no spend).
+
+### Run a campaign
 
 `beagle evolve` runs the loop named by the `algorithm` block — DarwinX unless you swap it.
 One config is one **campaign**: every node it scores is recorded in a genealogy DB, so
@@ -306,107 +345,10 @@ experiment copy; the CLI prints the best node when the campaign finishes.
 
 ---
 
-## Details & advanced
+## More
 
-### Modules
-
-```mermaid
-flowchart TB
-  cfg["config.yaml / Python API"] --> cli["beagle.config + beagle.cli"]
-  cli --> agents["beagle.agents"]
-  cli --> algos["beagle.algorithms"]
-  cli --> benches["beagle.benchmarks"]
-  benches --> data["beagle.data<br/>TaskDataset / DataMixture"]
-  cli --> trainer["beagle.trainer.Trainer"]
-  trainer --> runner["beagle.rollout.Runner"]
-  runner --> xrlenv["vendor/xrlenv → native harnesses"]
-```
-
-Pure eval uses the same lower half: `beagle evaluate` → agent + dataset →
-`beagle.eval` / `beagle.rollout` (no evolver / algorithm).
-
-| Area | Path |
-| --- | --- |
-| Public facade | `beagle/__init__.py` |
-| Config + CLIs | `beagle.config`, `beagle.cli` |
-| Agents | `beagle.agents` |
-| Algorithms | `beagle.algorithms` |
-| Training loop | `beagle.trainer` |
-| Data | `beagle.data` |
-| Benchmarks | `beagle.benchmarks` |
-| Rollout | `beagle.rollout` |
-| Evaluation | `beagle.eval` |
-| Tools | `beagle.tools` |
-| Substrate | `vendor/xrlenv` |
-| Examples / tests / notes | `examples/`, `tests/`, `notes/` |
-
-### Onboard your own agent
-
-Role (evolvee vs evolver) is chosen at **run time**, not baked into the agent.
-Declare capabilities via mixins; `Trainer` checks the role you assign is supported:
-
-| Capability | Implement | Meaning |
-| --- | --- | --- |
-| `Runnable` | `run` | attempt tasks (be scored) |
-| `Evolvable` | `_default_source` | versioned git source (`repo@ref`) |
-| `Editor` | `edit` | run one coding instruction (be an evolver) |
-
-Evolvee = `Runnable` + `Evolvable`; evolver = `Editor`. The evolver is a thin
-primitive — the algorithm owns prompts and the analyze/implement/review recipe.
-Drop one package under `beagle/agents/` — no other edits:
-
-```python
-# beagle/agents/my_agent/__init__.py
-from beagle.agents.core import Agent, AgentSource, Runnable, Evolvable, register
-from beagle.rollout.runtime import ContainerRuntime
-from beagle.types import Task, TaskContext, TaskResult
-
-@register("my-agent")
-class MyAgent(Agent, Runnable, Evolvable):   # white-box — usable as evolvee
-    def _default_source(self):
-        # source comes from run config (your experiment copy). entrypoint is intrinsic.
-        return self.spec.source or AgentSource(entrypoint="bin/my-agent")
-
-    def run(self, task: Task, task_ctx: TaskContext, *, runtime: ContainerRuntime) -> TaskResult:
-        src = self.source()                   # baseline ref, or evolved candidate
-        handle = runtime.acquire(image=task_ctx.image or "", command=["sleep", "infinity"])
-        try:
-            ...  # clone src.repo@src.ref, build, run, collect patch
-            return TaskResult(task_id=task.task_id)
-        finally:
-            runtime.destroy(handle)
-    # add Editor + edit(instruction, workspace, ...) to also serve as evolver
-```
-
-Auto-discovered on `import beagle`. One `run` works on every harness — you never
-write harness-specific code. Closed-source CLI you can't evolve:
-`class MyAgent(Agent, Editor)`. Start from `beagle/agents/core/_template.py`.
-Benchmarks and algorithms onboard the same way — one file, `@register`, done.
-
-### Prefer Python?
-
-The CLI is a thin wrapper. Compose the pieces yourself (PyTorch-shaped
-model / optimizer / dataloader → `fit`):
-
-```python
-import beagle as bgl
-
-trainer = bgl.Trainer(
-    evolvee=bgl.agents.build(evolvee_config),
-    evolver=bgl.agents.build(evolver_config),
-    algorithm=bgl.algorithms.build(darwinx_config),
-    trainer_config={"runtime": {"kind": "xrlenv-cluster"}},
-)
-best = trainer.fit(train_dataset=bgl.TaskDataset.from_benchmark(benchmark_config))
-
-bgl.evaluate(run_config)   # pure eval — no evolver/algorithm
-```
-
-Full example: [examples/quick-start/quick_start_inline.py](examples/quick-start/quick_start_inline.py).
-Build by name: `bgl.agents.build(...)`, `bgl.algorithms.build(...)`,
-`bgl.benchmarks.get(...)`.
-
-> **Status.** Both paths run today from one `config.yaml` — pure evaluation and the
-> DarwinX loop (baseline → edit → candidate eval → keep/reject → best node + branch).
-> `Trainer.fit`, DarwinX, and the version gate are wired end-to-end; `DataMixture` is
-> the main piece still landing.
+| Doc | What's in it |
+|---|---|
+| [docs/advanced.md](docs/advanced.md) | module map, onboarding your own agent adapter, the Python API |
+| [docs/benchmark-remarks.md](docs/benchmark-remarks.md) | per-benchmark tasks we suggest excluding, with the measured evidence |
+| [docs/opencode-prune.md](docs/opencode-prune.md) | what `--prune opencode` drops from a clone, and why it's patch-safe |

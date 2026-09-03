@@ -59,8 +59,14 @@ observability = [
 # (case-2 drop-in), not in a per-benchmark plug-in dir.
 swebench-pro = [
     # SWE-bench Pro (harbor golden path): the dataset parquet reader; harbor + the cluster env come with
-    # the terminal-bench-2 extra. Upstream kit = a git checkout of scaleapi/SWE-bench_Pro-os (no pip package).
+    # the terminal-bench-2 extra. Upstream kit = a git checkout of scaleapi/SWE-bench_Pro-os (no pip package),
+    # which build_cache.py clones itself (shallow, anonymous — the repo is public).
     "pyarrow>=15",
+    # ``huggingface_hub`` fetches the ungated ``ScaleAI/SWE-bench_Pro`` dataset when
+    # ``$SWEBENCH_PRO_PARQUET`` is unset, so the kit needs no manual dataset download. Declared
+    # rather than leaned on as a transitive of ``datasets``: swebench-pro does not depend on
+    # ``datasets``, so nothing else in THIS extra guarantees it is installed.
+    "huggingface_hub>=0.34",
 ]
 terminal-bench-2 = [
     # harbor framework — XrlenvHarborEnvironmentCluster subclasses
@@ -115,6 +121,21 @@ frontier-swe = [
     # docstring + STATUS.md. Reuses the ``terminal-bench-2`` harbor pin.
     "harbor==0.20.0",
 ]
+swe-rebench = [
+    # SWE-rebench (nebius/SWE-rebench-leaderboard) is a harbor-format corpus
+    # published as a **Harbor Hub package dataset**
+    # (``swe-rebench/swe-rebench-leaderboard``), so harbor itself is both the
+    # harness AND the download client — ``build_cache.py`` drives harbor's
+    # ``PackageDatasetClient`` + ``TaskClient`` (anonymous; the dataset is
+    # public). Run by the SAME shared cluster env as terminal-bench-2 /
+    # FrontierSWE (``xrlenv_plugins.harbor.XrlenvHarborEnvironmentCluster``),
+    # selected via harbor's ``EnvironmentConfig.import_path``. Pinned exactly,
+    # same discipline as ``harbor==0.20.0`` above — and doubly load-bearing
+    # here, since the pin also fixes the Hub client's wire contract. Reuses the
+    # ``terminal-bench-2`` harbor pin (no extra deps: grading is stock harbor,
+    # the reward schema is a flat ``reward.txt``).
+    "harbor==0.20.0",
+]
 
 # Convenience meta-extra: install EVERY other extra in one shot
 # (``uv pip install -e '.[all]'``). Self-references the package's own
@@ -122,7 +143,7 @@ frontier-swe = [
 # duplicated — adding a new extra above only needs its name appended
 # here. Keep this list in sync with the extras above.
 all = [
-    "xrlenv[dev,docs,observability,terminal-bench-2,swebench-verified,deep-swe,frontier-swe,swebench-pro]",
+    "xrlenv[dev,docs,observability,terminal-bench-2,swebench-verified,deep-swe,frontier-swe,swebench-pro,swe-rebench]",
 ]
 
 [project.scripts]

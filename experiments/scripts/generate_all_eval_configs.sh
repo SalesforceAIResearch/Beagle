@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Generate the BASELINE eval configs: monet + opencode  ×  tb2.1 / deep-swe / swe-verified.
+# Generate the BASELINE eval configs: EVERY onboarded experiment copy × EVERY benchmark.
 # Baseline knobs: model=gpt-5.6-sol, effort=medium, max_turns=200.
 #
-# Configs  → experiments/configs/eval_baseline/{harness}_{bench}_{model}_{effort}_{turns}.yaml
+# Configs  → experiments/configs/eval_baseline/{harness}-{version}_{bench}_{model}_{effort}_{turns}.yaml
 # Raw runs → experiments/results/<same-stem>/  (baked into each config's run.dir)
 #
 # Usage:  bash experiments/scripts/generate_all_eval_configs.sh          # write configs
@@ -18,19 +18,13 @@ CHECK_FLAG=""; [ "${CHECK:-0}" = "1" ] && CHECK_FLAG="--check"
 
 common=(--model "$MODEL" --effort "$EFFORT" --max-turns "$TURNS" --parallelism "$PARALLELISM" $CHECK_FLAG)
 
-# --- one command per config (agent × benchmark) — comment any line to skip it ---
-# monet
-"$PY" "$GEN" --agents monet    --benches terminal_bench_2_1 "${common[@]}"
-"$PY" "$GEN" --agents monet    --benches deep-swe           "${common[@]}"
-"$PY" "$GEN" --agents monet    --benches swe-bench-verified "${common[@]}"
-# opencode
-"$PY" "$GEN" --agents opencode --benches terminal_bench_2_1 "${common[@]}"
-"$PY" "$GEN" --agents opencode --benches deep-swe           "${common[@]}"
-"$PY" "$GEN" --agents opencode --benches swe-bench-verified "${common[@]}"
+# The generator defaults to the full cross-product of the canonical AGENTS / BENCHMARKS tables,
+# so this stays correct when an agent is re-onboarded or a benchmark is added — naming them here
+# is what silently dropped newly-onboarded entries before.
+"$PY" "$GEN" "${common[@]}"
 
-# --- equivalent single call (the generator takes the full cross-product): ---
-# "$PY" "$GEN" --agents monet opencode \
-#     --benches terminal_bench_2_1 deep-swe swe-bench-verified "${common[@]}"
+# --- narrowing (copies are <harness>-<version>; `--help` lists the current labels): ---
+# "$PY" "$GEN" --agents monet-20260826 --benches swe-rebench "${common[@]}"
 
 echo
 echo "configs in: experiments/configs/eval_baseline/"

@@ -477,7 +477,7 @@ def _full_cmd(name: str, eff: dict[str, Any], job_id: str,
     cmd = ["bash", script,
            "--skip-build-cache",
            "--max-workers", str(eff.get("workers", 8)),
-           "--content-retries", str(eff.get("content_retries", 2)),
+           "--content-retries", str(eff.get("content_retries", 0)),
            "--jobs-dir", jobs_dir,
            "--job-id", job_id]
     return cmd, {**os.environ}

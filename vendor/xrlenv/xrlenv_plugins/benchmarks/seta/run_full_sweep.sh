@@ -31,7 +31,7 @@
 # SKIP_BUILD/LIST_GREEN must never silently turn a real sweep into a no-op.
 # XRLENV_* deployment config still comes from .env):
 #   --max-workers N       trial concurrency (default: 16)
-#   --content-retries N   reward-0 re-run rounds (default: 2)
+#   --content-retries N   reward-0 re-run rounds (default: 0)
 #   --job-id LABEL        run label under tmp/ (default: seta-full-sweep; ts appended)
 #   --jobs-dir DIR        per-trial artifact root (default: ./tmp/sanity-checks)
 #   --skip-build-cache    skip step 1 (cache already built this session)
@@ -48,7 +48,7 @@ LIST_GREEN=0
 SKIP_BUILD=0
 MAX_WORKERS=16
 JOB_ID="seta-full-sweep"
-CONTENT_RETRIES=2
+CONTENT_RETRIES=0
 JOBS_DIR="./tmp/sanity-checks"
 PASS_ARGS=()
 while [ "$#" -gt 0 ]; do

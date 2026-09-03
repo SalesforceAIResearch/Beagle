@@ -130,6 +130,19 @@ class TaskContext:
     repo_path: str = ""
     shell_preamble: str = ""
     benchmark_name: str = ""
+    #: How long this task's agent phase may run, in seconds — **declared, never guessed**.
+    #:
+    #: Whoever knows the budget states it: on the harbor/pier path the shim resolves the task's own
+    #: ``task.toml`` ``[agent] timeout_sec`` per trial (minus a margin, so the agent returns and
+    #: still captures its patch); on a harness with no engine deadline (the docker drop-in) the
+    #: benchmark declares it, because only the benchmark can say what its tasks are worth. A run
+    #: config's ``agent.timeout`` does NOT override this — it is the fallback for benchmarks that
+    #: declare nothing; scale a declared budget with ``run.timeout_multiplier`` instead.
+    #:
+    #: ``None`` means nobody declared one, which is an error rather than a default: an unstated
+    #: clock silently became four different hardcoded 1800s and quietly truncated every task whose
+    #: own budget was larger. See :func:`beagle.agents.core.base.resolve_agent_timeout`.
+    agent_timeout_s: float | None = None
 
 
 @dataclass

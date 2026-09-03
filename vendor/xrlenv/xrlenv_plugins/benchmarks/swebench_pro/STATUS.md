@@ -7,8 +7,9 @@ one-task smoke) and what has been verified on them are tracked in `scripts/READM
 ## Inputs
 
 - Dataset `ScaleAI/SWE-bench_Pro` (731 public rows) + the upstream kit `SWE-bench_Pro-os` (run
-  scripts, parsers, Dockerfiles for all 731); both are inputs by env (`SWEBENCH_PRO_PARQUET`,
-  `SWEBENCH_PRO_HARNESS`, see README).
+  scripts, parsers, Dockerfiles for all 731). Both are public and ungated, so `build_cache.py`
+  fetches them itself — the only required input is `XRLENV_BENCHMARK_CACHE`. `SWEBENCH_PRO_PARQUET`
+  / `SWEBENCH_PRO_HARNESS` remain as overrides to pin a local copy (see README).
 - Images: prebuilt on Docker Hub (`jefzda/sweap-images:<tag>`), pulled on first use. Plan
   `build_plan_full.yaml`: 731 images, 1071 GB compressed (registry-probed). No warm-up is needed.
 
@@ -68,7 +69,7 @@ above through the runner (note `defaults.content_retries: 0` there vs. this kit'
 ## Reproduce
 
 ```bash
-# .env: XRLENV_BENCHMARK_CACHE, SWEBENCH_PRO_PARQUET, SWEBENCH_PRO_HARNESS, XRLENV_GRPC_HOST/_PORT/_TOKEN
+# .env: XRLENV_BENCHMARK_CACHE, XRLENV_GRPC_HOST/_PORT/_TOKEN  (dataset + upstream kit are fetched)
 .venv/bin/python xrlenv_plugins/benchmarks/swebench_pro/build_cache.py --all              # 731 task dirs (idempotent)
 bash xrlenv_plugins/benchmarks/swebench_pro/run_full_sweep.sh --skip-build-cache --list-green | grep -c '^instance_'   # expect 731
 bash xrlenv_plugins/benchmarks/swebench_pro/run_full_sweep.sh --max-workers 16 --content-retries 1

@@ -34,8 +34,9 @@ CLIs have only :meth:`edit`.
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -43,6 +44,8 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from beagle.agents.core.spec import AgentSource, AgentSpec
 from beagle.types import AgentRole, RolloutStatus, Task, TaskContext, TaskResult, Transparency
+
+LOGGER = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from beagle.rollout.binding import RolloutBinding
@@ -108,6 +111,59 @@ class Topology(str, Enum):
     REMOTE = "remote"
 
 
+class AgentBudgetUndeclared(RuntimeError):
+    """No one stated how long the agent may run — raised instead of inventing a number.
+
+    There is deliberately **no default wall clock** in beagle. A house constant is invisible in
+    the run config, outranks whatever the benchmark actually declared, and truncates every task
+    worth more than the guess — which is exactly what happened when four adapters each hardcoded
+    1800 s while SWE-rebench tasks shipped budgets of 3000 s and 6000 s. An unstated budget is a
+    configuration error, and it says so at the first rollout rather than silently capping a
+    campaign.
+    """
+
+
+def resolve_agent_timeout(config: dict[str, Any], task_ctx: TaskContext) -> float:
+    """The wall clock for one rollout. **The benchmark's own budget wins; the config is the guard.**
+
+    1. ``task_ctx.agent_timeout_s`` — what the task/benchmark declared (see
+       :attr:`~beagle.types.TaskContext.agent_timeout_s`). On the harbor/pier path the shim
+       resolves it per trial from ``task.toml``, so a corpus with heterogeneous budgets
+       (SWE-rebench: 3000 s, four tasks at 6000 s) is honoured task by task.
+    2. ``config["timeout"]`` — the run config's ``agent.timeout``. It applies **only when nothing
+       was declared** (the docker-drop-in path, whose harness has no deadline of its own). It is
+       NOT a ceiling on a declared budget: the generated configs carry an explicit fallback value,
+       so treating it as a ceiling would truncate every harbor task right back to that number —
+       the bug this precedence exists to prevent. To shorten a declared budget, scale it with
+       ``run.timeout_multiplier``, which the harness applies to the task's own value.
+    3. Neither → :class:`AgentBudgetUndeclared`.
+
+    Editor/evolver work (``Editor.edit``) is not a rollout and doesn't come through here — it
+    carries its own operation timeout.
+    """
+    declared = task_ctx.agent_timeout_s if task_ctx is not None else None
+    configured = (config or {}).get("timeout")
+    if declared is not None:
+        if configured is not None and float(configured) != float(declared):
+            # DEBUG, not INFO: the generated configs always carry the fallback and harbor tasks
+            # always declare, so this is the normal case — at INFO it would be one line per trial
+            # (~860 on a full SWE-rebench run) saying nothing went wrong.
+            LOGGER.debug(
+                "agent clock: using the task's declared %.0fs budget; the run config's "
+                "agent.timeout=%s applies only to benchmarks that declare none (scale a declared "
+                "budget with run.timeout_multiplier instead)", float(declared), configured)
+        return float(declared)
+    if configured is not None:
+        return float(configured)
+    raise AgentBudgetUndeclared(
+        f"no agent time budget for benchmark {task_ctx.benchmark_name or '<unknown>'!r}: the "
+        "task/harness declared none (TaskContext.agent_timeout_s) and the run config sets no "
+        "`agent.timeout`. On the harbor/pier path this means the task's task.toml has no "
+        "[agent] timeout_sec; on a docker-drop-in benchmark the benchmark must declare one. "
+        "beagle does not substitute a hidden default — set `agent.timeout` (the generated configs "
+        "carry it explicitly) or declare the budget on the benchmark.")
+
+
 class AgentInstallError(RuntimeError):
     """Raised by :meth:`Runnable.install` when the agent can't be materialized in the container
     (clone/build failure, missing credential). The default :meth:`Runnable.run` turns it into a
@@ -165,6 +221,18 @@ class Runnable(ABC):
                 return res
             t2 = _utcnow()
             _span("agent_setup", t1, t2)
+            # A declared budget covers this WHOLE call (harbor's agent deadline starts when the
+            # shim hands us control, and the agent's own clone/build happens in install() above),
+            # so run_in only gets what acquire+install left. Without this an agent that installs
+            # slowly then runs to its full clock overruns the framework and is cancelled mid-
+            # capture — losing the patch. Floor at 1 s so a budget already spent fails fast and
+            # visibly rather than running unbounded.
+            if task_ctx.agent_timeout_s is not None:
+                spent = (t2 - t0).total_seconds()
+                # Whole seconds: a timeout is second-granularity anyway, and an unrounded remainder
+                # puts six decimals of wall-clock noise into every artifact and error message.
+                task_ctx = replace(task_ctx, agent_timeout_s=max(
+                    1.0, float(round(task_ctx.agent_timeout_s - spent))))
             res = self.run_in(handle, task, task_ctx, runtime=runtime)
             t3 = _utcnow()
             _span("agent_execution", t2, t3)
@@ -366,6 +434,8 @@ __all__ = [
     "EditResult",
     "Capability",
     "Topology",
+    "AgentBudgetUndeclared",
+    "resolve_agent_timeout",
     "Runnable",
     "AgentInstallError",
     "Editor",

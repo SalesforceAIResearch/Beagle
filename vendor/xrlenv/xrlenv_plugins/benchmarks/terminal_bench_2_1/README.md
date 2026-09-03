@@ -90,8 +90,8 @@ both declared as auditable in-code tables in `build_cache.py`:
   `XRLENV_CPU_PINNING = "1"` under the task's `[environment.env]` table; the
   harbor plugin reads it and sizes the affinity mask to the declared `cpus` so
   `nproc` matches the task budget — quota + memory cap still enforced. Currently
-  marked: `install-windows-3.11`, `caffe-cifar-10`, `build-pov-ray`,
-  `rstan-to-pystan`, `sqlite-with-gcov`.
+  marked (6): `install-windows-3.11`, `caffe-cifar-10`, `build-pov-ray`,
+  `rstan-to-pystan`, `sqlite-with-gcov`, `torch-pipeline-parallelism`.
 
 **Faithfulness:** each fix is the smallest overlay that restores the last-good
 result, logged on every run, and lives in the benchmark content — xrlenv core is

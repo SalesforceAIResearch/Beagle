@@ -50,16 +50,25 @@ class HarborHarness(BenchmarkHarness):
     #: The ONE shim the framework imports to run any beagle agent (see M+N note below).
     SHIM_IMPORT_PATH = "beagle.benchmarks.harness._harbor_agent:BeagleInstalledAgent"
 
-    def __init__(self, *, env_import_path: str | None = None) -> None:
+    def __init__(
+        self, *, env_import_path: str | None = None, task_env: dict[str, str] | None = None
+    ) -> None:
         """``env_import_path`` overrides the cluster :attr:`ENV_IMPORT_PATH` for THIS harness — a
         local, non-cluster tb2/harbor run points at its own harbor ``Environment`` here instead of
         monkeypatching the class attribute; falls back to the class default when unset.
 
         Reach: set it in the run config as ``benchmark.options.env_import_path`` — the runner reads
         a benchmark's ``options`` and passes it to :meth:`Benchmark.harness`, which forwards it here
-        (or construct the harness directly). Config, not an env var."""
+        (or construct the harness directly). Config, not an env var.
+
+        ``task_env`` carries the benchmark's agent-phase container facts (``repo_path_cmd`` /
+        ``shell_preamble``, see :meth:`HarborBenchmark.task_env`) to the shim through
+        ``AgentConfig.kwargs``. Per-JOB is the right granularity: a harbor job is exactly one
+        benchmark (``_run_job`` names the job dir after ``items[0][0].benchmark``), and the
+        per-TASK part is resolved in-container by the snippets themselves. Empty = unchanged."""
         if env_import_path:
             self.ENV_IMPORT_PATH = env_import_path
+        self.task_env = dict(task_env or {})
 
     def _harness_api(self) -> dict[str, Any]:
         """The framework's ``Job`` + config classes, imported lazily from :attr:`FRAMEWORK`.
@@ -86,6 +95,7 @@ class HarborHarness(BenchmarkHarness):
         run_dir: Path,
         parallelism: int = 1,
         retry: RetryPolicy | None = None,
+        timeout_multiplier: float = 1.0,
         attempt: int = 0,
         resuming: bool = False,
     ) -> Iterable[TaskResult]:
@@ -107,10 +117,13 @@ class HarborHarness(BenchmarkHarness):
             # Harbor constructs it by import_path and calls agent.run() through a
             # runtime backed by the trial environment — no per-agent harbor class.
             identity = _agent_identity(agent)
+            kwargs: dict[str, Any] = {"identity": identity}
+            if self.task_env:      # omitted when empty so an existing job's config.json is unchanged
+                kwargs["task_env"] = dict(self.task_env)
             agent_config = AgentConfig(
                 import_path=self.SHIM_IMPORT_PATH,
                 model_name=identity.get("model"),
-                kwargs={"identity": identity},
+                kwargs=kwargs,
             )
         # A content-retry round (attempt>0, the Runner re-running unresolved tasks) writes to a
         # sibling `<benchmark>-retry<N>` job dir — a distinct name so harbor's own resume doesn't
@@ -118,7 +131,8 @@ class HarborHarness(BenchmarkHarness):
         base_name = (items[0][0].benchmark if items else "") or None
         job_name = f"{base_name}-retry{attempt}" if (attempt and base_name) else None
         return self._run_job(items, agent_config, run_dir=run_dir, parallelism=parallelism,
-                             retry=retry, job_name=job_name, resuming=resuming)
+                             retry=retry, timeout_multiplier=timeout_multiplier,
+                             job_name=job_name, resuming=resuming)
 
     def completed(
         self, items: list[tuple[Task, TaskContext]], *, run_dir: Path
@@ -180,6 +194,7 @@ class HarborHarness(BenchmarkHarness):
         parallelism: int,
         job_name: str | None = None,
         retry: RetryPolicy | None = None,
+        timeout_multiplier: float = 1.0,
         resuming: bool = False,
     ) -> list[TaskResult]:
         import asyncio
@@ -232,6 +247,11 @@ class HarborHarness(BenchmarkHarness):
                 agents=[agent_config],
                 tasks=task_configs,
             )
+            # Scales the TASK's own declared phase budgets (harbor multiplies task.toml's
+            # agent/verifier timeout_sec by it). A RUN knob, not a retry one: it applies to the
+            # first attempt as much as to a re-run.
+            if timeout_multiplier != 1.0:
+                job_kwargs["timeout_multiplier"] = timeout_multiplier
             if retry is not None:
                 # Infra-only trial retry: harbor's trial queue re-runs a trial in a FRESH container
                 # ONLY on an INFRA_RETRY_EXCEPTIONS type (include_exceptions is a whitelist), so a
@@ -241,8 +261,6 @@ class HarborHarness(BenchmarkHarness):
                         max_retries=retry.infra,
                         include_exceptions=set(INFRA_RETRY_EXCEPTIONS),
                     )
-                if retry.timeout_multiplier != 1.0:
-                    job_kwargs["timeout_multiplier"] = retry.timeout_multiplier
             config = JobConfig(**job_kwargs)
 
         async def _go() -> Any:
@@ -618,13 +636,15 @@ class NativeRunnerHarness(BenchmarkHarness):
         run_dir: Path,
         parallelism: int = 1,
         retry: RetryPolicy | None = None,
+        timeout_multiplier: float = 1.0,
         attempt: int = 0,
         resuming: bool = False,
     ) -> Iterable[TaskResult]:
         # TODO(subclass): invoke the vendored native runner for `items` (it owns
         # container reuse + app provisioning + verifier); at the agent step call
         # agent.run(...) in the provisioned container; read native results. Honor
-        # `retry` (infra) + `attempt` (content-retry round) the way the runner it wraps does.
+        # `retry` (infra) + `attempt` (content-retry round) the way the runner it wraps does, and
+        # `timeout_multiplier` if the wrapped runner can scale its own per-task budgets.
         raise NotImplementedError("NativeRunnerHarness subclass must implement rollout()")
 
 

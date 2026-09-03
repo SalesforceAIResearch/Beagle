@@ -133,11 +133,21 @@ def test_better_attempt_pick_rule() -> None:
 # --- config surface ----------------------------------------------------------
 
 def test_retry_policy_defaults_and_validation() -> None:
-    assert RetryPolicy().model_dump() == {"infra": 0, "content": 0, "timeout_multiplier": 1.0}
+    assert RetryPolicy().model_dump() == {"infra": 0, "content": 0}
     with pytest.raises(ValidationError):
         RetryPolicy(infra=-1)                          # ge=0
-    with pytest.raises(ValidationError):
-        RetryPolicy(timeout_multiplier=0)              # gt=0
+
+
+def test_timeout_multiplier_is_a_run_knob_not_a_retry_knob() -> None:
+    """It scales each task's declared phase budget on the FIRST attempt as much as on a re-run, so
+    it never belonged under `retry`. An old config says where it went instead of failing with
+    pydantic's generic 'extra fields not permitted'."""
+    from beagle.config import RunConfig
+
+    with pytest.raises(ValidationError, match="moved to run.timeout_multiplier"):
+        RetryPolicy(infra=1, timeout_multiplier=1.5)
+    fields = RunConfig.model_fields
+    assert "timeout_multiplier" in fields and fields["timeout_multiplier"].default == 1.0
 
 
 # --- infra retry on the per-task (docker) harness path -----------------------
@@ -188,7 +198,8 @@ def test_runner_content_retry_reruns_only_unresolved(tmp_path, monkeypatch) -> N
     rounds: list[tuple[int, list[str]]] = []
 
     class _H:
-        def rollout(self, agent, items, *, runtime, run_dir, parallelism, retry=None, attempt=0, resuming=False):
+        def rollout(self, agent, items, *, runtime, run_dir, parallelism, retry=None,
+                timeout_multiplier=1.0, attempt=0, resuming=False):
             rounds.append((attempt, [t.task_id for t, _ in items]))
             out = []
             for t, _ in items:
@@ -256,7 +267,8 @@ def test_runner_tags_every_rollout_with_group_id(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(xrlenv, "rollout_metadata", _spy)   # _tag_group imports it at call time
 
     class _H:
-        def rollout(self, agent, items, *, runtime, run_dir, parallelism, retry=None, attempt=0, resuming=False):
+        def rollout(self, agent, items, *, runtime, run_dir, parallelism, retry=None,
+                timeout_multiplier=1.0, attempt=0, resuming=False):
             events.append(("rollout", None))               # must fall BETWEEN enter/exit
             return [TaskResult(task_id=t.task_id, resolved=True, reward=1.0) for t, _ in items]
 
@@ -317,7 +329,7 @@ def test_harbor_run_job_wires_infra_retry_config(monkeypatch, tmp_path) -> None:
     items = [(Task(task_id="t", benchmark="b", extras={"harbor_task_dir": str(task_dir)}),
               TaskContext(image=None))]
     HarborHarness()._run_job(items, AgentConfig(), run_dir=tmp_path / "out", parallelism=2,
-                             retry=RetryPolicy(infra=3, timeout_multiplier=1.5))
+                             retry=RetryPolicy(infra=3), timeout_multiplier=1.5)
 
     c = cap["config"]
     assert c.retry.max_retries == 3
@@ -397,10 +409,56 @@ def test_canonical_build_evaluation_maps_run_retry() -> None:
     from beagle.cli._canonical import build_evaluation
 
     raw = {
-        "run": {"dir": "./tmp", "name": "e", "runtime": "local",
-                "retry": {"infra": 4, "content": 2, "timeout_multiplier": 2.0}},
+        "run": {"dir": "./tmp", "name": "e", "runtime": "local", "timeout_multiplier": 2.0,
+                "retry": {"infra": 4, "content": 2}},
         "agent": {"harness": {"name": "monet"}, "model": {"name": "gpt-5.5"}},
         "data": [{"benchmark": "terminal_bench_2_1", "tasks": ["t1"]}],
     }
     cfg, _ = build_evaluation(raw)
-    assert cfg.retry.infra == 4 and cfg.retry.content == 2 and cfg.retry.timeout_multiplier == 2.0
+    assert cfg.retry.infra == 4 and cfg.retry.content == 2 and cfg.timeout_multiplier == 2.0
+
+
+# --- timeout_multiplier vs. harnesses written before it existed ---------------
+
+def test_old_harness_signature_still_runs_at_the_default(tmp_path) -> None:
+    """`rollout` is a documented extension point, so a harness predating this knob (or living
+    outside the repo) has the old signature. The runner must not kill it with an unexpected
+    keyword for a value it doesn't need — and must NOT silently drop a non-default multiplier."""
+    from beagle.benchmarks.base import BenchmarkHarness
+    from beagle.rollout.runner import _timeout_multiplier_kwarg
+
+    class _PreChangeHarness(BenchmarkHarness):
+        def rollout(self, agent, items, *, runtime, run_dir, parallelism=1, retry=None,
+                    attempt=0, resuming=False):
+            return []
+
+    class _CurrentHarness(BenchmarkHarness):
+        def rollout(self, agent, items, *, runtime, run_dir, parallelism=1, retry=None,
+                    timeout_multiplier=1.0, attempt=0, resuming=False):
+            return []
+
+    old, new = _PreChangeHarness(), _CurrentHarness()
+    assert _timeout_multiplier_kwarg(old, 1.0) == {}                    # nothing lost → just run
+    assert _timeout_multiplier_kwarg(new, 1.0) == {"timeout_multiplier": 1.0}
+    assert _timeout_multiplier_kwarg(new, 1.5) == {"timeout_multiplier": 1.5}
+    # asking for scaled budgets from a harness that can't scale them would misreport the run
+    with pytest.raises(TypeError, match="does not accept `timeout_multiplier`"):
+        _timeout_multiplier_kwarg(old, 1.5)
+
+
+def test_every_in_repo_harness_accepts_the_knob() -> None:
+    # NativeRunnerHarness was missed when the parameter was added, so WAI would have died on the
+    # unconditional keyword. Assert the whole family, not the two that were remembered.
+    import inspect
+
+    from beagle.benchmarks.base import BenchmarkHarness
+    from beagle.benchmarks.harness import (
+        DockerHarness,
+        HarborHarness,
+        NativeRunnerHarness,
+        PierHarness,
+    )
+
+    for cls in (BenchmarkHarness, HarborHarness, PierHarness, DockerHarness, NativeRunnerHarness):
+        params = inspect.signature(cls.rollout).parameters
+        assert "timeout_multiplier" in params, f"{cls.__name__}.rollout() is missing the knob"

@@ -118,19 +118,19 @@ def _default_job_id() -> str:
 
 
 def _harbor_cache_root() -> Path:
-    """The unified harbor cache: ``$XRLENV_BENCHMARK_CACHE`` if set, else
-    ``~/.cache/harbor/tasks`` — the SAME default terminal-bench-2 uses. seta and
-    tb2 share one cache; seta tasks live under their own ``seta-env/`` shard
-    (:data:`SETA_CACHE_SHARD`), so they never collide with tb2's tasks."""
-    # Fail loud if the caller still points at the retired XRLENV_HARBOR_CACHE var /
-    # xrlenv_harbor_cache path — reusing it silently reads the wrong cache (renamed
-    # 2026-07-31). Lazy import to match the plugin style (plugin -> xrlenv is allowed).
-    from xrlenv_plugins.benchmarks._benchmark_cache import guard_legacy_cache_env
-    guard_legacy_cache_env()
-    explicit = os.environ.get("XRLENV_BENCHMARK_CACHE")
-    if explicit:
-        return Path(explicit).expanduser()
-    return Path("~/.cache/harbor/tasks").expanduser()
+    """The unified harbor cache ROOT: ``$XRLENV_BENCHMARK_CACHE``, else fail loud.
+
+    seta and terminal-bench-2 share one cache; seta tasks live under their own
+    ``seta-env/`` shard (:data:`SETA_CACHE_SHARD`), so they never collide with tb2's.
+    ``benchmark_cache_root`` is the single implementation — it rejects the retired
+    XRLENV_HARBOR_CACHE var / xrlenv_harbor_cache path (renamed 2026-07-31) and raises
+    when nothing is set. This used to fall back to a home-directory cache instead, which
+    answers an operator error with a plausible-but-wrong directory. Lazy import to match
+    the plugin style (plugin -> xrlenv is allowed).
+    """
+    from xrlenv_plugins.benchmarks._benchmark_cache import benchmark_cache_root
+
+    return Path(benchmark_cache_root()).expanduser()
 
 
 def _seta_shard() -> Path:

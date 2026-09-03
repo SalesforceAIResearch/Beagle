@@ -75,6 +75,12 @@ class _SweBenchSource(TaskSource):
             repo_path="/testbed",
             shell_preamble="source /opt/miniconda3/bin/activate testbed",
             benchmark_name=_BENCH,
+            # This benchmark has no engine deadline (docker drop-in) and the dataset ships no
+            # per-instance agent budget — upstream's 1800 s is the EVALUATION timeout, not the
+            # agent's. So there is genuinely nothing to inherit, and the run config's
+            # ``agent.timeout`` is the bound. Left None deliberately rather than inventing a
+            # per-instance number here: see ``resolve_agent_timeout``.
+            agent_timeout_s=None,
         )
         return task, ctx
 

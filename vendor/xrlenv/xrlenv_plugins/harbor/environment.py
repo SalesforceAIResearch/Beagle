@@ -518,6 +518,12 @@ class XrlenvHarborEnvironmentCluster(XrlenvHarborEnvironment):
     follow-on slice.
     """
 
+    # Class-level default for the memoised phase budget, so the read in
+    # _task_phase_budget_s is safe on instances that never ran __init__ —
+    # a large body of unit tests builds this object with __new__ and sets only
+    # the few attributes under test. __init__ still assigns it per instance.
+    _phase_budget_s_cache: float | None = None
+
     def __init__(
         self,
         environment_dir: Path,
@@ -549,6 +555,14 @@ class XrlenvHarborEnvironmentCluster(XrlenvHarborEnvironment):
         # files also carry world r-x in the tar (see _relax_modes).
         self._sysbox_upload = False
         self._xfer_seq = 0  # unique-ifies the in-container staging file
+        # Memoised effective phase budget (see _task_phase_budget_s). Declared
+        # rather than created on first use so a rename can't silently turn the
+        # cache off — an attribute-name typo would then be a hard failure, not
+        # two extra file reads on every exec that nothing would notice. The
+        # class-level default above is what makes that safe for the many unit
+        # tests that build this object with __new__ and set attributes by hand:
+        # without it, reading the cache would AttributeError on every such stub.
+        self._phase_budget_s_cache = None
 
     @property
     def capabilities(self) -> EnvironmentCapabilities:
@@ -1366,6 +1380,115 @@ exit 1
                     )
                 self._xrlenv_client = None
 
+    def _task_phase_budget_s(self) -> float:
+        """The largest EFFECTIVE phase budget harbor will enforce for this trial,
+        in seconds (0.0 if it cannot be determined). Memoised — ``exec`` runs many
+        times per trial.
+
+        Mirrors harbor's own ``Trial._resolve_timeout_sec``::
+
+            min(base_sec, max_sec or inf) * (phase_multiplier or timeout_multiplier)
+
+        with ``base_sec = override_timeout_sec or <task.toml> timeout_sec``. Both
+        inputs are on disk before the environment starts: the task's ``task.toml``
+        (``environment_dir`` is ``<task>/environment``) and the trial's
+        ``config.json`` — written by ``Trial._init_result``, the FIRST statement of
+        ``Trial.run``, so it always exists by the time an exec runs). Reading the
+        real multipliers rather than assuming one is what makes this correct for
+        ANY ``--timeout-multiplier``; a guess would under-size the deadline
+        whenever the multiplier exceeded it, which is the very failure this method
+        exists to prevent.
+
+        **Drift risk, accepted deliberately.** This MIRRORS harbor's formula
+        rather than calling it, because harbor never exposes the computed budget
+        to the environment — it passes ``_agent_timeout_sec`` into the oracle
+        agent's constructor and keeps ``_verifier_timeout_sec`` on the Trial. So a
+        change to ``Trial._resolve_timeout_sec`` upstream leaves this stale. That
+        is tolerable because of which DIRECTION it fails in: a stale mirror can
+        only compute a budget that is too small, which is precisely the state
+        before this method existed (a flat 1800 s), and
+        ``_DEFAULT_EXEC_TIMEOUT_S`` still floors it — so the worst case is the old
+        behaviour, never something worse. It can never over-run either, since
+        harbor's ``wait_for`` cancels the exec at the real budget regardless of
+        what we compute. Re-check this against ``trial.py`` when bumping the
+        pinned harbor version; ``tests/test_exec_deadline.py`` pins the formula's
+        four inputs (base, override, cap, multiplier precedence).
+
+        Note ``config.json`` is written with ``exclude_defaults=True``, so a
+        multiplier of 1.0 is absent from the file entirely — absent must mean 1.0,
+        not "unknown".
+        """
+        if self._phase_budget_s_cache is not None:
+            return self._phase_budget_s_cache
+
+        budget = 0.0
+        try:
+            import json
+            import tomllib
+
+            task_cfg = tomllib.loads(
+                (Path(self.environment_dir).parent / "task.toml").read_text(
+                    encoding="utf-8",
+                ),
+            )
+            trial_cfg: dict[str, Any] = {}
+            try:
+                trial_cfg = json.loads(
+                    Path(self.trial_paths.config_path).read_text(encoding="utf-8"),
+                )
+            except (OSError, ValueError, AttributeError, TypeError):
+                trial_cfg = {}      # not yet written / unreadable -> multiplier 1.0
+
+            default_mult = trial_cfg.get("timeout_multiplier")
+            default_mult = (
+                float(default_mult) if isinstance(default_mult, (int, float)) else 1.0
+            )
+            for phase, mult_key in (
+                ("agent", "agent_timeout_multiplier"),
+                ("verifier", "verifier_timeout_multiplier"),
+            ):
+                overrides = trial_cfg.get(phase) or {}
+                base = overrides.get("override_timeout_sec")
+                if not isinstance(base, (int, float)) or base <= 0:
+                    base = (task_cfg.get(phase) or {}).get("timeout_sec")
+                if not isinstance(base, (int, float)) or base <= 0:
+                    continue
+                cap = overrides.get("max_timeout_sec")
+                if isinstance(cap, (int, float)) and cap > 0:
+                    base = min(float(base), float(cap))
+                mult = trial_cfg.get(mult_key)
+                mult = float(mult) if isinstance(mult, (int, float)) else default_mult
+                budget = max(budget, float(base) * mult)
+        except (OSError, ValueError, TypeError, AttributeError):
+            budget = 0.0            # unreadable / absent -> fall back to the floor
+
+        self._phase_budget_s_cache = budget
+        return budget
+
+    def _default_exec_timeout_s(self) -> float:
+        """The exec deadline to use when the CALLER passes none.
+
+        harbor enforces a phase budget one level up —
+        ``asyncio.wait_for(verifier.verify(), timeout=verifier.timeout_sec)`` in
+        ``trial.py`` — and its ``Verifier`` deliberately calls ``exec`` with no
+        ``timeout_sec``; harbor's own DockerEnvironment passes that ``None``
+        straight through and imposes nothing. A flat default here therefore made
+        US the binding constraint: a task declaring ``verifier.timeout_sec =
+        3000`` had its verifier killed at 1800 s, surfacing as a truncated log
+        and reward 0 — indistinguishable from broken task content.
+
+        This deadline is a **transport backstop**, not policy: harbor's
+        ``wait_for`` cancels this exec when the real budget expires (the exec loop
+        holds no ``except``, so cancellation propagates), so a task never gains
+        runtime from a larger value here. It only has to be no smaller than what
+        harbor will enforce — hence the effective budget, not the raw declared one.
+        ``_DEFAULT_EXEC_TIMEOUT_S`` remains the floor for the short bookkeeping
+        execs (chmod, mkdir) that carry no phase budget. An explicit
+        ``timeout_sec`` from the caller always wins — the agent path passes one
+        and is unaffected.
+        """
+        return max(_DEFAULT_EXEC_TIMEOUT_S, self._task_phase_budget_s())
+
     async def exec(
         self,
         command: str,
@@ -1391,7 +1514,7 @@ exit 1
         merged_env = self._merge_env(env)
         effective_cwd = cwd or self.task_env_config.workdir
         timeout_s = (
-            float(timeout_sec) if timeout_sec else _DEFAULT_EXEC_TIMEOUT_S
+            float(timeout_sec) if timeout_sec else self._default_exec_timeout_s()
         )
 
         stdout_chunks: list[bytes] = []

@@ -117,17 +117,17 @@ VERIFIER_ROOT_TASKS = frozenset({"15", "304", "729", "1092"})
 
 
 def _harbor_cache_root(dest: str | None) -> Path:
-    # Fail loud if the caller still points at the retired XRLENV_HARBOR_CACHE var /
-    # xrlenv_harbor_cache path — reusing it silently reads the wrong cache (renamed
-    # 2026-07-31). Lazy import to match the plugin style (plugin -> xrlenv is allowed).
-    from xrlenv_plugins.benchmarks._benchmark_cache import guard_legacy_cache_env
-    guard_legacy_cache_env(dest)
-    if dest:
-        return Path(dest).expanduser()
-    explicit = os.environ.get("XRLENV_BENCHMARK_CACHE")
-    if explicit:
-        return Path(explicit).expanduser()
-    return Path("~/.cache/harbor/tasks").expanduser()
+    """The cache ROOT: ``dest``, else ``$XRLENV_BENCHMARK_CACHE``, else fail loud.
+
+    ``benchmark_cache_root`` is the single implementation — it rejects the retired
+    XRLENV_HARBOR_CACHE var / xrlenv_harbor_cache path (renamed 2026-07-31) and raises
+    when nothing is set. This used to fall back to a home-directory cache instead, which
+    answers an operator error with a plausible-but-wrong directory. Lazy import to match
+    the plugin style (plugin -> xrlenv is allowed).
+    """
+    from xrlenv_plugins.benchmarks._benchmark_cache import benchmark_cache_root
+
+    return Path(benchmark_cache_root(dest)).expanduser()
 
 
 def _shard_dir(dest: str | None) -> Path:

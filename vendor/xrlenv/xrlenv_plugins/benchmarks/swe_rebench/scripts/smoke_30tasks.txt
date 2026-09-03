@@ -1,0 +1,64 @@
+# swe-rebench — the 30-task smoke set (risk-ranked)
+#
+# Run this BEFORE the full 860-task gate. If the plumbing is broken it breaks
+# here first, ~25x cheaper: 65 GB of images across 30 distinct repos, vs ~1.6 TB.
+#
+#   S=xrlenv_plugins/benchmarks/swe_rebench
+#   bash $S/run_full_sweep.sh --tasks-file $S/scripts/smoke_30tasks.txt --max-workers 8
+#   bash $S/run_full_sweep.sh --tasks-file $S/scripts/smoke_30tasks.txt --max-workers 32
+#
+# Run it at BOTH concurrencies. A `network` task that passes solo and fails under
+# load is not flaky — it is a non-hermetic dependency surfacing, and the fix is
+# hermeticity, never a lower concurrency.
+#
+# WHY THESE 30. The corpus is unusually homogeneous — all 860 tasks grade through
+# a byte-identical tests/parser.py with log_parser=parse_log_pytest, none has an
+# empty FAIL_TO_PASS, none sets docker_specs/env_vars, and every runner ends in
+# `|| true`. So a random sample just re-tests the same easy path. These are the
+# tasks that differ on the signals that actually vary, one per repo, covering
+# every signal. Populations + the two rejected signals are in ../STATUS.md.
+#
+#   bespoke-runner    test cmd isn't plain pytest (poetry/hatch/.tox/venv-activate/inline-env)
+#   network           test.sh or its test patch touches an external host / ported localhost
+#   huge-p2p          PASS_TO_PASS >= 500  (p90 is 181; max 6423)
+#   heavy-resources   >1 cpu, >8 GB, or a >3000 s verifier timeout
+#   big-image         image >= 6 GB  (mean is 1.9 GB)
+#   multi-file-patch  >=3 test files checked out
+#   pre-install       install_config.pre_install is non-empty
+#
+# NOT here: the 17 tasks whose verifier runs `uv`. They were run separately and
+# 16/17 solve on the plain upstream image (2026-09-01, ../STATUS.md), so they are
+# ordinary green-set members with no extra risk — already measured, not skipped.
+# Everything after a '#' is a comment; the first token on a line is the id.
+#
+# task id                                                   signals
+prometheus__client_python-1134                            bespoke-runner,network
+sktime__sktime-8723                                       bespoke-runner,heavy-resources,pre-install
+pybamm-team__PyBaMM-5061                                  bespoke-runner,heavy-resources
+deepset-ai__haystack-10171                                bespoke-runner,big-image
+Marker-Inc-Korea__AutoRAG-1150                            bespoke-runner,big-image
+pallets__click-3239                                       network,huge-p2p
+networkx__networkx-8369                                   network,huge-p2p
+koxudaxi__datamodel-code-generator-2996                   network,huge-p2p
+conan-io__conan-18005                                     network,multi-file-patch,pre-install
+pandas-dev__pandas-64104                                  network,huge-p2p
+aws-powertools__powertools-lambda-python-7315             bespoke-runner,multi-file-patch
+huggingface__trl-5135                                     network,big-image
+sloria__sphinx-issues-175                                 network,pre-install
+serge-sans-paille__beniget-121                            network,pre-install
+nesquena__hermes-webui-2056                               network,multi-file-patch
+sigstore__sigstore-python-1652                            bespoke-runner
+macbre__sql-metadata-552                                  network,pre-install
+AzureAD__microsoft-authentication-library-for-python-795  network,pre-install
+reframe-hpc__reframe-3553                                 bespoke-runner
+python-wheel-build__fromager-653                          network,multi-file-patch
+googleapis__python-api-core-821                           network,pre-install
+gitpython-developers__GitPython-2075                      network,pre-install
+sympy__sympy-27512                                        network,pre-install
+sphinx-doc__sphinx-13318                                  network,pre-install
+octodns__octodns-1300                                     bespoke-runner
+milvus-io__pymilvus-3273                                  bespoke-runner
+materialsproject__fireworks-548                           bespoke-runner
+olofk__fusesoc-724                                        network,pre-install
+AbsaOSS__generate-release-notes-207                       network,multi-file-patch
+yt-project__unyt-560                                      network,pre-install

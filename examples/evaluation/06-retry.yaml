@@ -1,0 +1,31 @@
+# 6. RETRIES — AND WHAT MUST NEVER BE RETRIED.
+#
+# Two independent layers, both in-run. The CLI flags for re-running a FINISHED run
+# (--resume / --retry-errors / --retry-unresolved) are a separate axis — see the README.
+#
+#   infra   — re-run a trial ONLY on an infra-transient (capacity, control-plane, node blip), in a
+#             fresh container. Content outcomes (verifier failure, agent timeout, a rate limit,
+#             resolved=False) are NEVER infra-retried, so eval signal is never re-rolled.
+#   content — re-run UNRESOLVED tasks; a task counts solved if ANY attempt passes. This DOES change
+#             what you measure (best-of-N), so leave it 0 for a clean number and raise it only when
+#             you are deliberately absorbing flakes.
+run:
+  dir: ./results
+  name: eval-retry
+  runtime: xrlenv-cluster
+  parallelism: 8
+  retry:
+    infra: 2                   # safe: absorbs infrastructure, not capability
+    content: 0                 # best-of-N; keep at 0 unless you mean it
+
+agent:
+  harness:
+    name: opencode
+    version: 1.18.16
+    source: {repo: https://github.com/<your-org>/opencode_v1.18.16, ref: <baseline-commit-sha>}
+  model: {name: gpt-5.5}
+  forward_env: [OPENAI_API_KEY]
+
+data:
+  - benchmark: deep-swe        # needs the extra: uv pip install -e '.[deep-swe]'
+    tasks: [httpx-multipart-response-parsing, numba-stencil-boundary-modes]

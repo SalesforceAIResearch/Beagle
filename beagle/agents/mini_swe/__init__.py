@@ -36,6 +36,7 @@ from beagle.agents.core.base import (
     Evolvable,
     Runnable,
     Topology,
+    resolve_agent_timeout,
 )
 from beagle.agents.core.forward_env import normalize_forward_env
 from beagle.agents.core.litellm_gateway import (
@@ -168,12 +169,16 @@ class MiniSweAgent(Agent, Runnable, Evolvable, Editor):
         run_env.update({c: os.environ[h] for c, h in
                         normalize_forward_env(cfg.get("forward_env")) if os.environ.get(h) is not None})
         repo = shlex.quote(task_ctx.repo_path)
+        # The benchmark's own environment setup (e.g. activating the task's Python env), sourced
+        # before every `cd` below so its exports are in scope — opencode/monet do the same in their
+        # inner scripts. Empty for a benchmark that supplies none.
+        pre = f"{task_ctx.shell_preamble}\n" if task_ctx.shell_preamble else ""
         # Record the base commit BEFORE the agent runs. The submission is `git diff <base>..HEAD`
         # (deep-swe/pier), and deep-swe agents COMMIT their own work — so a post-run working-tree
         # diff would be empty. Capturing base..HEAD reflects the work whether the agent committed it
         # or left it uncommitted (swe-bench). Empty (best-effort) if the workspace isn't a git repo.
         base = runtime.exec(
-            handle, ["bash", "-lc", f"cd {repo} && git rev-parse HEAD 2>/dev/null || true"]).stdout.strip()
+            handle, ["bash", "-lc", f"{pre}cd {repo} && git rev-parse HEAD 2>/dev/null || true"]).stdout.strip()
         # Write the trajectory into the harness's SYNCED agent-logs dir (``/logs/agent``, like
         # monet's stream) — pier/harbor sync it to the trial's ``agent/`` and the harness converts
         # it to ATIF post-job. (On the docker path ``/logs/agent`` is a throwaway; the harness reads
@@ -181,26 +186,26 @@ class MiniSweAgent(Agent, Runnable, Evolvable, Editor):
         run_res = runtime.exec(
             handle,
             ["bash", "-lc", (
-                f"mkdir -p /logs/agent && cd {repo} && "
+                f"{pre}mkdir -p /logs/agent && cd {repo} && "
                 f"/agent/.venv/bin/mini -t {shlex.quote(task.prompt())} -m {shlex.quote(model)} "
                 f"-y --exit-immediately --environment-class local --agent-class default "
                 f"-c {shlex.quote(config_path)}{gw}{vocab}{ov} -o /logs/agent/mini.traj.json -l 0")],
             env=run_env,
-            timeout=cfg.get("timeout", 1800),
+            timeout=resolve_agent_timeout(cfg, task_ctx),
         )
         # Capture the full submission = everything since `base`. Commit any uncommitted edits first,
         # then `git diff base..HEAD` — so the patch reflects BOTH the agent's own commits (deep-swe)
         # and uncommitted working-tree edits (swe-bench). Without a base commit (non-git workspace),
         # fall back to the working-tree diff.
-        commit = (f'cd {repo} && git add -A && git -c user.email=agent@beagle.local '
+        commit = (f'{pre}cd {repo} && git add -A && git -c user.email=agent@beagle.local '
                   f'-c user.name=beagle commit -q -m "beagle agent changes" || true')
         if base:
             runtime.exec(handle, ["bash", "-lc", commit])
             diff = runtime.exec(
-                handle, ["bash", "-lc", f"cd {repo} && git diff {shlex.quote(base)}..HEAD"]).stdout
+                handle, ["bash", "-lc", f"{pre}cd {repo} && git diff {shlex.quote(base)}..HEAD"]).stdout
         else:
             diff = runtime.exec(
-                handle, ["bash", "-lc", f"cd {repo} && git add -A && git diff --cached"]).stdout
+                handle, ["bash", "-lc", f"{pre}cd {repo} && git add -A && git diff --cached"]).stdout
             runtime.exec(handle, ["bash", "-lc", commit])
         # Read back the trajectory the CLI wrote (`-o`) → tokens + turns. Best-effort.
         traj_raw = runtime.exec(

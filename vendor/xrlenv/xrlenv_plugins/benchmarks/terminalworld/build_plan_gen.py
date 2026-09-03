@@ -40,7 +40,6 @@ is regenerated on demand rather than checked in stale.
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -60,10 +59,20 @@ DEFAULT_SIZE_HINT_BYTES = 1_500_000_000  # 1.5 GiB
 
 
 def _harbor_cache_root() -> Path:
-    explicit = os.environ.get("XRLENV_BENCHMARK_CACHE")
-    if explicit:
-        return Path(explicit).expanduser()
-    return Path("~/.cache/harbor/tasks").expanduser()
+    """The cache ROOT, on exactly the same contract this kit's ``build_cache.py`` uses.
+
+    ``benchmark_cache_root`` hard-rejects the retired var/path (renamed 2026-07-31:
+    XRLENV_HARBOR_CACHE -> XRLENV_BENCHMARK_CACHE, xrlenv_harbor_cache ->
+    xrlenv_benchmark_cache) and raises when nothing is set. Deferring to it rather than
+    re-implementing the lookup is the point: this generator previously fell back to a
+    home-directory cache when the var was unset, which silently resolved to a directory
+    that need not exist, discovered 0 tasks, and emitted an EMPTY plan — a warm plan that
+    warms nothing, with no error. One variable, one contract, fail loud. Lazy import to
+    match the plugin style (plugin -> xrlenv core).
+    """
+    from xrlenv_plugins.benchmarks._benchmark_cache import benchmark_cache_root
+
+    return Path(benchmark_cache_root()).expanduser()
 
 
 def _shard_dir() -> Path:

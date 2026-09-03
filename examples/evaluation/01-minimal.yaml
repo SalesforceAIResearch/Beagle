@@ -1,0 +1,33 @@
+# 1. THE MINIMAL EVAL — pick an agent harness, pick a benchmark, score it.
+#
+# Every other example on this page is this file plus one idea. Validate any of them without
+# spending anything:  python -m beagle.config examples/evaluation/01-minimal.yaml
+#                     beagle evaluate --config examples/evaluation/01-minimal.yaml --dry-run
+#
+# `source` is a PLACEHOLDER: the agent's code is evolved, so it lives in an experiment copy YOU
+# own. Onboard one (`python -m beagle.tools.onboard …`) and paste repo/ref/token_env from the
+# manifest it writes to .beagle/agents/<profile>.json.
+run:
+  dir: ./results
+  name: eval-minimal
+  runtime: xrlenv-cluster        # local | xrlenv-cluster
+  parallelism: 8
+
+agent:
+  harness:
+    name: mini-swe               # the adapter (bgl.agents.available())
+    version: v2.4.6              # which copy of it — labels artifacts, gates black-box CLIs
+    source:
+      repo: https://github.com/<your-org>/mini_swe_agent_v2.4.6
+      ref: <baseline-commit-sha>
+      token_env: GH_TOKEN        # env var holding the clone token (private copies)
+  model:
+    name: gpt-5.5                # the MODEL NAME picks the provider (see the table in README.md)
+  forward_env: [OPENAI_API_KEY]  # that provider's key, forwarded into the container for LiteLLM
+  # provider: <id>               # only when routing through an OpenAI-compatible proxy instead of
+                                 # the provider's own API; omit for direct access
+  effort: high
+  max_turns: 150
+
+data:
+  - benchmark: swe-rebench       # bgl.benchmarks.available()

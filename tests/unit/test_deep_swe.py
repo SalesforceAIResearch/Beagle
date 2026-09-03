@@ -10,6 +10,8 @@ from __future__ import annotations
 import sys
 import types
 
+import pytest
+
 import beagle as bgl
 from beagle.benchmarks.base import BenchmarkSpec
 from beagle.benchmarks.grader import InBandGrader
@@ -69,7 +71,10 @@ def test_pier_harness_api_resolves_pier_classes(monkeypatch) -> None:
 
 
 def test_harbor_harness_api_still_resolves_harbor() -> None:
-    # the same parametrization must leave the harbor path intact (harbor IS installed here)
+    # the same parametrization must leave the harbor path intact. This one genuinely needs the
+    # real package — it asserts the import resolves — so it SKIPS without the optional extra
+    # rather than failing, which is what it did before.
+    pytest.importorskip("harbor")
     api = HarborHarness()._harness_api()
     assert api["Job"].__module__.startswith("harbor")
     assert all(k in api for k in ("JobConfig", "RetryConfig", "AgentConfig", "EnvironmentConfig", "TaskConfig"))

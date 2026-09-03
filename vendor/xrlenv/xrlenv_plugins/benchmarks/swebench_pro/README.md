@@ -21,19 +21,38 @@ the gold-patch (oracle) sweep over it that is the onboarding gate. The derived s
 quality-filtered set (478), the repo-balanced subset-100 and the one-task smoke test — live in
 [`scripts/`](scripts/README.md) together with the generators that produce them.
 
-## Inputs (environment only — nothing has a default location)
+## Inputs
+
+**Required:**
 
 | Variable | What |
 |---|---|
 | `XRLENV_BENCHMARK_CACHE` | the benchmark cache ROOT; tasks are materialized under `<root>/swebench-pro/<instance_id>/` |
+| `XRLENV_GRPC_HOST` / `_PORT` / `_TOKEN` | the cluster (not needed to build the cache) |
+
+**Fetched for you** — both upstream inputs are public and ungated, so `build_cache.py` provisions
+them itself and there is nothing to download by hand:
+
+| Input | Where it comes from |
+|---|---|
+| the dataset | anonymous `snapshot_download("ScaleAI/SWE-bench_Pro")` into the shared HF cache |
+| the upstream kit | shallow anonymous `git clone` of `scaleapi/SWE-bench_Pro-os`, cached once at `<cache root>/.upstream/` and reused by every entry point |
+
+**Optional overrides** — set either to pin a local copy (an air-gapped box, or a specific snapshot):
+
+| Variable | What |
+|---|---|
 | `SWEBENCH_PRO_PARQUET` | the dataset parquet, or the directory of a snapshot: `huggingface-cli download ScaleAI/SWE-bench_Pro --repo-type dataset --local-dir <dir>` |
 | `SWEBENCH_PRO_HARNESS` | a checkout of the upstream kit: `git clone https://github.com/scaleapi/SWE-bench_Pro-os <dir>` (`run_scripts/`, `dockerfiles/`) |
-| `XRLENV_GRPC_HOST` / `_PORT` / `_TOKEN` | the cluster |
 
-Put them in this repo's `.env` (every entrypoint here loads it) or export them. `XRLENV_PY`
+A named location is honoured verbatim and **fails loud if wrong** — we never quietly download over
+an operator's typo, because that would evaluate a different corpus than they asked for. `--parquet`
+/ `--harness` do the same per-run.
+
+Put any of these in this repo's `.env` (every entrypoint here loads it) or export them. `XRLENV_PY`
 overrides the interpreter (default: this repo's `.venv`, from `uv sync --all-extras`, which
-carries harbor + xrlenv + pyarrow). Optional: `DOCKERHUB_USER`/`DOCKERHUB_TOKEN` lift the Docker
-Hub rate limit when the plan is regenerated with size probes.
+carries harbor + xrlenv + pyarrow + huggingface_hub). Optional: `DOCKERHUB_USER`/`DOCKERHUB_TOKEN`
+lift the Docker Hub rate limit when the plan is regenerated with size probes.
 
 ## How to run the full gold-patch sweep
 

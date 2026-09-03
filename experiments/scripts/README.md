@@ -20,7 +20,7 @@ CHECK=1 bash experiments/scripts/generate_all_eval_configs.sh
 
 # custom cross-product
 .venv/bin/python experiments/scripts/generate_eval_configs.py \
-  --agents monet opencode \
+  --agents monet-20260826 opencode-1.18.16 \
   --benches terminal_bench_2_1 deep-swe swe-bench-verified \
   --model gpt-5.6-sol --effort medium --max-turns 200
 ```
@@ -71,7 +71,7 @@ Inspect the recovery first:
 
 ```bash
 .venv/bin/python experiments/scripts/grade_run.py \
-  --config experiments/configs/eval_baseline/monet_swebench_verified_gpt-5.6-sol_medium_200.yaml \
+  --config experiments/configs/eval_baseline/monet-20260826_swebench_verified_gpt-5.6-sol_medium_200.yaml \
   --run-dir experiments/results/<config-stem>-<timestamp> \
   --dry-run
 ```
@@ -81,7 +81,7 @@ that are still missing:
 
 ```bash
 beagle evaluate \
-  --config experiments/configs/eval_baseline/monet_swebench_verified_gpt-5.6-sol_medium_200.yaml \
+  --config experiments/configs/eval_baseline/monet-20260826_swebench_verified_gpt-5.6-sol_medium_200.yaml \
   --resume --run-dir experiments/results/<config-stem>-<timestamp>
 ```
 

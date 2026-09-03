@@ -165,6 +165,7 @@ class BenchmarkHarness(ABC):
         run_dir: Path,
         parallelism: int = 1,
         retry: RetryPolicy | None = None,
+        timeout_multiplier: float = 1.0,
         attempt: int = 0,
         resuming: bool = False,
     ) -> Iterable[TaskResult]:

@@ -40,10 +40,18 @@ def test_shard_dir_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bc._shard_dir(None) == Path("/tmp/envcache/seta-env")
 
 
-def test_shard_dir_default(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_shard_dir_fails_loud_without_a_cache_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unset root used to resolve to ``~/.cache/harbor/tasks`` — a plausible-but-wrong
+    directory that reads as an empty shard instead of reporting the operator error. Now
+    it raises, the same as every other kit and as this kit's own --dest path."""
     monkeypatch.delenv("XRLENV_BENCHMARK_CACHE", raising=False)
-    monkeypatch.setenv("HOME", "/home/tester")
-    assert bc._shard_dir(None) == Path("/home/tester/.cache/harbor/tasks/seta-env")
+    with pytest.raises(SystemExit, match="XRLENV_BENCHMARK_CACHE"):
+        bc._shard_dir(None)
+
+
+def test_shard_dir_prefers_an_explicit_dest(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XRLENV_BENCHMARK_CACHE", "/tmp/envcache")
+    assert bc._shard_dir("/tmp/explicit") == Path("/tmp/explicit/seta-env")
 
 
 # ── idempotency signal ────────────────────────────────────────────────────────

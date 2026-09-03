@@ -142,22 +142,96 @@ def test_select_rows_manifest_and_smoke(tmp_path: Path):
         bc.safe_instance_id("../victim")
 
 
-def test_inputs_come_from_env_only(tmp_path: Path, monkeypatch):
-    """No default data locations: the parquet and the upstream kit are named by env/flags or the run fails loud."""
-    monkeypatch.delenv(bc.PARQUET_ENV, raising=False)
-    monkeypatch.delenv(bc.HARNESS_ENV, raising=False)
-    with pytest.raises(SystemExit):
-        bc.parquet_path()
-    with pytest.raises(SystemExit):
-        bc.harness_dir()
+def test_a_named_input_is_honoured_verbatim(tmp_path: Path, monkeypatch):
+    """An explicit flag or env var wins over fetching, and resolves file-or-snapshot-directory."""
+    monkeypatch.setattr(bc, "fetch_parquet", _never_fetch)
     snap = tmp_path / "snapshot" / "data"
     snap.mkdir(parents=True)
     (snap / "test-00000-of-00001.parquet").write_bytes(b"")
     monkeypatch.setenv(bc.PARQUET_ENV, str(tmp_path / "snapshot"))
     assert bc.parquet_path() == snap / "test-00000-of-00001.parquet"                      # a snapshot directory resolves to its parquet
     assert bc.parquet_path(str(snap / "test-00000-of-00001.parquet")).name == "test-00000-of-00001.parquet"
-    with pytest.raises(SystemExit):
-        bc.parquet_path(str(tmp_path / "empty"))
+
+    harness = tmp_path / "kit"
+    (harness / "run_scripts").mkdir(parents=True)
+    (harness / "dockerfiles").mkdir()
+    monkeypatch.setenv(bc.HARNESS_ENV, str(harness))
+    monkeypatch.setattr(bc, "fetch_harness", _never_fetch)
+    assert bc.harness_dir() == harness
+
+
+def _never_fetch(*a, **k):
+    raise AssertionError("must not fetch when an input is named")
+
+
+def test_a_bad_named_input_fails_loud_and_does_not_download(tmp_path: Path, monkeypatch):
+    """THE precedence rule. An operator who named a location meant it, so a typo must be reported —
+    silently downloading over it would evaluate a DIFFERENT corpus than they asked for."""
+    monkeypatch.setattr(bc, "fetch_parquet", _never_fetch)
+    monkeypatch.setattr(bc, "fetch_harness", _never_fetch)
+
+    monkeypatch.setenv(bc.PARQUET_ENV, str(tmp_path / "empty"))
+    with pytest.raises(SystemExit, match=bc.PARQUET_ENV):
+        bc.parquet_path()
+    with pytest.raises(SystemExit, match=bc.PARQUET_ENV):
+        bc.parquet_path(str(tmp_path / "empty"))                                          # via the flag too
+
+    not_a_kit = tmp_path / "not-a-kit"
+    not_a_kit.mkdir()
+    monkeypatch.setenv(bc.HARNESS_ENV, str(not_a_kit))
+    with pytest.raises(SystemExit, match="run_scripts"):
+        bc.harness_dir()
+
+
+def test_unset_inputs_are_fetched_not_refused(tmp_path: Path, monkeypatch):
+    """The kit is self-contained: with NOTHING set, both inputs are provisioned rather than
+    demanded of the operator. (Regression — these used to raise SystemExit, which made
+    `run_benchmarks.py --profile ci` fail at planning on any box without the env vars.)"""
+    monkeypatch.delenv(bc.PARQUET_ENV, raising=False)
+    monkeypatch.delenv(bc.HARNESS_ENV, raising=False)
+    parquet = tmp_path / "test-00000-of-00001.parquet"
+    parquet.write_bytes(b"")
+    kit = tmp_path / "kit"
+    monkeypatch.setattr(bc, "fetch_parquet", lambda: parquet)
+    monkeypatch.setattr(bc, "fetch_harness", lambda dest=None: kit)
+    assert bc.parquet_path() == parquet
+    assert bc.harness_dir() == kit
+
+
+def test_fetch_harness_reuses_an_existing_clone(tmp_path: Path, monkeypatch):
+    """Cached under the cache ROOT, not a temp dir, so it is cloned once and shared by every entry
+    point. A second call must not shell out to git at all."""
+    monkeypatch.setenv("XRLENV_BENCHMARK_CACHE", str(tmp_path))
+    d = tmp_path / ".upstream" / "SWE-bench_Pro-os"
+    (d / "run_scripts").mkdir(parents=True)
+    (d / "dockerfiles").mkdir()
+
+    import subprocess as sp
+
+    def boom(*_a, **_k):
+        raise AssertionError("must not re-clone an existing checkout")
+
+    monkeypatch.setattr(sp, "run", boom)
+    assert bc.fetch_harness() == d
+
+
+def test_fetch_harness_clears_a_partial_clone(tmp_path: Path, monkeypatch):
+    """A clone killed part-way leaves a dir that is neither a valid kit nor an empty target — git
+    would refuse it forever. It must be cleared rather than wedging the kit."""
+    import subprocess as sp
+    monkeypatch.setenv("XRLENV_BENCHMARK_CACHE", str(tmp_path))
+    d = tmp_path / ".upstream" / "SWE-bench_Pro-os"
+    (d / "leftover").mkdir(parents=True)          # partial: no run_scripts/, no dockerfiles/
+
+    def fake_clone(cmd, **k):
+        assert not Path(cmd[-1]).exists(), "target must be cleared before git clone"
+        (Path(cmd[-1]) / "run_scripts").mkdir(parents=True)
+        (Path(cmd[-1]) / "dockerfiles").mkdir()
+        return sp.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(sp, "run", fake_clone)
+    assert bc.fetch_harness() == d
+    assert not (d / "leftover").exists()
     assert bc.harness_dir(str(_kit(tmp_path, "instance_k"))).name == "harness"
 
 

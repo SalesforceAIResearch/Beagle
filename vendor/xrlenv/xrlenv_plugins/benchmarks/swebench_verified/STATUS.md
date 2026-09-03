@@ -124,6 +124,9 @@ sweep under `nohup`/background and poll (~500 instances). Per-instance artifacts
 - **Timeouts:** swebench's native 1800 s (no multiplier).
 - **Retries:** `--retries 6` (infra-transient only) + `--content-retries 2`
   (non-`resolved` re-run). Both report their counts; neither re-rolls a real fail.
+  **The gate default is now `--content-retries 0`** (a task that only passes on a
+  re-run is a finding, not a pass); this run predates that and used 2, so pass it
+  explicitly to reproduce these exact numbers.
 - **EXCLUDE:** 6 upstream-ungradeable ids in `run_full_sweep.sh`'s `EXCLUDE` array. The H4
   membership gate is reconciled so `INCLUDE ∪ EXCLUDE` must equal the 500-id manifest — a
   held-out id is still a real Verified instance (no fabrication, no silent subset), just

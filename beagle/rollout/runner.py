@@ -32,6 +32,34 @@ if TYPE_CHECKING:
     from beagle.data.dataset import TaskDataset
 
 
+def _timeout_multiplier_kwarg(harness: Any, multiplier: float) -> dict[str, float]:
+    """Pass ``timeout_multiplier`` only to a harness whose ``rollout`` accepts it.
+
+    ``rollout`` is a documented extension point, so a harness written before this knob existed
+    (or one living outside this repo) has the old signature and would die on an unexpected keyword
+    — for a value it doesn't even need at the default. Rather than guessing, ask.
+
+    A harness that CAN'T take it while the run asks for a non-default multiplier is a different
+    matter: silently running on unscaled budgets would misreport what the run measured, so that
+    fails loud instead.
+    """
+    import inspect
+
+    try:
+        accepts = "timeout_multiplier" in inspect.signature(harness.rollout).parameters
+    except (TypeError, ValueError):      # C-implemented / unintrospectable — assume the old shape
+        accepts = False
+    if accepts:
+        return {"timeout_multiplier": multiplier}
+    if multiplier != 1.0:
+        raise TypeError(
+            f"{type(harness).__name__}.rollout() does not accept `timeout_multiplier`, but this "
+            f"run sets run.timeout_multiplier={multiplier}. Add the parameter to that harness (it "
+            f"scales the benchmark's own per-task budgets) — ignoring it would silently run every "
+            f"task on unscaled time and misreport what was measured.")
+    return {}
+
+
 @contextlib.contextmanager
 def _tag_group(run_id: str) -> Iterator[None]:
     """Tag every container acquired in this scope with ``xrlenv.group_id=run_id``.
@@ -231,7 +259,8 @@ class Runner:
                     break
                 produced = harness.rollout(
                     agent, remaining, runtime=self.runtime, run_dir=run_dir,
-                    parallelism=self.parallelism, retry=retry, attempt=attempt,
+                    parallelism=self.parallelism, retry=retry,
+                    **_timeout_multiplier_kwarg(harness, config.timeout_multiplier), attempt=attempt,
                     resuming=resuming,
                 )
                 for r in produced:

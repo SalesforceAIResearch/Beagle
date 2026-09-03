@@ -20,6 +20,18 @@ import shlex
 from dataclasses import replace
 from pathlib import Path
 
+from beagle.agents.core.base import (
+    Agent,
+    AgentInstallError,
+    AgentSource,
+    Editor,
+    EditResult,
+    Evolvable,
+    Runnable,
+    Topology,
+    resolve_agent_timeout,
+)
+from beagle.agents.core.registry import register
 from beagle.agents.opencode._helpers import (
     DEFAULT_BUN_VERSION,
     DEFAULT_CONTAINER_PATH,
@@ -28,11 +40,10 @@ from beagle.agents.opencode._helpers import (
     DEFAULT_OPENCODE_ARGS,
     DEFAULT_OUTPUT_DIR,
     DEFAULT_PROVIDER_ID,
-    DEFAULT_TIMEOUT_SEC,
     OPENCODE_ENTRYPOINT,
     OpenCodeConfig,
-    build_install_script,
     build_inner_script,
+    build_install_script,
     build_provider_config,
     count_opencode_turns,
     last_stream_error,
@@ -40,20 +51,9 @@ from beagle.agents.opencode._helpers import (
     parse_opencode_usage,
     summarize_opencode_failure,
 )
-from beagle.agents.core.base import (
-    Agent,
-    AgentInstallError,
-    AgentSource,
-    EditResult,
-    Editor,
-    Evolvable,
-    Runnable,
-    Topology,
-)
-from beagle.agents.core.registry import register
 from beagle.rollout.runtime import ContainerRuntime
 from beagle.rollout.runtime.transport import GitClone, clone_with_retry
-from beagle.types import RolloutStatus, Task, TaskContext, TaskResult, Transparency, TrajectoryRef
+from beagle.types import RolloutStatus, Task, TaskContext, TaskResult, TrajectoryRef, Transparency
 
 
 @register("opencode")
@@ -115,7 +115,6 @@ class OpenCodeAgent(Agent, Runnable, Evolvable, Editor):
             variant=str(variant),
             forward_env=forward_env,
             max_turns=int(c.get("max_turns", DEFAULT_MAX_TURNS)),
-            timeout=float(c.get("timeout", DEFAULT_TIMEOUT_SEC)),
             output_dir=c.get("output_dir", DEFAULT_OUTPUT_DIR),
         )
 
@@ -205,6 +204,9 @@ class OpenCodeAgent(Agent, Runnable, Evolvable, Editor):
         base_ref = base.stdout.strip()
         script = build_inner_script(
             cfg, repo_path=task_ctx.repo_path, shell_preamble=task_ctx.shell_preamble)
+        # The rollout's wall clock: what the task/benchmark DECLARED, lowered by an explicit
+        # agent.timeout if the run config sets one. No house default — see resolve_agent_timeout.
+        cfg = replace(cfg, timeout=resolve_agent_timeout(self.config, task_ctx))
         invoke = runtime.exec(handle, ["bash", "-lc", script], env=env, timeout=cfg.timeout)
         runtime.exec(handle, ["bash", "-lc",
             f'cd {repo} && git add -A && git -c user.email=agent@beagle.local '

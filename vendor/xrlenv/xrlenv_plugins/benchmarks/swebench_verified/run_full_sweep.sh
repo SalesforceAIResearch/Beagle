@@ -20,7 +20,7 @@
 # SKIP_BUILD/LIST_GREEN must never silently turn a real sweep into a no-op.
 # XRLENV_* deployment config still comes from .env):
 #   --max-workers N       trial concurrency (default: 8; swebench's harness is thread-safe)
-#   --content-retries N   re-run non-resolved instances up to N times (default: 2)
+#   --content-retries N   re-run non-resolved instances up to N times (default: 0)
 #   --job-id LABEL        run label under tmp/ (default: swebench-verified-full-sweep; ts appended)
 #   --jobs-dir DIR        per-run artifact root (default: ./tmp)
 #   --skip-build-cache    skip the cache (re)build (already built this session)
@@ -44,7 +44,7 @@ SKIP_BUILD=0
 SMOKE=0
 MAX_WORKERS=8
 JOB_ID="swebench-verified-full-sweep"
-CONTENT_RETRIES=2
+CONTENT_RETRIES=0
 JOBS_DIR="./tmp"
 PASS_ARGS=()
 while [ "$#" -gt 0 ]; do

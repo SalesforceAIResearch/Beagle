@@ -33,8 +33,10 @@ benchmarks:
   seta:               { workers: 32, retries: 6 }
   terminal_bench_2_1: { workers: 32, retries: 6 }
   terminalworld:      { workers: 32, retries: 6 }
-  swebench_verified:   { workers: 32, retries: 6 }  
+  swebench_verified:   { workers: 32, retries: 6 }
   swebench_pro:        { workers: 32, retries: 6 }   # harbor golden path; 731 prebuilt Docker Hub images (mean 1.5 GB)
+  # harbor golden path; green set 856 (860 present - 4 EXCLUDE). 
+  swe_rebench:         { workers: 32, retries: 6 }
 
 profiles:
   # Any profile may set `max_concurrent_tasks:`, a profile-wide `workers:`, or per-
@@ -52,7 +54,8 @@ profiles:
     k: 2
     # optional per-benchmark overrides (heavier suites sample fewer):
     overrides:
-      swebench_verified:  { k: 3}    # just to show cases the usage
+      terminalworld:     { k: 1} # just to show cases the usage
+      swebench_verified:  { k: 3}    
 
   # A curated FULL sweep of just a picked subset  
   # `only:` restricts which benchmarks the profile runs (config order is preserved; the CLI --benchmark

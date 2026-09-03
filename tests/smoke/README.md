@@ -15,8 +15,12 @@ Manually-run smokes that exercise beagle end-to-end against a real xrlenv cluste
 
 ## Layout
 
-Each smoke group lives in its own subdirectory with its tests and a `README.md`
-runbook beside them (mirrors `vendor/xrlenv/tests/smoke/`):
+Generated smoke **configs** are grouped by benchmark — `tests/smoke/<benchmark>/<harness>-<version>_<variant>.yaml`
+— the same shape as `examples/evaluation/<benchmark>/<harness>-<version>.yaml`, so both trees read
+the same way. They are produced by `python scripts/generate_eval_configs.py --smoke` and gitignored.
+
+Run one with `beagle evaluate --config tests/smoke/<benchmark>/<harness>-<version>_smoke2.yaml`
+(add `--dry-run` first). Python smoke tests, where a group has them, live beside this file:
 
 ```
 tests/smoke/

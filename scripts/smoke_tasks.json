@@ -1,0 +1,34 @@
+{
+  "deep-swe": {
+    "sampled_from": 113,
+    "seed": 279951168,
+    "tasks": [
+      "httpx-multipart-response-parsing",
+      "numba-stencil-boundary-modes"
+    ]
+  },
+  "swe-bench-verified": {
+    "sampled_from": 500,
+    "seed": 2597536954,
+    "tasks": [
+      "django__django-14534",
+      "django__django-16454"
+    ]
+  },
+  "swe-rebench": {
+    "sampled_from": 860,
+    "seed": 4016169792,
+    "tasks": [
+      "ag2ai__faststream-2701",
+      "vprusso__toqito-1538"
+    ]
+  },
+  "terminal_bench_2_1": {
+    "sampled_from": 89,
+    "seed": 2107103064,
+    "tasks": [
+      "code-from-image",
+      "distribution-search"
+    ]
+  }
+}

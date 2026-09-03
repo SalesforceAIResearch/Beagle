@@ -32,7 +32,7 @@
 #                         sysbox cap), so this can go high (64 per the README);
 #                         xrlenv's fail-fast+retry absorbs any create-time capacity
 #                         pressure at high concurrency.
-#   --content-retries N   re-run non-passing tasks up to N times (default: 2)
+#   --content-retries N   re-run non-passing tasks up to N times (default: 0)
 #   --job-id LABEL        run label under tmp/ (default: tb21-full-sweep; ts appended)
 #   --jobs-dir DIR        per-trial artifact root (default: ./tmp/sanity-checks)
 #   --skip-build-cache    skip step 1 (cache already built this session)
@@ -49,7 +49,7 @@ LIST_GREEN=0
 SKIP_BUILD=0
 MAX_WORKERS=32
 JOB_ID="tb21-full-sweep"
-CONTENT_RETRIES=2
+CONTENT_RETRIES=0
 JOBS_DIR="./tmp/sanity-checks"
 PASS_ARGS=()
 while [ "$#" -gt 0 ]; do

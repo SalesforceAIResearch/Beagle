@@ -206,9 +206,16 @@ wheels": the fix is usually a solve/dep pin, not an xrlenv change.
 > gdb-backtrace unwind (tw_234227, ASLR-disable EPERM → non-deterministic
 > backtrace) and DinD-verifier timing (tw_650591) occasionally reward 0 even
 > cpu-pinned (the oracle ran fine; the verifier saw a nondeterministic result).
-> `run_full_sweep.sh` now content-retries reward-0 tasks (`--content-retries 2`, a
+> `run_full_sweep.sh` content-retried reward-0 tasks (`--content-retries 2`, a
 > task is solved if ANY attempt rewards 1.0) → **reliable 187/187**; a persistent
-> failure across all attempts still fails the run. (Node leaks from the pre-fix
+> failure across all attempts still fails the run.
+>
+> ⚠️ **The gate default is now `--content-retries 0`** (a task that only passes on
+> a re-run is a finding, not a pass). This 187/187 is therefore **retry-dependent
+> and pending re-verification**: the nondeterministic tasks named above will
+> surface as failures at the new default. Reproduce the recorded number with an
+> explicit `--content-retries 2`; re-run at 0 and triage those tasks to make it
+> hold at the default. (Node leaks from the pre-fix
 > runs were cleaned reboot-free via FUSE-abort + `docker rm -f`, no reboot.)
 
 ## Reproduce

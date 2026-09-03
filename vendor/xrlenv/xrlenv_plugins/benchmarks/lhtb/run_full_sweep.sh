@@ -34,7 +34,7 @@
 #   --max-workers N        trial concurrency (default: 8)
 #   --job-id LABEL         run label (default: lhtb-full-sweep; a timestamp is appended)
 #   --jobs-dir DIR         where per-trial artifacts land (default: ./tmp)
-#   --content-retries N    re-run non-passing tasks up to N times (default: 1)
+#   --content-retries N    re-run non-passing tasks up to N times (default: 0)
 #   --skip-build-cache     use the cache as-is (skip the build_cache (re)build)
 #   --skip-ultra-long      skip the ULTRA_LONG tasks (>30 min oracles) — faster iteration
 #   --list-green           print the run set (present − blacklist/rebuild/ultra-long) and exit
@@ -53,7 +53,7 @@ LIST_GREEN=0
 MAX_WORKERS=8
 JOBS_DIR="./tmp"
 JOB_ID="lhtb-full-sweep"
-CONTENT_RETRIES=1
+CONTENT_RETRIES=0
 PASS_ARGS=()
 while [ "$#" -gt 0 ]; do
   case "$1" in

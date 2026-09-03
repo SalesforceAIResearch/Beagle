@@ -1,0 +1,24 @@
+# 4. PASS@K — RUN EACH TASK SEVERAL TIMES.
+#
+# `num_samples: N` expands every selected task into N independent rollouts (ids become
+# `<task>__s0`, `<task>__s1`, …), so one config measures variance instead of a single draw.
+# Cost scales linearly: N x tasks x (agent time + verifier time). Use it on a SMALL, named
+# subset — it is how you tell a real regression from a flaky one.
+run:
+  dir: ./results
+  name: eval-pass-at-4
+  runtime: xrlenv-cluster
+  parallelism: 8               # rollouts run concurrently, so k>1 need not take k x longer
+
+agent:
+  harness:
+    name: mini-swe
+    version: v2.4.6
+    source: {repo: https://github.com/<your-org>/mini_swe_agent_v2.4.6, ref: <baseline-commit-sha>}
+  model: {name: claude-opus-4-8}      # a `claude-*` name routes to Anthropic
+  forward_env: [ANTHROPIC_API_KEY]
+
+data:
+  - benchmark: terminal_bench_2_1
+    tasks: [code-from-image, distribution-search]
+    num_samples: 4             # 2 tasks x 4 = 8 rollouts

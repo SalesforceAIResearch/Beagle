@@ -211,3 +211,55 @@ def test_swebench_consolidate_noop_without_retries(tmp_path: Path) -> None:
 
 def test_swebench_consolidate_missing_root_is_safe(tmp_path: Path) -> None:
     assert consolidate_swebench_eval_dirs(tmp_path, "xrlenv-oracle-sweep") == []
+
+
+def test_consolidate_repoints_trials_dir_so_harbor_can_resume(tmp_path: Path) -> None:
+    """A folded trial must claim the MAIN job dir, not the retry round it ran in.
+
+    harbor's resume (``Job._init_remaining_trial_configs``) requires every
+    existing trial config to equal a planned one, and ``trials_dir`` is part of
+    ``TrialConfig.__eq__`` — so leaving the retry path in place makes a later
+    in-place retry die with "Existing trial config does not match planned job
+    config." instead of re-running only the missing trials.
+    """
+    from xrlenv_plugins.benchmarks._sweep_retry import consolidate_retry_dirs
+
+    jobs, job_id = tmp_path, "sweep-1"
+    main = jobs / job_id
+    retry = jobs / f"{job_id}-retry1"
+    (main / "t1__aaa").mkdir(parents=True)
+    (main / "t1__aaa" / "config.json").write_text(
+        json.dumps({"task": {"path": "/c/t1"}, "trials_dir": str(main)}),
+    )
+    (retry / "t1__bbb").mkdir(parents=True)
+    (retry / "t1__bbb" / "config.json").write_text(
+        json.dumps({"task": {"path": "/c/t1"}, "trials_dir": str(retry)}),
+    )
+    (retry / "t1__bbb" / "result.json").write_text(
+        json.dumps({"config": {"task": {"path": "/c/t1"}, "trials_dir": str(retry)}}),
+    )
+
+    assert consolidate_retry_dirs(jobs, job_id, 1) == [retry.name]
+    assert not retry.exists()
+
+    folded = main / "t1__bbb"
+    assert folded.is_dir()
+    assert not (main / "t1__aaa").exists()          # superseded attempt dropped
+    cfg = json.loads((folded / "config.json").read_text())
+    res = json.loads((folded / "result.json").read_text())
+    assert cfg["trials_dir"] == str(main)
+    assert res["config"]["trials_dir"] == str(main)  # nested copy kept in sync
+    assert "retry1" not in (folded / "config.json").read_text()
+
+
+def test_consolidate_is_fail_soft_when_a_trial_has_no_config(tmp_path: Path) -> None:
+    """Consolidation runs after a sweep has already produced results; a missing
+    or unreadable file must never turn that into a failure."""
+    from xrlenv_plugins.benchmarks._sweep_retry import consolidate_retry_dirs
+
+    jobs, job_id = tmp_path, "sweep-1"
+    (jobs / job_id).mkdir(parents=True)
+    (jobs / f"{job_id}-retry1" / "t1__bbb").mkdir(parents=True)   # no config.json
+
+    assert consolidate_retry_dirs(jobs, job_id, 1) == [f"{job_id}-retry1"]
+    assert (jobs / job_id / "t1__bbb").is_dir()

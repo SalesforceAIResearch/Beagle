@@ -83,6 +83,7 @@ def consolidate_retry_dirs(
             if dest.exists():                     # paranoia: identical suffix collision
                 shutil.rmtree(dest)
             shutil.move(str(trial), str(dest))
+            _repoint_trials_dir(dest, retry_dir, main)
         shutil.rmtree(retry_dir, ignore_errors=True)
         folded.append(retry_dir.name)
     if folded:
@@ -92,6 +93,42 @@ def consolidate_retry_dirs(
             file=sys.stderr,
         )
     return folded
+
+
+def _repoint_trials_dir(trial: Path, retry_dir: Path, main: Path) -> int:
+    """Rewrite the folded trial's recorded ``trials_dir`` from the retry round to
+    the main job dir. Returns the number of files rewritten.
+
+    A trial records the dir it ran under in ``config.json`` (and, nested, in
+    ``result.json``). Moving the directory without rewriting that leaves the
+    trial claiming it belongs to ``<job_id>-retryN``, which breaks **harbor's
+    native resume**: ``Job._init_remaining_trial_configs`` requires every
+    existing trial config to equal a planned one, and ``trials_dir`` is part of
+    ``TrialConfig.__eq__``. A later resume of the consolidated job then dies with
+    ``ValueError: Existing trial config does not match planned job config.``
+    rather than re-running just the missing trials.
+
+    Textual substitution of the exact retry path keeps ``result.json``'s nested
+    copy in sync without having to model harbor's schema. Best-effort: an
+    unreadable or absent file is skipped, since consolidation must never fail a
+    sweep that has already produced its results.
+    """
+    old, new = str(retry_dir), str(main)
+    rewritten = 0
+    for name in ("config.json", "result.json"):
+        path = trial / name
+        try:
+            text = path.read_text()
+        except OSError:
+            continue
+        if old not in text:
+            continue
+        try:
+            path.write_text(text.replace(old, new))
+        except OSError:
+            continue
+        rewritten += 1
+    return rewritten
 
 
 def consolidate_swebench_eval_dirs(artifact_root: Path, main_run_id: str) -> list[str]:

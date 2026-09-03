@@ -69,7 +69,7 @@ for p in python3.13 python3.12 python3.11 python3.10 python3.9 python3.8 /usr/bi
 done
 if [ -n "$GYP_PY" ]; then export PYTHON="$GYP_PY"; export npm_config_python="$GYP_PY"; fi
 bun install"""
-DEFAULT_TIMEOUT_SEC = 1800.0
+
 #: opencode has no turn/step cap flag (unlike monet's ``--max-turns`` or mini's
 #: ``agent.step_limit``); the config knob is accepted for a uniform vocabulary but is a
 #: best-effort no-op here. Kept so a config need not special-case opencode.
@@ -116,7 +116,8 @@ class OpenCodeConfig:
     #: ``(container_name, host_name)`` pairs forwarded into the container.
     forward_env: tuple[tuple[str, str], ...] = field(default_factory=tuple)
     max_turns: int = DEFAULT_MAX_TURNS
-    timeout: float = DEFAULT_TIMEOUT_SEC
+    #: Set per rollout from the DECLARED budget (resolve_agent_timeout); 0 = unset.
+    timeout: float = 0.0
     output_dir: str = DEFAULT_OUTPUT_DIR
 
     @property
@@ -345,7 +346,6 @@ __all__ = [
     "DEFAULT_INSTALL_CMD",
     "DEFAULT_OPENCODE_ARGS",
     "DEFAULT_MAX_TURNS",
-    "DEFAULT_TIMEOUT_SEC",
     "DEFAULT_OUTPUT_DIR",
     "DEFAULT_PROVIDER_ID",
     "build_install_script",

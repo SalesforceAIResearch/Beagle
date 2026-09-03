@@ -76,7 +76,7 @@ DEFAULT_MONET_ARGS: tuple[str, ...] = (
     "--no-monet-md",
     "--output-format", "stream-json",
 )
-DEFAULT_TIMEOUT_SEC = 1800.0
+
 #: monet's own headless fallback is 150 turns; mirror it so an unset cap yields
 #: numbers comparable to monet's reference runs. Always paired with
 #: ``--strict-max-turns`` so monet doesn't auto-continue past the cap.
@@ -111,7 +111,8 @@ class MonetConfig:
     #: ``(container_name, host_name)`` pairs forwarded into the container.
     forward_env: tuple[tuple[str, str], ...] = field(default_factory=tuple)
     max_turns: int = DEFAULT_MAX_TURNS
-    timeout: float = DEFAULT_TIMEOUT_SEC
+    #: Set per rollout from the DECLARED budget (resolve_agent_timeout); 0 = unset.
+    timeout: float = 0.0
     max_tokens: int | None = None
     output_dir: str = DEFAULT_OUTPUT_DIR
 
@@ -365,7 +366,6 @@ __all__ = [
     "DEFAULT_INSTALL_CMD",
     "DEFAULT_MONET_ARGS",
     "DEFAULT_MAX_TURNS",
-    "DEFAULT_TIMEOUT_SEC",
     "DEFAULT_OUTPUT_DIR",
     "build_install_script",
     "build_inner_script",

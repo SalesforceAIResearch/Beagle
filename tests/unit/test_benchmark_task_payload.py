@@ -14,7 +14,7 @@ class _FakeSource(TaskSource):
     def tasks(self, spec):  # noqa: ANN001
         yield (Task(task_id="t1", problem_statement="RAW GOAL", benchmark="fake",
                     extras={"hints": "HINT"}),
-               TaskContext(image=None, repo_path="/work"))
+               TaskContext(image=None, repo_path="/work", agent_timeout_s=1800))
 
 
 class _FakeBench(Benchmark):

@@ -196,7 +196,7 @@ def test_monet_run_happy_path_on_fake_runtime() -> None:
     )
     agent = _monet_agent()
     task = Task(task_id="t1", problem_statement="fix the bug")
-    res = agent.run(task, TaskContext(image="img", repo_path="/work"), runtime=rt)
+    res = agent.run(task, TaskContext(image="img", repo_path="/work", agent_timeout_s=1800), runtime=rt)
 
     assert res.status is RolloutStatus.COMPLETED and res.resolved
     assert res.patch == "diff --git a/x b/x"
@@ -230,7 +230,7 @@ def test_monet_install_run_in_split_for_pier() -> None:
         ExecResult(returncode=0, stdout=_invoke_stdout(), stderr=""),  # invoke
     ])
     agent = _monet_agent()
-    ctx = TaskContext(image="i", repo_path="/work")
+    ctx = TaskContext(image="i", repo_path="/work", agent_timeout_s=1800)
     agent.install("H", ctx, runtime=rt)
     res = agent.run_in("H", Task(task_id="t", problem_statement="x"), ctx, runtime=rt)
     assert res.status is RolloutStatus.COMPLETED and res.patch == "diff --git a/x b/x"
@@ -266,7 +266,7 @@ def test_monet_run_in_prefers_base_head_diff() -> None:
         ExecResult(returncode=0, stdout=stream, stderr=""),  # invoke (empty stream patch)
     ])
     agent = _monet_agent()
-    ctx = TaskContext(image="i", repo_path="/work")
+    ctx = TaskContext(image="i", repo_path="/work", agent_timeout_s=1800)
     agent.install("H", ctx, runtime=rt)
     res = agent.run_in("H", Task(task_id="t", problem_statement="x"), ctx, runtime=rt)
     assert res.patch == "diff --git a/y b/y\n"      # base..HEAD, not the empty stream patch
@@ -279,7 +279,7 @@ def test_monet_install_raises_on_clone_failure() -> None:
     from beagle.agents.core.base import AgentInstallError
     rt = _FakeRuntime([ExecResult(returncode=128, stdout="", stderr="fatal: repo not found")])
     with pytest.raises(AgentInstallError, match="clone failed"):
-        _monet_agent().install("H", TaskContext(image="i", repo_path="/w"), runtime=rt)
+        _monet_agent().install("H", TaskContext(image="i", repo_path="/w", agent_timeout_s=1800), runtime=rt)
 
 
 def test_monet_pier_network_and_install_hosts(monkeypatch) -> None:
@@ -295,7 +295,7 @@ def test_monet_pier_network_and_install_hosts(monkeypatch) -> None:
 
 def test_monet_run_clone_failure_is_reported_and_container_destroyed() -> None:
     rt = _FakeRuntime([ExecResult(returncode=128, stdout="", stderr="fatal: repo not found")])
-    res = _monet_agent().run(Task(task_id="t"), TaskContext(image="img"), runtime=rt)
+    res = _monet_agent().run(Task(task_id="t"), TaskContext(image="img", agent_timeout_s=1800), runtime=rt)
     assert res.status is RolloutStatus.FAILED and not res.resolved
     assert "git clone failed" in res.error
     assert ("destroy", "H") in rt.calls  # cleanup ran despite the failure
@@ -304,7 +304,7 @@ def test_monet_run_clone_failure_is_reported_and_container_destroyed() -> None:
 def test_monet_default_source_requires_repo() -> None:
     bare = bgl.agents.build("monet")  # no source in spec
     with pytest.raises(ValueError, match="experiment-copy repo"):
-        bare.run(Task(task_id="t"), TaskContext(image="img"), runtime=_FakeRuntime([]))
+        bare.run(Task(task_id="t"), TaskContext(image="img", agent_timeout_s=1800), runtime=_FakeRuntime([]))
 
 
 # --- _agent_identity (serialized descriptor the harbor shim rebuilds from) ----
@@ -453,20 +453,20 @@ def _ok() -> ExecResult:
 
 def test_monet_run_install_failure_reported() -> None:
     rt = _FakeRuntime([_ok(), ExecResult(returncode=1, stdout="", stderr="npm ERR!")])
-    res = _monet_agent().run(Task(task_id="t"), TaskContext(image="img"), runtime=rt)
+    res = _monet_agent().run(Task(task_id="t"), TaskContext(image="img", agent_timeout_s=1800), runtime=rt)
     assert res.status is RolloutStatus.FAILED and "install failed" in res.error
     assert ("destroy", "H") in rt.calls
 
 
 def test_monet_run_timeout_maps_to_error() -> None:
     rt = _FakeRuntime([_ok(), _ok(), ExecResult(returncode=124, stdout="", stderr="")])
-    res = _monet_agent().run(Task(task_id="t"), TaskContext(image="img"), runtime=rt)
+    res = _monet_agent().run(Task(task_id="t"), TaskContext(image="img", agent_timeout_s=1800), runtime=rt)
     assert not res.resolved and res.error == "timeout after 1800.0s"
 
 
 def test_monet_run_runtime_error_rc125() -> None:
     rt = _FakeRuntime([_ok(), _ok(), ExecResult(returncode=125, stdout="", stderr="grpc down")])
-    res = _monet_agent().run(Task(task_id="t"), TaskContext(image="img"), runtime=rt)
+    res = _monet_agent().run(Task(task_id="t"), TaskContext(image="img", agent_timeout_s=1800), runtime=rt)
     assert not res.resolved and "runtime error" in res.error
 
 
@@ -474,7 +474,7 @@ def test_monet_run_token_env_missing_returns_error(monkeypatch) -> None:
     monkeypatch.delenv("NOPE_TOKEN", raising=False)
     rt = _FakeRuntime([])  # no exec should run — fails before clone
     res = _monet_agent({"token_env": "NOPE_TOKEN"}).run(
-        Task(task_id="t"), TaskContext(image="img"), runtime=rt
+        Task(task_id="t"), TaskContext(image="img", agent_timeout_s=1800), runtime=rt
     )
     assert res.status is RolloutStatus.FAILED and "not set" in res.error
     assert [c[0] for c in rt.calls] == ["acquire", "destroy"]  # returned, not raised
@@ -484,7 +484,7 @@ def test_monet_run_forwards_env(monkeypatch) -> None:
     monkeypatch.setenv("HOST_KEY", "secretval")
     rt = _FakeRuntime([_ok(), _ok(), ExecResult(returncode=0, stdout=_invoke_stdout(), stderr="")])
     agent = _monet_agent({"forward_env": [["CONTAINER_KEY", "HOST_KEY"]]})
-    agent.run(Task(task_id="t", problem_statement="go"), TaskContext(image="img"), runtime=rt)
+    agent.run(Task(task_id="t", problem_statement="go"), TaskContext(image="img", agent_timeout_s=1800), runtime=rt)
     invoke_env = _invoke_call(rt)[1]
     assert invoke_env["CONTAINER_KEY"] == "secretval" and invoke_env["MONET_PROMPT"] == "go"
 
@@ -508,7 +508,7 @@ def test_monet_gateway_via_config_not_model_block(monkeypatch) -> None:
         )
     )
     rt = _FakeRuntime([_ok(), _ok(), ExecResult(returncode=0, stdout=_invoke_stdout(), stderr="")])
-    agent.run(Task(task_id="t", problem_statement="go"), TaskContext(image="img", repo_path="/w"), runtime=rt)
+    agent.run(Task(task_id="t", problem_statement="go"), TaskContext(image="img", repo_path="/w", agent_timeout_s=1800), runtime=rt)
     invoke_cmd, invoke_env = _invoke_call(rt)
     assert invoke_env["GW_KEY"] == "secret"                              # forward_env forwarded
     assert "--provider llm-gateway-express-local-proxy" in invoke_cmd[2]  # from monet_args
@@ -610,7 +610,8 @@ def test_rollout_generic_wraps_agent_in_shim(monkeypatch) -> None:
 
     captured: dict = {}
 
-    def _fake_run_job(self, items, agent_config, *, run_dir, parallelism, job_name=None, retry=None, resuming=False):
+    def _fake_run_job(self, items, agent_config, *, run_dir, parallelism, job_name=None,
+                      retry=None, timeout_multiplier=1.0, resuming=False):
         captured["cfg"] = agent_config
         return []
 

@@ -21,6 +21,7 @@ beagle core never imports it, keeping pier an optional dependency (``beagle[deep
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +30,11 @@ from pier.environments.base import BaseEnvironment
 from pier.models.agent.context import AgentContext
 
 from beagle.agents.core.base import AgentInstallError
-from beagle.benchmarks.harness._common import _GIT_BOOTSTRAP, _rebuild_agent
+from beagle.benchmarks.harness._common import (
+    _GIT_BOOTSTRAP,
+    _rebuild_agent,
+    declare_task_budget,
+)
 from beagle.rollout.runtime.harbor_env import HarborEnvRuntime
 from beagle.types import RolloutStatus, Task, TaskContext, TaskResult
 
@@ -75,6 +80,9 @@ class BeaglePierAgent(BaseInstalledAgent):
         super().__init__(logs_dir, **kwargs)
         self._identity = identity
         self._agent = _rebuild_agent(identity)
+        # pier's ``<trial>/agent`` dir — the handle to the trial's config.json, hence to the task's
+        # declared agent budget (pier is a harbor fork; same trial layout, same timeout fields).
+        self._logs_dir = Path(logs_dir)
         self._runtime: HarborEnvRuntime | None = None
         self._handle: Any | None = None
         self._task_ctx: TaskContext | None = None
@@ -150,6 +158,19 @@ class BeaglePierAgent(BaseInstalledAgent):
         except AgentInstallError as e:
             self._install_error = str(e)
 
+    def _declare_budget(self, *, spent_s: float = 0.0) -> None:
+        """Put the TASK's clock on the context the agent receives, before it runs.
+
+        REPLACES the context — ``TaskContext`` is frozen, so assigning the field would raise
+        ``FrozenInstanceError`` on every trial that got this far. Unlike harbor, pier runs the
+        agent's own install in its SETUP phase (this shim's :meth:`install`), so the whole budget
+        is available to the run phase — but pier's own pre-agent work (the egress seal) still
+        spends it, so ``spent_s`` carries that.
+        """
+        if self._task_ctx is not None:
+            self._task_ctx = declare_task_budget(
+                self._task_ctx, self._logs_dir.parent / "config.json", spent_s=spent_s)
+
     async def run(
         self, instruction: str, environment: BaseEnvironment, context: AgentContext
     ) -> None:
@@ -160,6 +181,7 @@ class BeaglePierAgent(BaseInstalledAgent):
             self._result = TaskResult(
                 task_id="trial", status=RolloutStatus.FAILED, error=self._install_error)
             return
+        phase_started = time.monotonic()
         # Open-install seal (open-setup -> tighten). On the open-install path the container acquired
         # OPEN, so install ran with a DIRECT route; now — before the agent starts — restrict egress to
         # ONLY the agent's run hosts (the LLM gateway IP) via pier's spec-07 iptables ``apply_egress``,
@@ -171,6 +193,7 @@ class BeaglePierAgent(BaseInstalledAgent):
         apply_egress = getattr(environment, "apply_egress", None)
         if _all_ipv4(run_hosts) and apply_egress is not None:
             await apply_egress(_run_egress_cidrs(run_hosts))
+        self._declare_budget(spent_s=time.monotonic() - phase_started)
         task = Task(task_id="trial", problem_statement=instruction, benchmark="")
         self._result = await asyncio.to_thread(
             self._agent.run_in, self._handle, task, self._task_ctx, runtime=self._runtime)

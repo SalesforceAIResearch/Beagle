@@ -1,0 +1,33 @@
+# 5. HOW LONG A TASK MAY RUN.
+#
+# A harbor/pier benchmark DECLARES its own budget per task (`task.toml` `[agent] timeout_sec`) and
+# its harness enforces it — SWE-rebench ships 3000 s, with four tasks at 6000 s. So you do not set
+# an absolute time here; you SCALE what the benchmark declares:
+#
+#   run.timeout_multiplier: 1.5   → every task gets half again its own budget, whatever that is.
+#
+# `agent.timeout` is the LAST RESORT, used only by a benchmark that declares nothing (the docker
+# drop-in path, e.g. SWE-bench Verified). If the task declares a budget, this value is ignored —
+# it is not a ceiling. Omit both and a benchmark that declares nothing fails loud rather than
+# silently inheriting a house default.
+run:
+  dir: ./results
+  name: eval-timeouts
+  runtime: xrlenv-cluster
+  parallelism: 8
+  timeout_multiplier: 1.5      # scales the TASK's declared agent + verifier budgets
+
+agent:
+  harness:
+    name: mini-swe
+    version: v2.4.6
+    source: {repo: https://github.com/<your-org>/mini_swe_agent_v2.4.6, ref: <baseline-commit-sha>}
+  model: {name: gpt-5.5}
+  forward_env: [OPENAI_API_KEY]
+  timeout: 1800                # only reached on a benchmark that declares no budget of its own
+
+data:
+  - benchmark: swe-bench-verified   # declares none → agent.timeout applies
+    tasks: [django__django-14534]
+  - benchmark: swe-rebench          # declares 3000 s → 1.5x = 4500 s; agent.timeout ignored
+    tasks: [ag2ai__faststream-2701]

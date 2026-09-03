@@ -89,6 +89,7 @@ Pick Your Path
    supported_benchmarks_and_harnesses/pier_framework
    supported_benchmarks_and_harnesses/deep_swe
    supported_benchmarks_and_harnesses/frontier_swe
+   supported_benchmarks_and_harnesses/swe_rebench
    supported_benchmarks_and_harnesses/webarena_infinity
    supported_benchmarks_and_harnesses/evoclaw
    supported_benchmarks_and_harnesses/writing_your_own_adapter

@@ -1,0 +1,27 @@
+# 2. RUN A SUBSET, OR SKIP KNOWN-BAD TASKS.
+#
+# `tasks` selects AND orders (omit it to run the whole suite); `exclude_task_ids` is applied after,
+# so you can take a slice and still drop a task inside it. There is deliberately no `limit` /
+# first-N knob: name what you want, so a run is reproducible from its config alone.
+run:
+  dir: ./results
+  name: eval-subset
+  runtime: xrlenv-cluster
+  parallelism: 4
+
+agent:
+  harness:
+    name: mini-swe
+    version: v2.4.6
+    source: {repo: https://github.com/<your-org>/mini_swe_agent_v2.4.6, ref: <baseline-commit-sha>}
+  model: {name: gpt-5.5}
+  forward_env: [OPENAI_API_KEY]
+
+data:
+  - benchmark: swe-rebench
+    tasks:                       # just these, in this order
+      - ag2ai__faststream-2701
+      - vprusso__toqito-1538
+      - prometheus__client_python-1134
+    exclude_task_ids:            # …minus this one (e.g. a task under triage upstream)
+      - prometheus__client_python-1134

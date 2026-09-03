@@ -46,7 +46,6 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 import tomllib
 from pathlib import Path
@@ -64,18 +63,20 @@ DEFAULT_SIZE_HINT_BYTES = 4_000_000_000  # 4 GiB
 
 
 def _harbor_cache_root() -> Path:
-    # Hard-reject the retired cache env var/path before reading it (renamed
-    # 2026-07-31: XRLENV_HARBOR_CACHE -> XRLENV_BENCHMARK_CACHE, xrlenv_harbor_cache
-    # -> xrlenv_benchmark_cache). The old var/path reads stale/absent data, so a plan
-    # generated against it would warm the wrong images — fail loud instead. Lazy
-    # import to match the plugin style (plugin -> xrlenv core).
-    from xrlenv_plugins.benchmarks._benchmark_cache import guard_legacy_cache_env
+    """The cache ROOT, on exactly the same contract this kit's ``build_cache.py`` uses.
 
-    guard_legacy_cache_env()
-    explicit = os.environ.get("XRLENV_BENCHMARK_CACHE")
-    if explicit:
-        return Path(explicit).expanduser()
-    return Path("~/.cache/harbor/tasks").expanduser()
+    ``benchmark_cache_root`` hard-rejects the retired var/path (renamed 2026-07-31:
+    XRLENV_HARBOR_CACHE -> XRLENV_BENCHMARK_CACHE, xrlenv_harbor_cache ->
+    xrlenv_benchmark_cache) and raises when nothing is set. Deferring to it rather than
+    re-implementing the lookup is the point: this generator previously fell back to a
+    home-directory cache when the var was unset, which silently resolved to a directory
+    that need not exist, discovered 0 tasks, and emitted an EMPTY plan — a warm plan that
+    warms nothing, with no error. One variable, one contract, fail loud. Lazy import to
+    match the plugin style (plugin -> xrlenv core).
+    """
+    from xrlenv_plugins.benchmarks._benchmark_cache import benchmark_cache_root
+
+    return Path(benchmark_cache_root()).expanduser()
 
 
 def _shard_dir() -> Path:

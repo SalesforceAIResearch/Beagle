@@ -26,11 +26,16 @@ Selection (exactly one flag): ``--all`` (the full corpus, 731), ``--filtered`` (
 set, ``filtered_instance_ids.txt``, 478), ``--subset-100`` (the 100-task sample of the filtered set,
 ``subset_100_instance_ids.txt``), plus ``--smoke`` (the first 8 rows), ``--ids-file``, ``--instances``.
 
-Inputs (no network, no default locations): ``$SWEBENCH_PRO_PARQUET`` — the dataset parquet, or the
-directory of a ``ScaleAI/SWE-bench_Pro`` snapshot (``huggingface-cli download ScaleAI/SWE-bench_Pro
---repo-type dataset --local-dir <dir>``) — and ``$SWEBENCH_PRO_HARNESS`` — a checkout of
-https://github.com/scaleapi/SWE-bench_Pro-os (``run_scripts/`` + ``dockerfiles/``). Both may live in
-this repo's ``.env`` next to ``XRLENV_BENCHMARK_CACHE`` (loaded automatically).
+Inputs are FETCHED when unset, so the only thing an operator must supply is ``XRLENV_BENCHMARK_CACHE``:
+the dataset comes from the public, ungated ``ScaleAI/SWE-bench_Pro`` (anonymous ``snapshot_download``
+into the shared HF cache) and the upstream kit from a shallow anonymous clone of
+https://github.com/scaleapi/SWE-bench_Pro-os, cached once under ``<cache root>/.upstream/``.
+
+To pin either to a local copy instead, set ``$SWEBENCH_PRO_PARQUET`` (the parquet, or a snapshot
+directory) and/or ``$SWEBENCH_PRO_HARNESS`` (a checkout with ``run_scripts/`` + ``dockerfiles/``), or
+pass ``--parquet`` / ``--harness``. A named location is honoured verbatim and fails loud if wrong —
+we never silently download over an operator's typo, because that would evaluate a different corpus
+than they asked for. Both may live in this repo's ``.env`` (loaded automatically).
 
     .venv/bin/python xrlenv_plugins/benchmarks/swebench_pro/build_cache.py --subset-100
     .venv/bin/python xrlenv_plugins/benchmarks/swebench_pro/build_cache.py --filtered
@@ -100,14 +105,8 @@ AGENT_TIMEOUT_SEC = 5400.0
 
 # ── dataset / harness inputs ───────────────────────────────────────────────────
 
-def parquet_path(explicit: str | None = None) -> Path:
-    """The dataset parquet: ``explicit`` or ``$SWEBENCH_PRO_PARQUET`` — the file itself, or the directory of a
-    HF snapshot (``data/test-*.parquet`` inside it). No default location and no download: fail loud instead."""
-    raw = explicit or os.environ.get(PARQUET_ENV)
-    if not raw:
-        raise SystemExit(f"set {PARQUET_ENV} (or pass --parquet) to the {DATASET_ID} parquet or snapshot directory: "
-                         f"huggingface-cli download {DATASET_ID} --repo-type dataset --local-dir <dir>")
-    p = Path(raw).expanduser()
+def _resolve_parquet_in(p: Path) -> Path | None:
+    """The parquet at ``p``, whether ``p`` IS the file or is a snapshot directory holding one."""
     if p.is_file():
         return p
     if p.is_dir():
@@ -115,18 +114,95 @@ def parquet_path(explicit: str | None = None) -> Path:
             hits = sorted(p.glob(pattern))
             if hits:
                 return hits[0]
-    raise SystemExit(f"{PARQUET_ENV}={raw}: not a parquet file or a snapshot directory holding data/test-*.parquet")
+    return None
 
 
-def harness_dir(explicit: str | None = None) -> Path:
-    """The upstream evaluation kit: ``explicit`` or ``$SWEBENCH_PRO_HARNESS`` (a clone of SWE-bench_Pro-os)."""
+def parquet_path(explicit: str | None = None) -> Path:
+    """The dataset parquet, in precedence order: ``explicit`` -> ``$SWEBENCH_PRO_PARQUET`` -> fetched.
+
+    An explicit path or the env var is honoured verbatim and fails loud if wrong — an operator who
+    named a location meant it, and silently downloading over their typo would evaluate a different
+    corpus than they asked for. Only when NEITHER is set do we fetch: ``ScaleAI/SWE-bench_Pro`` is
+    public and ungated, so an anonymous ``snapshot_download`` needs no token and lands in the shared
+    HF cache (subsequent calls are offline). Same shape as deep_swe's ``populate_hf``.
+    """
+    raw = explicit or os.environ.get(PARQUET_ENV)
+    if raw:
+        hit = _resolve_parquet_in(Path(raw).expanduser())
+        if hit is None:
+            raise SystemExit(f"{PARQUET_ENV}={raw}: not a parquet file or a snapshot directory holding data/test-*.parquet")
+        return hit
+    return fetch_parquet()
+
+
+def fetch_parquet() -> Path:
+    """Anonymously snapshot ``ScaleAI/SWE-bench_Pro`` into the HF cache and return its parquet."""
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError as exc:                                       # pragma: no cover - install-shape guard
+        raise SystemExit(f"need huggingface_hub to fetch {DATASET_ID} automatically "
+                         f"(uv sync --all-extras), or set {PARQUET_ENV} to a local copy: "
+                         f"huggingface-cli download {DATASET_ID} --repo-type dataset --local-dir <dir>") from exc
+    print(f">> huggingface snapshot_download({DATASET_ID}, repo_type=dataset)", file=sys.stderr)
+    try:
+        local = snapshot_download(repo_id=DATASET_ID, repo_type="dataset")
+    except Exception as exc:
+        raise SystemExit(f"could not fetch {DATASET_ID} ({type(exc).__name__}: {exc}). Set {PARQUET_ENV} "
+                         f"to a local copy: huggingface-cli download {DATASET_ID} --repo-type dataset --local-dir <dir>") from exc
+    hit = _resolve_parquet_in(Path(local))
+    if hit is None:
+        raise SystemExit(f"{DATASET_ID} snapshot at {local} holds no {'/'.join(PARQUET_GLOBS)} — upstream changed layout")
+    return hit
+
+
+def _is_harness(d: Path) -> bool:
+    """Upstream's kit is identified by the two directories this kit reads from it."""
+    return (d / "run_scripts").is_dir() and (d / "dockerfiles").is_dir()
+
+
+def harness_dir(explicit: str | None = None, dest: str | None = None) -> Path:
+    """The upstream evaluation kit, in precedence order: ``explicit`` -> ``$SWEBENCH_PRO_HARNESS`` -> cloned.
+
+    Same rule as :func:`parquet_path`: a named location is honoured verbatim and fails loud, and only
+    an unset one is provisioned. ``scaleapi/SWE-bench_Pro-os`` is a public repo, so the clone is
+    anonymous; it is cached under the benchmark cache ROOT rather than a temp dir, so it is fetched
+    once and shared by every entry point instead of re-cloned per run.
+    """
     raw = explicit or os.environ.get(HARNESS_ENV)
-    if not raw:
-        raise SystemExit(f"set {HARNESS_ENV} (or pass --harness) to a checkout of {HARNESS_URL} (run_scripts/ + dockerfiles/)")
-    d = Path(raw).expanduser()
-    if not (d / "run_scripts").is_dir() or not (d / "dockerfiles").is_dir():
-        raise SystemExit(f"{HARNESS_ENV}={raw} is not the upstream SWE-bench_Pro-os checkout (needs run_scripts/ and dockerfiles/): "
-                         f"git clone {HARNESS_URL}")
+    if raw:
+        d = Path(raw).expanduser()
+        if not _is_harness(d):
+            raise SystemExit(f"{HARNESS_ENV}={raw} is not the upstream SWE-bench_Pro-os checkout (needs run_scripts/ and dockerfiles/): "
+                             f"git clone {HARNESS_URL}")
+        return d
+    return fetch_harness(dest)
+
+
+def fetch_harness(dest: str | None = None) -> Path:
+    """Clone (or reuse) upstream's kit under ``<cache root>/.upstream/SWE-bench_Pro-os``."""
+    import subprocess
+
+    from xrlenv_plugins.benchmarks._benchmark_cache import benchmark_cache_root
+
+    d = Path(benchmark_cache_root(dest)).expanduser() / ".upstream" / "SWE-bench_Pro-os"
+    if _is_harness(d):
+        return d
+    d.parent.mkdir(parents=True, exist_ok=True)
+    print(f">> git clone --depth 1 {HARNESS_URL} -> {d}", file=sys.stderr)
+    # A previous run may have died mid-clone; a partial dir would fail the _is_harness check above
+    # forever, so clear it rather than letting `git clone` refuse a non-empty target.
+    if d.exists():
+        import shutil
+        shutil.rmtree(d)
+    try:
+        subprocess.run(["git", "clone", "--depth", "1", HARNESS_URL, str(d)],
+                       check=True, capture_output=True, text=True)
+    except (subprocess.CalledProcessError, OSError) as exc:
+        detail = getattr(exc, "stderr", "") or exc
+        raise SystemExit(f"could not clone {HARNESS_URL} ({detail}). Set {HARNESS_ENV} to a local "
+                         f"checkout instead.") from exc
+    if not _is_harness(d):
+        raise SystemExit(f"{HARNESS_URL} clone at {d} has no run_scripts/ + dockerfiles/ — upstream changed layout")
     return d
 
 
@@ -451,7 +527,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.list:
         print("\n".join(r["instance_id"] for r in selected))
         return 0
-    harness = harness_dir(a.harness)
+    harness = harness_dir(a.harness, a.dest)
     shard = shard_dir(benchmark_cache_root(a.dest))
     shard.mkdir(parents=True, exist_ok=True)
     kept_ids = set(read_ids_file(FILTERED_IDS)) if FILTERED_IDS.is_file() else None

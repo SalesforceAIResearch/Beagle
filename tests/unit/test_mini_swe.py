@@ -96,7 +96,7 @@ def test_run_invokes_the_upstream_mini_cli() -> None:
     rt = _FakeRuntime(diff="THE-PATCH", traj=traj)
 
     res = agent.run(Task(task_id="t", problem_statement="fix the bug"),
-                    TaskContext(image="img:1", repo_path="/testbed"), runtime=rt)
+                    TaskContext(image="img:1", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
 
     mini = next(c for c in rt.cmds if "mini -t" in c)
     # the documented non-interactive invocation, with the corrected flags
@@ -137,7 +137,7 @@ def test_clone_injects_token_for_a_private_fork(monkeypatch) -> None:
         config={"token_env": "GH_TOKEN"}))
     rt = _FakeRuntime(diff="P")
     agent.run(Task(task_id="t", problem_statement="x"),
-              TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+              TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     clone = next(c for c in rt.cmds if "x-access-token" in c)
     assert "x-access-token:$GH_TOKEN@" in clone            # URL rewritten via shell expansion
     assert rt.env_for("x-access-token") == {"GH_TOKEN": "secret-tok"}   # value forwarded, not in argv
@@ -153,7 +153,7 @@ def test_clone_fails_loud_when_token_env_named_but_unset(monkeypatch) -> None:
         config={"token_env": "GH_TOKEN"}))
     rt = _FakeRuntime(diff="P")
     res = agent.run(Task(task_id="t", problem_statement="x"),
-                    TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+                    TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     assert res.status is RolloutStatus.FAILED and res.error and "GH_TOKEN" in res.error
     assert not any("git" in c or "mini -t" in c for c in rt.cmds)   # short-circuit before any exec
 
@@ -163,7 +163,7 @@ def test_run_surfaces_a_failed_install() -> None:
     # the grader would score 0 (the bug behind the PENDING/reward=0 smoke).
     rt = _FakeRuntime(fail="pip install")
     res = _agent().run(Task(task_id="t", problem_statement="x"),
-                       TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+                       TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     assert res.status is RolloutStatus.FAILED
     assert res.error and "install failed" in res.error and "boom-from-container" in res.error
     assert not any("mini -t" in c for c in rt.cmds)      # short-circuited before running mini
@@ -174,7 +174,7 @@ def test_run_surfaces_a_failed_mini_with_no_patch() -> None:
     # mini itself failing (e.g. gateway/creds) with no produced patch → FAILED + surfaced error.
     rt = _FakeRuntime(fail="mini -t", diff="")
     res = _agent().run(Task(task_id="t", problem_statement="x"),
-                       TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+                       TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     assert res.status is RolloutStatus.FAILED
     assert res.error and "mini run failed" in res.error and res.patch is None
 
@@ -194,7 +194,7 @@ def test_run_routes_litellm_at_the_gateway(monkeypatch) -> None:
     rt = _FakeRuntime(diff="P")
     _gw_agent(provider="llm-gateway-express-local-proxy").run(
         Task(task_id="t", problem_statement="x"),
-        TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+        TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     mini = next(c for c in rt.cmds if "mini -t" in c)
     assert "-c model.model_kwargs.api_base=http://node:18088/" in mini
     assert "-c model.model_kwargs.api_key=sk-real" in mini
@@ -208,7 +208,7 @@ def test_run_provider_gates_the_gateway(monkeypatch) -> None:
     monkeypatch.setenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "http://node:18088/")
     rt = _FakeRuntime(diff="P")
     _gw_agent().run(Task(task_id="t", problem_statement="x"),   # no provider in config
-                    TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+                    TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     mini = next(c for c in rt.cmds if "mini -t" in c)
     assert "model.model_kwargs" not in mini
 
@@ -223,7 +223,7 @@ def test_run_probes_and_skips_an_already_blocked_key(monkeypatch) -> None:
     rt = _FakeRuntime(diff="P", probe_key="good-key")
     _gw_agent(provider="llm-gateway-express-local-proxy").run(
         Task(task_id="t", problem_statement="x"),
-        TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+        TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     probe_env = next(e for c, e in zip(rt.cmds, rt.envs) if "gw-key-probe" in c)    # the probe ran
     assert probe_env["URL"].endswith("/chat/completions")       # against the endpoint the run uses
     mini = next(c for c in rt.cmds if "mini -t" in c)
@@ -240,7 +240,7 @@ def test_probe_targets_responses_endpoint_under_effort(monkeypatch) -> None:
     rt = _FakeRuntime(diff="P", probe_key="k2")
     _gw_agent(provider="llm-gateway-express-local-proxy", effort="high").run(
         Task(task_id="t", problem_statement="x"),
-        TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+        TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     probe_env = next(e for c, e in zip(rt.cmds, rt.envs) if "gw-key-probe" in c)  # the probe exec's env
     assert probe_env["URL"].endswith("/responses")             # probed the endpoint the run will hit
 
@@ -254,7 +254,7 @@ def test_probe_targets_chat_endpoint_when_responses_api_false(monkeypatch) -> No
     rt = _FakeRuntime(diff="P", probe_key="k2")
     _gw_agent(provider="llm-gateway-express-local-proxy", effort="high", responses_api=False).run(
         Task(task_id="t", problem_statement="x"),
-        TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+        TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     probe_env = next(e for c, e in zip(rt.cmds, rt.envs) if "gw-key-probe" in c)
     assert probe_env["URL"].endswith("/chat/completions")
 
@@ -267,7 +267,7 @@ def test_probe_error_falls_back_to_pool_head_and_run_proceeds(monkeypatch) -> No
     rt = _FakeRuntime(diff="P", probe_raises=True)
     res = _gw_agent(provider="llm-gateway-express-local-proxy").run(
         Task(task_id="t", problem_statement="x"),
-        TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+        TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     mini = next(c for c in rt.cmds if "mini -t" in c)
     assert "-c model.model_kwargs.api_key=k1" in mini            # fell back to the pool head
     assert res.status is RolloutStatus.COMPLETED                 # the probe error never fails the run
@@ -281,7 +281,7 @@ def test_run_falls_back_to_pool_head_when_probe_finds_nothing(monkeypatch) -> No
     rt = _FakeRuntime(diff="P", probe_key="")                    # probe returns nothing
     _gw_agent(provider="llm-gateway-express-local-proxy").run(
         Task(task_id="t", problem_statement="x"),
-        TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+        TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     mini = next(c for c in rt.cmds if "mini -t" in c)
     assert "-c model.model_kwargs.api_key=k1" in mini            # first of the pool
 
@@ -294,7 +294,7 @@ def test_run_single_key_skips_the_probe(monkeypatch) -> None:
     rt = _FakeRuntime(diff="P")
     _gw_agent(provider="llm-gateway-express-local-proxy").run(
         Task(task_id="t", problem_statement="x"),
-        TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+        TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     assert not any("gw-key-probe" in c for c in rt.cmds)            # no probe
     mini = next(c for c in rt.cmds if "mini -t" in c)
     assert "-c model.model_kwargs.api_key=only" in mini
@@ -306,7 +306,7 @@ def test_run_captures_base_to_head_diff_when_agent_self_commits() -> None:
     # so the submission reflects the agent's commits, not just the working tree.
     rt = _FakeRuntime(diff="COMMITTED-PATCH", base="basesha0")
     res = _gw_agent().run(Task(task_id="t", problem_statement="x"),
-                          TaskContext(image="i", repo_path="/app"), runtime=rt)
+                          TaskContext(image="i", repo_path="/app", agent_timeout_s=1800), runtime=rt)
     assert res.patch == "COMMITTED-PATCH"
     assert any("git rev-parse HEAD" in c for c in rt.cmds)        # recorded the base
     assert any("git diff basesha0..HEAD" in c for c in rt.cmds)   # diffed base..HEAD, not the tree
@@ -320,7 +320,7 @@ def test_run_wires_effort_and_max_turns() -> None:
     rt = _FakeRuntime(diff="P")
     _gw_agent(effort="high", max_turns=150).run(
         Task(task_id="t", problem_statement="x"),
-        TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+        TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     mini = next(c for c in rt.cmds if "mini -t" in c)
     assert "-c model.model_class=litellm_response" in mini
     assert "-c model.model_kwargs.reasoning_effort=high" in mini
@@ -334,7 +334,7 @@ def test_effort_can_opt_out_of_responses_api() -> None:
     rt = _FakeRuntime(diff="P")
     _gw_agent(effort="high", responses_api=False).run(
         Task(task_id="t", problem_statement="x"),
-        TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+        TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     mini = next(c for c in rt.cmds if "mini -t" in c)
     assert "model.model_class=litellm_response" not in mini          # stays on chat completions
     assert "-c model.model_kwargs.reasoning_effort=high" in mini     # effort still applied
@@ -344,7 +344,7 @@ def test_run_no_effort_stays_on_chat_default() -> None:
     # No effort → no Responses class / reasoning override (non-reasoning runs keep the chat default).
     rt = _FakeRuntime(diff="P")
     _gw_agent(max_turns=150).run(Task(task_id="t", problem_statement="x"),
-                                 TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+                                 TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     mini = next(c for c in rt.cmds if "mini -t" in c)
     assert "model.model_class" not in mini and "reasoning_effort" not in mini
     assert "-c agent.step_limit=150" in mini
@@ -362,7 +362,7 @@ def test_run_applies_layer_1_2_prompt_override() -> None:
                                     "instruction": "Solve: {{task}}"}}))
     rt = _FakeRuntime(diff="P")
     agent.run(Task(task_id="t", problem_statement="x"),
-              TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+              TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     mini = next(c for c in rt.cmds if "mini -t" in c)
     assert "-c" in mini and "agent.system_template=You are careful.\nBe terse." in mini
     assert "agent.instance_template=Solve: {{task}}" in mini      # keeps the {{task}} placeholder
@@ -371,7 +371,7 @@ def test_run_applies_layer_1_2_prompt_override() -> None:
 def test_run_without_prompt_override_touches_no_agent_templates() -> None:
     rt = _FakeRuntime(diff="P")
     _agent().run(Task(task_id="t", problem_statement="x"),
-                 TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+                 TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     mini = next(c for c in rt.cmds if "mini -t" in c)
     assert "agent.system_template" not in mini and "agent.instance_template" not in mini
 
@@ -383,9 +383,9 @@ def test_install_run_split_and_commit_for_base_head_graders() -> None:
     agent = _agent()   # branch ref, no token
     rt = _FakeRuntime(diff="THE-PATCH", traj='{"messages": []}')
     handle = rt.acquire(image="i", command=["sleep", "infinity"])
-    agent.install(handle, TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+    agent.install(handle, TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     res = agent.run_in(handle, Task(task_id="t", problem_statement="x"),
-                       TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+                       TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     assert res.patch == "THE-PATCH" and res.status is RolloutStatus.COMPLETED
     assert any("git clone --depth 1 --branch abc123" in c for c in rt.cmds)      # install: clone
     assert any("uv pip install -q -e /agent" in c for c in rt.cmds)              # install: build
@@ -401,7 +401,7 @@ def test_failed_install_raises_agent_install_error() -> None:
     rt = _FakeRuntime(fail="pip install")   # the uv install step fails
     handle = rt.acquire(image="i", command=["sleep", "infinity"])
     with pytest.raises(AgentInstallError, match="install failed"):
-        _agent().install(handle, TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+        _agent().install(handle, TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
 
 
 def test_network_hosts_is_the_gateway(monkeypatch) -> None:
@@ -486,7 +486,7 @@ def test_run_uses_default_config_yaml_when_config_path_unset() -> None:
         source=AgentSourceConfig(repo="https://x/fork", ref="abc123")))        # no config_path
     rt = _FakeRuntime(diff="P")
     agent.run(Task(task_id="t", problem_statement="x"),
-              TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+              TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     mini = next(c for c in rt.cmds if "mini -t" in c)
     assert "-c /agent/src/minisweagent/config/benchmarks/swebench.yaml" in mini
     assert "-c /agent/ " not in mini                                            # not the empty dir
@@ -507,6 +507,6 @@ def test_failed_mini_surfaces_the_tail_not_the_head() -> None:
     long = ("configuring the wizard...\n" * 300) + "AuthError: 401 Key is blocked"
     rt = _FakeRuntime(fail="mini -t", diff="", fail_stderr=long)
     res = _agent().run(Task(task_id="t", problem_statement="x"),
-                       TaskContext(image="i", repo_path="/testbed"), runtime=rt)
+                       TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     assert res.status is RolloutStatus.FAILED
     assert "AuthError: 401 Key is blocked" in (res.error or "")                 # the real cause shows

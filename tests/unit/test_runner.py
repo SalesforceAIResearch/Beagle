@@ -23,7 +23,8 @@ def _bench(outcomes: dict[str, tuple[bool, str | None]], seen: list[str], store:
     ``HarborHarness.completed`` reads harbor's result.json), which is the resume seam."""
 
     class _Harness:
-        def rollout(self, agent, items, *, runtime, run_dir, parallelism, retry=None, attempt=0, resuming=False):  # noqa: ANN001
+        def rollout(self, agent, items, *, runtime, run_dir, parallelism, retry=None,
+                timeout_multiplier=1.0, attempt=0, resuming=False):  # noqa: ANN001
             seen.extend(t.task_id for t, _ in items)
             out = []
             for t, _ in items:
@@ -104,7 +105,8 @@ def test_runner_eval_parallelism_drives_grade_fanout(tmp_path, monkeypatch) -> N
             def completed(self, items, *, run_dir):  # noqa: ANN001
                 return []
 
-            def rollout(self, agent, items, *, runtime, run_dir, parallelism, retry=None, attempt=0, resuming=False):  # noqa: ANN001
+            def rollout(self, agent, items, *, runtime, run_dir, parallelism, retry=None,
+                    timeout_multiplier=1.0, attempt=0, resuming=False):  # noqa: ANN001
                 return [TaskResult(task_id=t.task_id, resolved=True, reward=1.0,
                                    tokens={"prompt": 1, "completion": 1},
                                    artifact_dir=run_dir / "b" / t.task_id) for t, _ in items]
@@ -148,7 +150,8 @@ def test_runner_runs_benchmark_groups_concurrently(tmp_path, monkeypatch) -> Non
     both_in_flight: list[bool] = []
 
     class _H:
-        def rollout(self, agent, items, *, runtime, run_dir, parallelism, retry=None, attempt=0, resuming=False):  # noqa: ANN001
+        def rollout(self, agent, items, *, runtime, run_dir, parallelism, retry=None,
+                timeout_multiplier=1.0, attempt=0, resuming=False):  # noqa: ANN001
             barrier.wait()  # only returns once BOTH groups are here at the same time
             both_in_flight.append(True)
             return [TaskResult(task_id=t.task_id, resolved=True, reward=1.0,
@@ -246,7 +249,8 @@ def test_runner_retry_unresolved_fails_loud_without_signal(tmp_path, monkeypatch
                                artifact_dir=run_dir / "b" / t.task_id) for t, _ in items]
 
         class _H:
-            def rollout(self, agent, items, *, runtime, run_dir, parallelism, retry=None, attempt=0, resuming=False):  # noqa: ANN001
+            def rollout(self, agent, items, *, runtime, run_dir, parallelism, retry=None,
+                    timeout_multiplier=1.0, attempt=0, resuming=False):  # noqa: ANN001
                 return _mk(items, run_dir)
 
             def completed(self, items, *, run_dir):  # noqa: ANN001
@@ -309,7 +313,8 @@ def _recording_bench(record: list, *, old_signature: bool = False):
         def completed(self, items, *, run_dir):  # noqa: ANN001
             return []
 
-        def rollout(self, agent, items, *, runtime, run_dir, parallelism, retry=None, attempt=0, resuming=False):  # noqa: ANN001
+        def rollout(self, agent, items, *, runtime, run_dir, parallelism, retry=None,
+                timeout_multiplier=1.0, attempt=0, resuming=False):  # noqa: ANN001
             return [TaskResult(task_id=t.task_id, resolved=True, reward=1.0,
                                tokens={"prompt": 1, "completion": 1},
                                artifact_dir=run_dir / "b" / t.task_id) for t, _ in items]
