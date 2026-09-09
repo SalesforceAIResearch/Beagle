@@ -1,0 +1,68 @@
+# 7. AN ORG GATEWAY — no first-party provider key, an OpenAI-compatible proxy instead.
+#
+# The default (01-minimal) is direct access: `provider.name` selects the provider and you forward
+# that provider's own key. Many orgs don't hand those out — they front the providers with an internal
+# OpenAI-compatible proxy that has its OWN base URL and its OWN key. `provider.type: gateway`
+# declares that proxy,
+# and agents reach it through LiteLLM's provider-neutral `api_base` (opencode gets the same routing
+# as a native openai-compatible provider block), so ANY model the proxy serves works unchanged.
+#
+# THE SECRET NEVER GOES IN THIS FILE. `api_key_env` is the NAME of an environment variable, so the
+# key itself lives in `.env` (which beagle loads at CLI start) and this config stays committable:
+#
+#   # .env
+#   MY_ORG_API_KEY=sk-...
+#
+# Check the wiring before spending — the dry run prints the resolved endpoint and whether that
+# variable is actually set:
+#   beagle evaluate --config examples/evaluation/07-org-gateway.yaml --dry-run
+#
+# Needs the deep-swe extra:  uv pip install -e '.[deep-swe]'
+run:
+  dir: ./results
+  name: eval-org-gateway
+  runtime: xrlenv-cluster
+  parallelism: 1
+
+agent:
+  harness:
+    name: mini-swe
+    version: v2.4.6
+    source:
+      repo: https://github.com/<your-org>/mini_swe_agent_v2.4.6
+      ref: <baseline-commit-sha>
+      token_env: GH_TOKEN
+  model:
+    name: gpt-5.5              # whatever model id YOUR gateway routes — it need not be an OpenAI one
+  provider:
+    type: gateway
+    name: my-org-gateway
+    extra_args:
+      # The endpoint PREFIX. beagle appends the operation, so this must be the path your gateway
+      # serves `/responses` and/or `/chat/completions` under. A trailing slash is fine.
+      api_base: https://gateway.<your-org>.example/openai/v1
+      # The env var HOLDING the key (set it in `.env`), not the key; for example, if you add the key as
+      # MY_GW_API_KEY=sk-.. in the .env file, then do  `api_key_env: MY_GW_API_KEY`.
+      api_key_env: MY_ORG_API_KEY
+      # OPTIONAL. Default auth is `Authorization: Bearer <key>`. Set this when your gateway reads
+      # its own header instead, e.g. `-H "X-Api-Key: <key>"`.
+      auth_header: X-Api-Key
+      # The key is then sent BOTH ways (header + bearer), so a gateway accepting either works.
+  # WHICH ENDPOINT mini-swe calls is decided by `effort`, not by the gateway block:
+  #   effort set (below)         → the Responses API   → POST <api_base>/responses
+  #   effort unset               → Chat Completions    → POST <api_base>/chat/completions
+  # If your gateway serves only one of the two, pick `effort` accordingly. (opencode is Chat
+  # Completions only — its ai-sdk provider has no Responses path — so a responses-only gateway
+  # needs mini-swe.)
+  effort: high
+  max_turns: 150
+  # `forward_env` is NOT needed for the gateway key — `api_key_env` already carries it. Keep it only
+  # for other creds the agent needs inside the container.
+
+# deep-swe on purpose: it runs with `allow_internet=false`, so the RUN phase is sealed to the hosts
+# the agent declares — here just the gateway. That makes this config the end-to-end proof that
+# gateway traffic still flows when everything else is cut off. (Any benchmark works; the unrestricted
+# ones simply don't exercise the allowlist.)
+data:
+  - benchmark: deep-swe
+    tasks: [httpx-multipart-response-parsing]

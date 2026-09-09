@@ -83,6 +83,21 @@ class _FakeRuntime:
         return next((e for c, e in zip(self.cmds, self.envs) if needle in c), None)
 
 
+def _gateway_settings(rt) -> dict:
+    """The litellm settings mini will actually use, read back from the config document the adapter
+    ships in the run exec's ENV (never on the command line — see _mini_gateway_config)."""
+    env = rt.env_for("mini -t") or {}
+    return json.loads(env["BEAGLE_GATEWAY_CONFIG"])["model"]["model_kwargs"]
+
+
+def _assert_no_secret_in_argv(rt, *secrets: str) -> None:
+    """No gateway credential may appear in ANY command the adapter runs: argv is world-readable in
+    the container (`ps`) and beagle echoes commands into runtime records and error tails."""
+    for cmd in rt.cmds:
+        for secret in secrets:
+            assert secret not in cmd, f"credential {secret!r} leaked into argv: {cmd}"
+
+
 def test_run_invokes_the_upstream_mini_cli() -> None:
     # mini-swe as an EVOLVEE: install the evolved repo@ref, drive upstream's `mini` CLI against the
     # provisioned container, capture the patch + trajectory. Asserts the DOCUMENTED flags (not the
@@ -192,13 +207,14 @@ def test_run_routes_litellm_at_the_gateway(monkeypatch) -> None:
     monkeypatch.setenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "http://node:18088/")
     monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY", "sk-real")
     rt = _FakeRuntime(diff="P")
-    _gw_agent(provider="llm-gateway-express-local-proxy").run(
+    _gw_agent(provider={"type": "internal", "name": "llm-gateway-express-local-proxy"}).run(
         Task(task_id="t", problem_statement="x"),
         TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     mini = next(c for c in rt.cmds if "mini -t" in c)
-    assert "-c model.model_kwargs.api_base=http://node:18088/" in mini
-    assert "-c model.model_kwargs.api_key=sk-real" in mini
-    assert "-c model.model_kwargs.custom_llm_provider=openai" in mini
+    assert _gateway_settings(rt) == {"api_base": "http://node:18088/", "api_key": "sk-real",
+                                     "custom_llm_provider": "openai"}
+    assert " -c /agent/.beagle-gateway.yaml" in mini              # merged over the preset
+    _assert_no_secret_in_argv(rt, "sk-real")
     assert "-m gpt-5.5" in mini and "openai/gpt-5.5" not in mini   # model name stays bare
 
 
@@ -213,6 +229,17 @@ def test_run_provider_gates_the_gateway(monkeypatch) -> None:
     assert "model.model_kwargs" not in mini
 
 
+def test_direct_provider_name_prefixes_the_model(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "http://ignored/")
+    rt = _FakeRuntime(diff="P")
+    _gw_agent(provider={"type": "direct", "name": "openai"}).run(
+        Task(task_id="t", problem_statement="x"),
+        TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
+    mini = next(c for c in rt.cmds if "mini -t" in c)
+    assert "-m openai/gpt-5.5" in mini
+    assert "BEAGLE_GATEWAY_CONFIG" not in (rt.env_for("mini -t") or {})
+
+
 def test_run_probes_and_skips_an_already_blocked_key(monkeypatch) -> None:
     # #20 (residual of #12/3): with a pool of >1 keys, run_in probes IN-CONTAINER (one request) and
     # uses the key the probe returned — not pool[0] unconditionally — so a key already blocked at
@@ -221,14 +248,13 @@ def test_run_probes_and_skips_an_already_blocked_key(monkeypatch) -> None:
     monkeypatch.delenv("LLM_GATEWAY_EXPRESS_API_KEY", raising=False)
     monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY_LIST", "blocked-key,good-key")
     rt = _FakeRuntime(diff="P", probe_key="good-key")
-    _gw_agent(provider="llm-gateway-express-local-proxy").run(
+    _gw_agent(provider={"type": "internal", "name": "llm-gateway-express-local-proxy"}).run(
         Task(task_id="t", problem_statement="x"),
         TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     probe_env = next(e for c, e in zip(rt.cmds, rt.envs) if "gw-key-probe" in c)    # the probe ran
     assert probe_env["URL"].endswith("/chat/completions")       # against the endpoint the run uses
-    mini = next(c for c in rt.cmds if "mini -t" in c)
-    assert "-c model.model_kwargs.api_key=good-key" in mini      # used the probed key
-    assert "api_key=blocked-key" not in mini
+    assert _gateway_settings(rt)["api_key"] == "good-key"         # used the probed key
+    _assert_no_secret_in_argv(rt, "good-key", "blocked-key")
 
 
 def test_probe_targets_responses_endpoint_under_effort(monkeypatch) -> None:
@@ -238,7 +264,7 @@ def test_probe_targets_responses_endpoint_under_effort(monkeypatch) -> None:
     monkeypatch.delenv("LLM_GATEWAY_EXPRESS_API_KEY", raising=False)
     monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY_LIST", "k1,k2")
     rt = _FakeRuntime(diff="P", probe_key="k2")
-    _gw_agent(provider="llm-gateway-express-local-proxy", effort="high").run(
+    _gw_agent(provider={"type": "internal", "name": "llm-gateway-express-local-proxy"}, effort="high").run(
         Task(task_id="t", problem_statement="x"),
         TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     probe_env = next(e for c, e in zip(rt.cmds, rt.envs) if "gw-key-probe" in c)  # the probe exec's env
@@ -252,7 +278,7 @@ def test_probe_targets_chat_endpoint_when_responses_api_false(monkeypatch) -> No
     monkeypatch.delenv("LLM_GATEWAY_EXPRESS_API_KEY", raising=False)
     monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY_LIST", "k1,k2")
     rt = _FakeRuntime(diff="P", probe_key="k2")
-    _gw_agent(provider="llm-gateway-express-local-proxy", effort="high", responses_api=False).run(
+    _gw_agent(provider={"type": "internal", "name": "llm-gateway-express-local-proxy"}, effort="high", responses_api=False).run(
         Task(task_id="t", problem_statement="x"),
         TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     probe_env = next(e for c, e in zip(rt.cmds, rt.envs) if "gw-key-probe" in c)
@@ -265,11 +291,10 @@ def test_probe_error_falls_back_to_pool_head_and_run_proceeds(monkeypatch) -> No
     monkeypatch.delenv("LLM_GATEWAY_EXPRESS_API_KEY", raising=False)
     monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY_LIST", "k1,k2")
     rt = _FakeRuntime(diff="P", probe_raises=True)
-    res = _gw_agent(provider="llm-gateway-express-local-proxy").run(
+    res = _gw_agent(provider={"type": "internal", "name": "llm-gateway-express-local-proxy"}).run(
         Task(task_id="t", problem_statement="x"),
         TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
-    mini = next(c for c in rt.cmds if "mini -t" in c)
-    assert "-c model.model_kwargs.api_key=k1" in mini            # fell back to the pool head
+    assert _gateway_settings(rt)["api_key"] == "k1"              # fell back to the pool head
     assert res.status is RolloutStatus.COMPLETED                 # the probe error never fails the run
 
 
@@ -279,11 +304,10 @@ def test_run_falls_back_to_pool_head_when_probe_finds_nothing(monkeypatch) -> No
     monkeypatch.delenv("LLM_GATEWAY_EXPRESS_API_KEY", raising=False)
     monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY_LIST", "k1,k2")
     rt = _FakeRuntime(diff="P", probe_key="")                    # probe returns nothing
-    _gw_agent(provider="llm-gateway-express-local-proxy").run(
+    _gw_agent(provider={"type": "internal", "name": "llm-gateway-express-local-proxy"}).run(
         Task(task_id="t", problem_statement="x"),
         TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
-    mini = next(c for c in rt.cmds if "mini -t" in c)
-    assert "-c model.model_kwargs.api_key=k1" in mini            # first of the pool
+    assert _gateway_settings(rt)["api_key"] == "k1"              # first of the pool
 
 
 def test_run_single_key_skips_the_probe(monkeypatch) -> None:
@@ -292,12 +316,12 @@ def test_run_single_key_skips_the_probe(monkeypatch) -> None:
     monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY", "only")
     monkeypatch.delenv("LLM_GATEWAY_EXPRESS_API_KEY_LIST", raising=False)
     rt = _FakeRuntime(diff="P")
-    _gw_agent(provider="llm-gateway-express-local-proxy").run(
+    _gw_agent(provider={"type": "internal", "name": "llm-gateway-express-local-proxy"}).run(
         Task(task_id="t", problem_statement="x"),
         TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     assert not any("gw-key-probe" in c for c in rt.cmds)            # no probe
-    mini = next(c for c in rt.cmds if "mini -t" in c)
-    assert "-c model.model_kwargs.api_key=only" in mini
+    assert _gateway_settings(rt)["api_key"] == "only"
+    _assert_no_secret_in_argv(rt, "only")
 
 
 def test_run_captures_base_to_head_diff_when_agent_self_commits() -> None:
@@ -408,26 +432,23 @@ def test_network_hosts_is_the_gateway(monkeypatch) -> None:
     # RUN reaches the LLM gateway → allowlisted. Gated on `provider` (mirrors run_in's routing gate).
     monkeypatch.setenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "http://node:18088/")
     monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY", "sk-real")
-    assert _gw_agent(provider="llm-gateway-express-local-proxy").network_hosts() == ["http://node:18088/"]
+    assert _gw_agent(provider={"type": "internal", "name": "llm-gateway-express-local-proxy"}).network_hosts() == ["http://node:18088/"]
 
 
 def test_network_hosts_gated_on_provider(monkeypatch) -> None:
-    # #22: network_hosts must match run_in's gate (gateway only when `provider` is set). Proxy URL set
-    # but provider UNSET → the run calls the provider directly, so DON'T advertise the gateway; and a
-    # gateway credential is present, so fail safe ([]) rather than open a public endpoint.
+    # The typed route, not ambient gateway env, decides which endpoint is allowlisted.
     monkeypatch.setenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "http://gw/")
     monkeypatch.delenv("LLM_GATEWAY_EXPRESS_API_KEY", raising=False)
     monkeypatch.delenv("LLM_GATEWAY_EXPRESS_API_KEY_LIST", raising=False)
-    assert _gw_agent(provider="llm-gateway-express-local-proxy").network_hosts() == ["http://gw/"]
-    assert _gw_agent().network_hosts() == []                          # provider unset + gateway URL → []
+    assert _gw_agent(provider={"type": "internal", "name": "llm-gateway-express-local-proxy"}).network_hosts() == ["http://gw/"]
+    assert _gw_agent().network_hosts() == ["https://api.openai.com"]
 
 
-def test_network_hosts_no_fallback_when_a_gateway_key_is_present(monkeypatch) -> None:
-    # #22: even with no proxy URL, if a gateway KEY is present (forward_env may feed it into
-    # OPENAI_API_KEY), don't open the public provider host — fail safe.
+def test_direct_network_host_ignores_unselected_internal_credentials(monkeypatch) -> None:
+    # Provider selection is explicit: ambient internal credentials cannot reroute a direct run.
     monkeypatch.delenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", raising=False)
     monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY", "internal-key")
-    assert _agent().network_hosts() == []
+    assert _agent().network_hosts() == ["https://api.openai.com"]
 
 
 def test_network_hosts_falls_back_to_the_provider_without_gateway(monkeypatch) -> None:
@@ -510,3 +531,91 @@ def test_failed_mini_surfaces_the_tail_not_the_head() -> None:
                        TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
     assert res.status is RolloutStatus.FAILED
     assert "AuthError: 401 Key is blocked" in (res.error or "")                 # the real cause shows
+
+
+# -- a config-declared org gateway (public path: no first-party provider key) -------------------
+
+
+def test_run_routes_at_a_config_declared_gateway(monkeypatch) -> None:
+    # An explicit gateway provider turns routing on without the deployment gateway env. This is what
+    # public user with an org proxy has: their own api_base + their own key, any model the proxy routes.
+    monkeypatch.delenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", raising=False)
+    monkeypatch.setenv("MY_ORG_API_KEY", "sk-org")
+    rt = _FakeRuntime(diff="P")
+    _gw_agent(provider={"type": "gateway", "name": "org", "extra_args": {
+        "api_base": "https://gw.example/openai/v1",
+        "api_key_env": "MY_ORG_API_KEY"}}).run(
+        Task(task_id="t", problem_statement="x"),
+        TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
+    assert _gateway_settings(rt) == {"api_base": "https://gw.example/openai/v1",
+                                     "api_key": "sk-org", "custom_llm_provider": "openai"}
+    _assert_no_secret_in_argv(rt, "sk-org")
+    assert not any("gw-key-probe" in c for c in rt.cmds)   # one named key var → nothing to probe
+
+
+def test_custom_auth_header_rides_the_config_file_not_argv(monkeypatch) -> None:
+    # Custom-header auth carries the SAME secret as the bearer, so it must take the same protected
+    # path: into the config document in the exec env, never onto the command line.
+    monkeypatch.delenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", raising=False)
+    monkeypatch.setenv("X_API_KEY", "sk-org")
+    rt = _FakeRuntime(diff="P")
+    _gw_agent(provider={"type": "gateway", "name": "org", "extra_args": {
+        "api_base": "https://gw.example/openai/v1", "api_key_env": "X_API_KEY",
+        "auth_header": "X-Api-Key"}}).run(
+        Task(task_id="t", problem_statement="x"),
+        TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
+    assert _gateway_settings(rt)["extra_headers"] == {"X-Api-Key": "sk-org"}
+    _assert_no_secret_in_argv(rt, "sk-org")
+
+
+def test_gateway_config_file_is_written_privately_from_the_env(monkeypatch) -> None:
+    # The document reaches the container through the exec ENV and is written under `umask 077`, so
+    # the secret is neither in argv nor world-readable on the container filesystem.
+    monkeypatch.delenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", raising=False)
+    monkeypatch.setenv("MY_ORG_API_KEY", "sk-org")
+    rt = _FakeRuntime(diff="P")
+    _gw_agent(provider={"type": "gateway", "name": "org", "extra_args": {
+        "api_base": "https://gw.example/openai/v1",
+        "api_key_env": "MY_ORG_API_KEY"}}).run(
+        Task(task_id="t", problem_statement="x"),
+        TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
+    mini = next(c for c in rt.cmds if "mini -t" in c)
+    assert 'umask 077' in mini and 'printf %s "$BEAGLE_GATEWAY_CONFIG"' in mini
+    # JSON is valid YAML, so what we write round-trips through mini's own yaml.safe_load
+    import yaml
+    doc = yaml.safe_load(rt.env_for("mini -t")["BEAGLE_GATEWAY_CONFIG"])
+    assert doc["model"]["model_kwargs"]["api_base"] == "https://gw.example/openai/v1"
+
+
+def test_no_gateway_writes_no_config_file(monkeypatch) -> None:
+    # Without a gateway there is no document, no env var and no file-writing shell.
+    monkeypatch.delenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", raising=False)
+    rt = _FakeRuntime(diff="P")
+    _gw_agent().run(Task(task_id="t", problem_statement="x"),
+                    TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
+    mini = next(c for c in rt.cmds if "mini -t" in c)
+    assert "beagle-gateway" not in mini and "BEAGLE_GATEWAY_CONFIG" not in mini
+    assert "BEAGLE_GATEWAY_CONFIG" not in (rt.env_for("mini -t") or {})
+
+
+def test_config_gateway_is_the_allowlisted_host(monkeypatch) -> None:
+    # On a filtered-egress run the RUN phase is sealed to network_hosts — it must be the org
+    # gateway, not the provider host the bare model name would otherwise resolve to.
+    monkeypatch.delenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", raising=False)
+    monkeypatch.setenv("MY_ORG_API_KEY", "sk-org")
+    agent = _gw_agent(provider={"type": "gateway", "name": "org", "extra_args": {
+        "api_base": "https://gw.example/openai/v1",
+        "api_key_env": "MY_ORG_API_KEY"}})
+    assert agent.network_hosts() == ["https://gw.example/openai/v1"]
+
+
+def test_no_probe_when_the_run_uses_no_gateway(monkeypatch) -> None:
+    # Direct provider access on a host whose .env happens to carry a gateway key pool: the run never
+    # calls that gateway, so it must not spend an in-container probe request against it either.
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "http://node:18088/")
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY_LIST", "k1,k2")
+    rt = _FakeRuntime(diff="P")
+    _gw_agent().run(Task(task_id="t", problem_statement="x"),      # no gateway, no provider
+                    TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
+    assert not any("gw-key-probe" in c for c in rt.cmds)
+    assert "model.model_kwargs" not in next(c for c in rt.cmds if "mini -t" in c)

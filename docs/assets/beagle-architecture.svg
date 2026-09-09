@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="700" viewBox="0 0 1000 700" role="img" aria-labelledby="title desc">
+  <title id="title">Beagle architecture</title>
+  <desc id="desc">Data and agent factories feed evaluation and evolution modes, which use rollout engines. DarwinX supplies the evolution algorithm.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#0176D3"/>
+    </marker>
+    <style>
+      .group { fill: #f4f9ff; stroke: #0176d3; stroke-width: 2; }
+      .node { fill: #fff; stroke: #0176d3; stroke-width: 2; }
+      .label { fill: #16325c; font: 18px Arial, sans-serif; text-anchor: middle; }
+      .heading { fill: #0176d3; font: 600 20px Arial, sans-serif; text-anchor: middle; }
+      .arrow { fill: none; stroke: #0176d3; stroke-width: 2; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <!-- Data Mixture -->
+  <rect class="group" x="380" y="15" width="320" height="185" rx="16"/>
+  <text class="heading" x="540" y="43">Data Mixture</text>
+  <rect class="node" x="405" y="85" width="125" height="75" rx="14"/>
+  <text class="label" x="468" y="116">
+    <tspan x="468">benchmark</tspan><tspan x="468" dy="24">tasks</tspan>
+  </text>
+  <rect class="node" x="550" y="85" width="125" height="75" rx="14"/>
+  <text class="label" x="613" y="116">
+    <tspan x="613">training</tspan><tspan x="613" dy="24">samples</tspan>
+  </text>
+
+  <!-- Agent Factory -->
+  <rect class="group" x="15" y="245" width="325" height="205" rx="16"/>
+  <text class="heading" x="178" y="275">Agent Factory</text>
+  <rect class="node" x="35" y="300" width="135" height="125" rx="14"/>
+  <text class="label" x="103" y="330">
+    <tspan x="103">(Evolvee)</tspan><tspan x="103" dy="24">mini-swe</tspan>
+    <tspan x="103" dy="24">opencode</tspan><tspan x="103" dy="24">...</tspan>
+  </text>
+  <rect class="node" x="185" y="300" width="135" height="125" rx="14"/>
+  <text class="label" x="253" y="330">
+    <tspan x="253">(Evolver)</tspan><tspan x="253" dy="24">cursor-agent</tspan>
+    <tspan x="253" dy="24">codex</tspan><tspan x="253" dy="24">...</tspan>
+  </text>
+
+  <!-- Mode -->
+  <rect class="group" x="405" y="240" width="270" height="215" rx="16"/>
+  <text class="heading" x="540" y="270">Mode</text>
+  <rect class="node" x="455" y="290" width="170" height="65" rx="14"/>
+  <text class="label" x="540" y="329">evaluate backend</text>
+  <rect class="node" x="455" y="370" width="170" height="65" rx="14"/>
+  <text class="label" x="540" y="409">evolve backend</text>
+
+  <!-- Rollout Engine -->
+  <rect class="group" x="740" y="245" width="245" height="205" rx="16"/>
+  <text class="heading" x="863" y="275">Rollout Engine</text>
+  <rect class="node" x="805" y="295" width="115" height="60" rx="14"/>
+  <text class="label" x="863" y="320">
+    <tspan x="863">Local</tspan><tspan x="863" dy="23">Docker</tspan>
+  </text>
+  <rect class="node" x="770" y="370" width="185" height="65" rx="14"/>
+  <text class="label" x="863" y="395">
+    <tspan x="863">XRLEnv</tspan><tspan x="863" dy="23">(cloud orchestration)</tspan>
+  </text>
+
+  <!-- Evolve Algorithm Factory -->
+  <rect class="group" x="415" y="505" width="250" height="175" rx="16"/>
+  <text class="heading" x="540" y="535" font-size="18">Evolve Algorithm Factory</text>
+  <rect class="node" x="480" y="570" width="120" height="65" rx="14"/>
+  <text class="label" x="540" y="610">DarwinX</text>
+
+  <!-- Flows -->
+  <path class="arrow" d="M540 200 L540 240"/>
+  <path class="arrow" d="M340 348 L405 348"/>
+  <path class="arrow" d="M675 348 L740 348"/>
+  <path class="arrow" d="M540 505 L540 455"/>
+</svg>

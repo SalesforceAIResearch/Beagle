@@ -24,6 +24,39 @@ if TYPE_CHECKING:
     from beagle.config import RetryPolicy
 
 
+def _pier_phase_split_supported(items: list[tuple[Task, TaskContext]]) -> bool:
+    """True when every Pier task is inspectably single-service.
+
+    xrlenv cannot apply container-scoped egress to a compose project. Unknown, malformed, or
+    multi-service task definitions therefore stay on Pier's legacy path rather than opting into the
+    Beagle phase transition.
+    """
+    import yaml
+
+    for task, _ctx in items:
+        task_dir = task.extras.get("harbor_task_dir")
+        if not task_dir:
+            return False
+        environment_dir = Path(str(task_dir)) / "environment"
+        if not environment_dir.is_dir():
+            return False
+        compose_path = next((
+            path
+            for name in ("docker-compose.yaml", "docker-compose.yml")
+            if (path := environment_dir / name).is_file()
+        ), None)
+        if compose_path is None:
+            continue
+        try:
+            doc = yaml.safe_load(compose_path.read_text(errors="replace")) or {}
+        except (OSError, yaml.YAMLError):
+            return False
+        services = doc.get("services") if isinstance(doc, dict) else None
+        if not isinstance(services, dict) or len(services) != 1:
+            return False
+    return True
+
+
 class HarborHarness(BenchmarkHarness):
     """Run tasks through harbor's *own* Job driver.
 
@@ -46,16 +79,23 @@ class HarborHarness(BenchmarkHarness):
 
     #: The xrlenv cluster environment for this framework (reads XRLENV_GRPC_* from env).
     ENV_IMPORT_PATH = "xrlenv_plugins.harbor:XrlenvHarborEnvironmentCluster"
+    LOCAL_ENV_IMPORT_PATH = "xrlenv_plugins.harbor:XrlenvHarborEnvironment"
 
     #: The ONE shim the framework imports to run any beagle agent (see M+N note below).
     SHIM_IMPORT_PATH = "beagle.benchmarks.harness._harbor_agent:BeagleInstalledAgent"
 
     def __init__(
-        self, *, env_import_path: str | None = None, task_env: dict[str, str] | None = None
+        self,
+        *,
+        env_import_path: str | None = None,
+        runtime_kind: str | None = None,
+        task_env: dict[str, str] | None = None,
     ) -> None:
-        """``env_import_path`` overrides the cluster :attr:`ENV_IMPORT_PATH` for THIS harness — a
-        local, non-cluster tb2/harbor run points at its own harbor ``Environment`` here instead of
-        monkeypatching the class attribute; falls back to the class default when unset.
+        """Select the native framework Environment for this harness instance.
+
+        ``env_import_path`` is authoritative when supplied. Otherwise ``runtime_kind="local"``
+        selects :attr:`LOCAL_ENV_IMPORT_PATH`; ``"xrlenv-cluster"`` (and legacy callers that do
+        not specify a kind) use the cluster :attr:`ENV_IMPORT_PATH`.
 
         Reach: set it in the run config as ``benchmark.options.env_import_path`` — the runner reads
         a benchmark's ``options`` and passes it to :meth:`Benchmark.harness`, which forwards it here
@@ -68,6 +108,10 @@ class HarborHarness(BenchmarkHarness):
         per-TASK part is resolved in-container by the snippets themselves. Empty = unchanged."""
         if env_import_path:
             self.ENV_IMPORT_PATH = env_import_path
+        elif runtime_kind == "local":
+            self.ENV_IMPORT_PATH = self.LOCAL_ENV_IMPORT_PATH
+        elif runtime_kind not in (None, "xrlenv-cluster"):
+            raise ValueError(f"unsupported harbor runtime kind {runtime_kind!r}")
         self.task_env = dict(task_env or {})
 
     def _harness_api(self) -> dict[str, Any]:
@@ -96,12 +140,20 @@ class HarborHarness(BenchmarkHarness):
         parallelism: int = 1,
         retry: RetryPolicy | None = None,
         timeout_multiplier: float = 1.0,
+        debug_max_agent_wall_time_sec: float | None = None,
         attempt: int = 0,
         resuming: bool = False,
     ) -> Iterable[TaskResult]:
         if not items:
             return []
         AgentConfig = self._harness_api()["AgentConfig"]  # lazy: beagle[terminal-bench] / [deep-swe]
+        timeout_kwargs: dict[str, float] = {}
+        if debug_max_agent_wall_time_sec is not None:
+            # Harbor scales max_timeout_sec by timeout_multiplier. Pre-divide here so the resulting
+            # outer phase deadline—and the budget read by our shim—is the exact debug cap.
+            timeout_kwargs["max_timeout_sec"] = (
+                debug_max_agent_wall_time_sec / timeout_multiplier
+            )
 
         binding = agent.rollout_binding(items[0][1])
         if isinstance(binding, HarborBinding):
@@ -111,6 +163,7 @@ class HarborHarness(BenchmarkHarness):
                 import_path=binding.import_path,
                 model_name=binding.model_name or None,
                 kwargs=binding.kwargs,
+                **timeout_kwargs,
             )
         else:
             # Default M+N path: wrap ANY beagle agent in the one generic shim.
@@ -118,12 +171,21 @@ class HarborHarness(BenchmarkHarness):
             # runtime backed by the trial environment — no per-agent harbor class.
             identity = _agent_identity(agent)
             kwargs: dict[str, Any] = {"identity": identity}
+            if self.FRAMEWORK == "pier":
+                # Fresh generic Beagle jobs on the pinned xrlenv cluster use the shim-owned
+                # open-install→pinned-IP RUN transition. Local/custom environments and native
+                # bindings retain Pier's legacy policy. Persisted kwargs make resume deterministic.
+                kwargs["phase_split_egress"] = (
+                    self.ENV_IMPORT_PATH == self.__class__.ENV_IMPORT_PATH
+                    and _pier_phase_split_supported(items)
+                )
             if self.task_env:      # omitted when empty so an existing job's config.json is unchanged
                 kwargs["task_env"] = dict(self.task_env)
             agent_config = AgentConfig(
                 import_path=self.SHIM_IMPORT_PATH,
                 model_name=identity.get("model"),
                 kwargs=kwargs,
+                **timeout_kwargs,
             )
         # A content-retry round (attempt>0, the Runner re-running unresolved tasks) writes to a
         # sibling `<benchmark>-retry<N>` job dir — a distinct name so harbor's own resume doesn't
@@ -558,6 +620,7 @@ class PierHarness(HarborHarness):
 
     FRAMEWORK = "pier"
     ENV_IMPORT_PATH = "xrlenv_plugins.pier:XrlenvPierEnvironmentCluster"
+    LOCAL_ENV_IMPORT_PATH = "xrlenv_plugins.pier:XrlenvPierEnvironment"
     SHIM_IMPORT_PATH = "beagle.benchmarks.harness._pier_agent:BeaglePierAgent"
 
 
@@ -637,6 +700,7 @@ class NativeRunnerHarness(BenchmarkHarness):
         parallelism: int = 1,
         retry: RetryPolicy | None = None,
         timeout_multiplier: float = 1.0,
+        debug_max_agent_wall_time_sec: float | None = None,
         attempt: int = 0,
         resuming: bool = False,
     ) -> Iterable[TaskResult]:

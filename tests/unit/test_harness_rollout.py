@@ -116,8 +116,20 @@ def test_harbor_harness_env_import_path_is_overridable() -> None:
 
     assert HarborHarness().ENV_IMPORT_PATH == "xrlenv_plugins.harbor:XrlenvHarborEnvironmentCluster"
     assert PierHarness().ENV_IMPORT_PATH == "xrlenv_plugins.pier:XrlenvPierEnvironmentCluster"
+    assert (
+        HarborHarness(runtime_kind="local").ENV_IMPORT_PATH
+        == "xrlenv_plugins.harbor:XrlenvHarborEnvironment"
+    )
+    assert (
+        PierHarness(runtime_kind="local").ENV_IMPORT_PATH
+        == "xrlenv_plugins.pier:XrlenvPierEnvironment"
+    )
     over = HarborHarness(env_import_path="my.mod:LocalEnv")
     assert over.ENV_IMPORT_PATH == "my.mod:LocalEnv"                    # instance override applied
+    assert (
+        HarborHarness(env_import_path="my.mod:LocalEnv", runtime_kind="local").ENV_IMPORT_PATH
+        == "my.mod:LocalEnv"
+    )
     assert HarborHarness().ENV_IMPORT_PATH != "my.mod:LocalEnv"        # class default not mutated
 
 
@@ -133,3 +145,11 @@ def test_benchmark_harness_threads_env_import_path() -> None:
     h = _B().harness(env_import_path="my.mod:LocalEnv")
     assert isinstance(h, HarborHarness) and h.ENV_IMPORT_PATH == "my.mod:LocalEnv"
     assert _B().harness().ENV_IMPORT_PATH == HarborHarness.ENV_IMPORT_PATH   # default when unset
+    assert (
+        _B().harness_for_runtime("local").ENV_IMPORT_PATH
+        == HarborHarness.LOCAL_ENV_IMPORT_PATH
+    )
+    assert (
+        _B().harness_for_runtime("local", env_import_path="my.mod:ExplicitEnv").ENV_IMPORT_PATH
+        == "my.mod:ExplicitEnv"
+    )

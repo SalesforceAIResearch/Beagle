@@ -31,6 +31,13 @@ from beagle.agents.core.base import (
     Topology,
     resolve_agent_timeout,
 )
+from beagle.agents.core.litellm_gateway import provider_api_host, resolve_gateway
+from beagle.agents.core.provider import (
+    DirectProvider,
+    GatewayProvider,
+    InternalProvider,
+    provider_config,
+)
 from beagle.agents.core.registry import register
 from beagle.agents.monet._helpers import (
     DEFAULT_CONTAINER_PATH,
@@ -59,8 +66,7 @@ class MonetAgent(Agent, Runnable, Evolvable, Editor):
     """The monet harness — white-box, usable as evolvee or evolver.
 
     Config keys (``spec.config``): ``container_path``, ``install_cmd``,
-    ``monet_args``, ``provider`` (LLM gateway name → prepends ``--provider``; without
-    it monet uses a direct API key), ``effort`` (reasoning level → prepends
+    ``monet_args``, typed ``provider`` routing, ``effort`` (reasoning level → prepends
     ``--effort``; survives the harbor shim, unlike the model's ``reasoning_effort``),
     ``forward_env``, ``max_turns``, ``timeout``, ``max_tokens``, ``output_dir``,
     ``token_env`` (env var holding a clone credential for a private experiment copy).
@@ -68,7 +74,7 @@ class MonetAgent(Agent, Runnable, Evolvable, Editor):
 
     transparency = Transparency.WHITE_BOX
     topology = Topology.IN_CONTAINER
-
+    supported_provider_types = frozenset({"direct", "internal"})
     def _default_source(self) -> AgentSource:
         """Baseline source. The repo is **user-supplied** run config, never hardcoded.
 
@@ -87,11 +93,25 @@ class MonetAgent(Agent, Runnable, Evolvable, Editor):
             )
         return src if src.entrypoint else replace(src, entrypoint=MONET_BIN_PATH)
 
+    def _provider(self) -> DirectProvider | InternalProvider:
+        route = provider_config(self.config)
+        if isinstance(route, GatewayProvider):
+            raise ValueError(  # noqa: TRY004 — unsupported config is a validation error
+                "monet does not support provider type 'gateway'; use `provider: "
+                "{type: internal, name: <provider-name>}` or `provider: {type: direct}`")
+        return route
+
     def _config(self, model: str, entrypoint: str) -> MonetConfig:
         c = self.config
         from beagle.agents.core.forward_env import normalize_forward_env
 
+        route = self._provider()
+
         base_args = tuple(c["monet_args"]) if "monet_args" in c else DEFAULT_MONET_ARGS
+        if any(arg == "--provider" or arg.startswith("--provider=") for arg in base_args):
+            raise ValueError(
+                "`monet_args` must not contain `--provider`; use the typed `provider` block"
+            )
         # The provider (LLM gateway) is a distinct knob from monet's behavior flags: prepend
         # ``--provider <name>`` when configured, so a caller selects the gateway WITHOUT having
         # to restate the default behavior flags (``monet_args`` replaces them wholesale). Without
@@ -108,7 +128,7 @@ class MonetAgent(Agent, Runnable, Evolvable, Editor):
         if effort and "--effort" not in base_args:
             base_args = ("--effort", str(effort)) + base_args
 
-        provider = c.get("provider")
+        provider = route.name
         monet_args = (("--provider", str(provider)) + base_args) if provider else base_args
         forward_env = tuple(normalize_forward_env(c.get("forward_env")))  # (container, host) pairs
         return MonetConfig(
@@ -248,12 +268,15 @@ class MonetAgent(Agent, Runnable, Evolvable, Editor):
             task, cfg, invoke.returncode, invoke.stdout, invoke.stderr, base_patch=base_patch)
 
     def network_hosts(self) -> list[str]:
-        """The LLM gateway monet reaches during :meth:`run_in` — allowlisted on a restricted run
-        phase (DeepSWE/pier). Same gateway env every agent uses; empty when none is configured."""
-        from beagle.agents.core.litellm_gateway import gateway_litellm_kwargs
-
-        kw = gateway_litellm_kwargs()
-        return [kw["api_base"]] if kw and kw.get("api_base") else []
+        """The selected route's endpoint, allowlisted for a restricted run phase."""
+        route = self._provider()
+        if isinstance(route, InternalProvider):
+            kw = resolve_gateway(self.config)
+            return [kw["api_base"]] if kw and kw.get("api_base") else []
+        assert isinstance(route, DirectProvider)
+        model = self.spec.model.name if self.spec.model else "claude-opus-4-8"
+        host = provider_api_host(f"{route.name}/{model}" if route.name else model)
+        return [f"https://{host}"] if host else []
 
     def install_hosts(self) -> list[str]:
         """Hosts :meth:`install` reaches: monet's git host + the node/npm indexes its bootstrap pulls

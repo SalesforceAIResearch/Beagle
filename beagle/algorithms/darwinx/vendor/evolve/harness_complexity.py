@@ -55,6 +55,21 @@ DEFAULT_PROMPT_GLOBS = ("src/minisweagent/config/**/*.yaml", "src/minisweagent/c
 _BRANCH_RE = re.compile(r"(?<![\w.])(if|elif|for|while|except|and|or)(?![\w])")
 _PY_COMMENT = re.compile(r"^\s*#")
 
+# The Python regex above finds nothing in a TypeScript file, so for a JS/TS
+# evolvee (monet is JS; opencode is a Bun/TypeScript monorepo) every
+# consolidation measured zero branches and `_simplification_win` silently fell
+# back to counting lines -- which is the one thing a line-neutral rewrite is
+# guaranteed to fail. `else if` counts once, because a bare `else` is not a
+# decision; `?.` and `??` are excluded so optional chaining is not read as a
+# ternary.
+_JS_BRANCH_RE = re.compile(
+    r"(?<![\w.$])else\s+if(?![\w$])"
+    r"|(?<![\w.$])(if|switch|for|while|case)(?![\w$])"
+    r"|&&|\|\|"
+    r"|(?<!\?)\?(?![?.])"
+)
+_JS_EXTS = (".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx")
+
 
 @dataclass(frozen=True)
 class Complexity:
@@ -118,6 +133,52 @@ def _read_tree(repo: str, sha: str, paths: list[str]) -> dict[str, str]:
     return res
 
 
+def _code_lines(blob: str, *, js: bool) -> list[str]:
+    """Non-blank, non-comment lines.
+
+    JS/TS needs a block-comment stripper that Python does not: a commented-out
+    ``if`` inside ``/* ... */`` would otherwise be counted as a live branch, and
+    these files carry long license and doc blocks.
+    """
+    out: list[str] = []
+    in_block = False
+    for line in blob.splitlines():
+        if js:
+            s = line
+            if in_block:
+                end = s.find("*/")
+                if end == -1:
+                    continue
+                s = s[end + 2:]
+                in_block = False
+            while True:
+                start = s.find("/*")
+                line_cmt = s.find("//")
+                if start != -1 and (line_cmt == -1 or start < line_cmt):
+                    end = s.find("*/", start + 2)
+                    if end == -1:
+                        s = s[:start]
+                        in_block = True
+                        break
+                    s = s[:start] + s[end + 2:]
+                    continue
+                if line_cmt != -1:
+                    s = s[:line_cmt]
+                break
+            stripped = s.strip()
+        else:
+            if _PY_COMMENT.match(line):
+                continue
+            stripped = line.strip()
+        if stripped:
+            out.append(stripped)
+    return out
+
+
+def _count_branches(stripped: str, *, js: bool) -> int:
+    return len((_JS_BRANCH_RE if js else _BRANCH_RE).findall(stripped))
+
+
 _MEMO: dict[tuple[str, str], "Complexity"] = {}
 
 
@@ -163,15 +224,11 @@ def measure_commit(repo: str, sha: str) -> Complexity:
         if blob is None:
             continue
         files += 1
-        for line in blob.splitlines():
-            stripped = line.strip()
-            if not stripped:
-                continue
+        js = path.lower().endswith(_JS_EXTS)
+        for stripped in _code_lines(blob, js=js):
             if is_code:
-                if _PY_COMMENT.match(line):
-                    continue
                 code_loc += 1
-                branches += len(_BRANCH_RE.findall(stripped))
+                branches += _count_branches(stripped, js=js)
             else:
                 prompt_loc += 1
     _MEMO[key] = Complexity(files=files, code_loc=code_loc, prompt_loc=prompt_loc, branches=branches)

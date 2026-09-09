@@ -132,13 +132,13 @@ change that preserves the base beats a larger one that regresses it.
 
 ### Two surfaces you can improve: CORE vs SKILLS — edit exactly ONE, targeted
 
-monet has two independent surfaces. **Do not mix them in one candidate** — they must
+{{ evolvee_label }} has {% if plugin_surface_doc %}three{% else %}two{% endif %} independent surfaces. **Do not mix them in one candidate** — they must
 be separately attributable so each is judged on its own. Choose the surface by where
 the fault actually is, and **prefer the change that generalizes to unseen tasks**: you
 are judged on held-out tasks you cannot see, so a fix that only helps the exact task
 you inspected will not score.
 
-- **CORE** (`src/` — the agent loop, planning / turn control, tool & command dispatch,
+- **CORE** (`{{ core_path_doc }}` — the agent loop, planning / turn control, tool & command dispatch,
   verification, shell & error/recovery handling). Because the core is traversed by
   every task, a genuine core improvement is the **highest-value, best-generalizing**
   change — it lifts many tasks at once. This is a **first-class target**: if the fault
@@ -147,19 +147,34 @@ you inspected will not score.
   guarded changes and preserve behaviour that passing tasks rely on — but **do NOT
   avoid the core**. A real loop / tool-dispatch / verification / recovery improvement
   is worth more than a task-specific skill.
-- **SKILLS** — a reusable procedure added to the `BUNDLED_SKILLS` array in
-  `src/core/bundled-skills.js` (the only skill path that PERSISTS; `.monet/skills/` is
-  runtime-only and will NOT ship). A skill is additive and low regression risk, **but
+- **SKILLS** — {{ skill_surface_doc }}. A skill is additive and low regression risk, **but
   beware its failure mode: a cue-gated skill only activates on its trigger, so it tends
   to help ONLY the task it was written for and does NOT generalize to held-out tasks.**
   Use a skill only when the gap is genuinely recurring task-type know-how, and make it
   GENERAL (no task-name literals, no expected-output strings, no narrow one-off cues).
-
+{% if plugin_surface_doc %}
+- **PLUGINS** — {{ plugin_surface_doc }}. This is the middle rung between a skill and a core
+  edit, and it is often the right one: unlike a skill it is **code that actually runs** on every
+  task through its hook (so it does not depend on a cue firing or the model choosing to read it),
+  and unlike a core edit it cannot restructure the agent loop, because the hooks are fixed points
+  the harness calls. Reach for it when the fault is a *mechanism* rather than missing know-how —
+  a tool call that should be checked, rewritten or retried, an environment fact every task needs,
+  context that should be shaped before the model sees it. Same generality bar as a skill: no
+  task-name literals and no expected-output strings.
+{% endif %}
+{% if prompt_surface_rule %}
+- **NOT THE PROMPT.** {{ prompt_surface_rule }}
+{% endif %}
 Use the fault analysis (trace QC) to decide which surface the fault is on:
 - the *engine itself* mishandles reasoning / planning / tool-dispatch / verification /
   recovery that many tasks traverse → improve the **CORE** (preferred when it
   generalizes — this is the intended path for real self-improvement); or
 - a genuinely recurring task-type procedure is missing → add a **general SKILL**.
+{% if plugin_surface_doc %}
+- a mechanism is missing or misfiring around the model — tool calls that need checking or
+  retrying, context that needs shaping, environment the agent cannot see → add a **PLUGIN**,
+  which ships that behaviour as loaded code without touching the loop.
+{% endif %}
 
 State which surface you are editing and why, then make a targeted edit to **only that
 surface** — and prefer the change that lifts unseen tasks, not just the one in front of you.

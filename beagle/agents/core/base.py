@@ -366,6 +366,10 @@ class Agent(ABC):
     #: Transparency axis. WHITE_BOX means the source is ours to mutate; only
     #: white-box agents can be :class:`Evolvable`.
     transparency: ClassVar[Transparency] = Transparency.WHITE_BOX
+    #: Typed provider routes this adapter can honor. Adapters with narrower native provider
+    #: mechanisms override the set; preflight and runtime both enforce the same capability.
+    supported_provider_types: ClassVar[frozenset[str]] = frozenset(
+        {"direct", "gateway", "internal"})
 
     def __init__(self, spec: AgentSpec | None = None) -> None:
         self.spec = spec or AgentSpec(name=self.NAME)

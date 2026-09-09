@@ -57,6 +57,7 @@ class SweRebench(HarborBenchmark):
 
     #: The cache shard xrlenv materialized (matches the registry name here).
     cache_name: ClassVar[str] = "swe-rebench"
+    cache_builder_module = "xrlenv_plugins.benchmarks.swe_rebench.build_cache"
 
     def task_env(self) -> dict[str, str]:
         return {"repo_path_cmd": _RESOLVE_REPO_DIR, "shell_preamble": _ACTIVATE_TASK_ENV}

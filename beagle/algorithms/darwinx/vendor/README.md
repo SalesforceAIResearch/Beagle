@@ -1,42 +1,78 @@
-# DarwinX — vendored source (`self_evolve` + `atelier` + `trace_analyzer`)
+# DarwinX implementation hosted by Beagle
 
-These three packages are a **verbatim copy** of the DarwinX self-evolution algorithm, dropped
-in as-is (not a submodule/subtree). beagle *hosts* DarwinX; it does not fork or refactor it —
-**the DarwinX authors own and evolve this directory in-repo.** The clean-room adapter that
-wires it into beagle is the beagle-authored code one level up
-(`beagle/algorithms/darwinx/{eval.py, meta_agent.py, algorithm.py}`).
+Beagle is the infrastructure layer: it provides the agent, benchmark, rollout, training, and
+algorithm interfaces. This directory contains the **DarwinX algorithm implementation** that Beagle
+hosts behind those interfaces.
 
-## Why they live here (and stay top-level)
+Users should launch DarwinX through:
 
-`atelier` and `trace_analyzer` use a few **absolute self-imports** (`from atelier.x`,
-`from trace_analyzer.y`) and cross-import each other (`atelier → self_evolve`, both →
-`trace_analyzer`). So they must remain importable by their **original top-level names**. This
-`vendor/` directory has **no `__init__.py`** on purpose — it's not a subpackage; the launch
-path (`DarwinX.evolve`) prepends it to `sys.path` so `import self_evolve` / `atelier` /
-`trace_analyzer` resolve to these copies without rewriting a single import.
+```bash
+beagle evolve --config examples/evolution/config.yaml
+```
 
-## Convention exemption (important)
+See the [evolution quick start](../../../../examples/evolution/README.md) for a one-task smoke.
+The modules below are implementation packages, not a separate supported CLI.
 
-beagle's rules — **no new env vars, no internal-repo names** — bind *beagle-authored* code.
-This vendored subtree is **exempt**: it keeps its own names, its ~40 env vars, its internal
-paths, its imports. Do **not** scrub or lint it against those rules; the authors refactor it on
-their own schedule. (Analogous to `vendor/xrlenv`.)
+## Layout
 
-## The seams the authors wire to (the whole integration surface)
+| Package | Responsibility |
+| --- | --- |
+| [`evolve/`](evolve/) | genealogy, parent selection, proposal pipelines, candidate evaluation, preservation, compaction, and recombination |
+| [`gate/`](gate/) | structural, anti-cheat, verifier, canary, transfer, and other candidate-acceptance checks |
+| [`dx_trace/`](dx_trace/) | trajectory normalization, quality checks, failure-mode extraction, and evidence summaries |
 
-DarwinX calls *out* at exactly these points; beagle already backs each — point the vendored
-code at them instead of its hardcoded originals:
+The Beagle-facing adapter lives one directory above:
 
-| DarwinX seam (in this vendored code) | Back it with (beagle, one level up) |
-|---|---|
-| **A · eval** — `codingbench_eval.py` shells `python -m runner.run <cfg>` and reads `run.json` | `python -m beagle.algorithms.darwinx.eval` (config→Runner→the `per_task_results` run.json shape it reads). See `../eval.py`. |
-| **B · evolver** — the `meta_agent` dispatcher (`meta_agent.py`, `META_AGENT` env) | `../meta_agent.py` — `run()` → the injected beagle `Editor.edit` (`set_editor`); swaps the evolver by config. |
-| **C · config/env** — `run_config.py` + ~40 env vars + repo paths | set from `BeagleConfig` at launch (`AgentSource` → repo/ref/entrypoint). |
-| **D · trace QC** — `trace_analyzer/llm.py` hand-rolled LLM client | route through beagle's gateway config (don't add `TRACE_ANALYZER_*` env). |
+| File | Boundary |
+| --- | --- |
+| [`../algorithm.py`](../algorithm.py) | registered `darwinx` algorithm and `Trainer` entrypoint |
+| [`../config.py`](../config.py) | typed public configuration (`DarwinXConfig`) |
+| [`../_launch.py`](../_launch.py) | translates Beagle source/runtime/task settings and launches the algorithm |
+| [`../eval.py`](../eval.py) | routes candidate scoring through Beagle's benchmark-native rollout infrastructure |
+| [`../meta_agent.py`](../meta_agent.py) | injects the configured Beagle `Editor` as DarwinX's evolver |
 
-## Launch (still to wire — §6.4)
+## Launch flow
 
-`DarwinX.evolve()` (in `../algorithm.py`) is the seam that will: add this `vendor/` to
-`sys.path`, prepare the host env (seam C), inject the evolver (seam B), and launch the driver
-(`self_evolve`'s pipeline). It currently fails loud until that's wired + live-validated.
-See `notes/darwinx-dropin-contract.md`.
+```text
+beagle evolve
+    └── Beagle Trainer
+        └── DarwinX.evolve(...)
+            ├── materialize the evolvee experiment copy
+            ├── inject the configured evolver
+            ├── translate typed config to the algorithm runtime
+            ├── run evolve/ + gate/ + dx_trace/
+            └── return the best candidate to Beagle
+```
+
+Candidate rollouts still use Beagle's benchmark integrations and native benchmark graders. DarwinX
+owns the search and selection policy; Beagle owns the reusable infrastructure that supplies agents,
+tasks, runtimes, and evaluation.
+
+## Configuration
+
+Configure the algorithm under `algorithm.hparams` in the Beagle run config. The fields are validated
+by [`DarwinXConfig`](../config.py); unknown names fail during config loading. Do not set the
+implementation's environment variables directly in new user-facing examples—the Beagle adapter
+derives them from the typed run config.
+
+The user-facing mapping from paper concepts to these fields lives in
+[`docs/darwinx-configuration.md`](../../../../docs/darwinx-configuration.md).
+
+```yaml
+algorithm:
+  name: darwinx
+  hparams:
+    max_loop_iters: 1
+    fullset_eval_n_attempts: 1
+```
+
+## Import and maintenance boundary
+
+The three implementation packages use top-level imports such as `from evolve...`, `from gate...`,
+and `from dx_trace...`. [`prepare_import_path()`](../_launch.py) makes those packages available only
+for a DarwinX launch and also exposes the evaluation shim to worker subprocesses.
+
+Changes inside this directory change the DarwinX algorithm. Changes one level above should stay
+limited to Beagle's hosting boundary—configuration translation, dependency injection, rollout
+routing, and result conversion. Keeping that boundary explicit lets Beagle host DarwinX without
+making Beagle itself synonymous with DarwinX.

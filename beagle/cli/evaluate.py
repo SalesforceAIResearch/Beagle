@@ -143,6 +143,9 @@ def _dry_run(cfg, spec, items, *, run_dir: Path, resume: bool = False,
 
     from beagle import benchmarks
     from beagle.agents.core.forward_env import normalize_forward_env
+    from beagle.agents.core.litellm_gateway import gateway_litellm_kwargs
+    from beagle.agents.core.provider import GatewayProvider, InternalProvider, provider_config
+    from beagle.agents.core.registry import AGENTS
     from beagle.rollout.run_id import build_run_id, compute_config_hash
 
     chash = compute_config_hash(cfg.model_dump(mode="json"))
@@ -150,15 +153,15 @@ def _dry_run(cfg, spec, items, *, run_dir: Path, resume: bool = False,
 
     src = spec.source
     cfg_dict = spec.config or {}
-    # `provider` is a first-level knob (config["provider"]); fall back to a `--provider` spelled into
-    # an agent's raw argv, else none.
-    monet_args = list(cfg_dict.get("monet_args") or [])
-    provider = (cfg_dict.get("provider")
-                or (monet_args[monet_args.index("--provider") + 1] if "--provider" in monet_args else None)
-                or "(none)")
+    route = provider_config(cfg_dict)
+    provider = f"{route.type}{f' ({route.name})' if route.name else ''}"
     forward = [host for _container, host in normalize_forward_env((spec.config or {}).get("forward_env"))]
     fwd_set = [v for v in forward if os.environ.get(v)]
     fwd_unset = [v for v in forward if not os.environ.get(v)]
+    try:
+        supported = AGENTS.get(spec.name).supported_provider_types
+    except KeyError:
+        supported = frozenset()
 
     # The Runner groups by Task.benchmark and calls benchmarks.get(that) — resolve it HERE so a
     # name mismatch (e.g. a cache dir name leaking into task identity) fails the pre-flight, not the
@@ -179,7 +182,24 @@ def _dry_run(cfg, spec, items, *, run_dir: Path, resume: bool = False,
     print(f"  run_id      : {run_id}")
     print(f"  run_dir     : {run_dir}/")
     print(f"  config_hash : {chash[:12]}…")
-    print(f"  model       : {cfg.model.name}   (agent --provider {provider})")
+    print(f"  model       : {cfg.model.name}   (provider {provider})")
+    if route.type not in supported:
+        print(f"  provider    : ⚠ {spec.name} does NOT support provider type {route.type!r}")
+    elif isinstance(route, GatewayProvider):
+        gw = route.extra_args
+        key_env = gw.api_key_env
+        auth = f", {gw.auth_header} header" if gw.auth_header else ""
+        if not key_env:
+            creds = "no api_key_env — the gateway must accept unauthenticated calls"
+        elif os.environ.get(key_env):
+            creds = f"key from ${key_env} ✓{auth}"
+        else:
+            creds = f"⚠ ${key_env} is NOT set — the gateway will reject the calls{auth}"
+        print(f"  provider    : gateway {gw.api_base}   ({creds})")
+    elif isinstance(route, InternalProvider):
+        gw = gateway_litellm_kwargs()
+        endpoint = gw["api_base"] if gw else "⚠ deployment gateway URL is not set"
+        print(f"  provider    : internal {route.name}   ({endpoint})")
     print(f"  agent       : {spec.name} @ {src.repo}@{src.ref}" if src
           else f"  agent       : {spec.name}   ⚠ NO SOURCE resolved")
     print(f"  benchmark   : {cfg.benchmark.name}")
@@ -221,6 +241,6 @@ def _dry_run(cfg, spec, items, *, run_dir: Path, resume: bool = False,
           "+ totals + fitness score)")
     scope = "tasks" if n_live == len(task_ids) else f"re-run tasks (of {len(task_ids)})"
     print("\n  cost when live: real "
-          f"{cfg.model.name} calls × {n_live} {scope} through the gateway + "
+          f"{cfg.model.name} calls × {n_live} {scope} through provider type {route.type} + "
           f"{n_live} trial containers on {cfg.runtime.kind}.")
     return 0

@@ -479,9 +479,6 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"\n[onboard] done. Wrote the agent-source pointer → {mpath}")
     print(json.dumps(cfg, indent=2))
-    print("\nNext (needs a live cluster + your gateway config — see README):")
-    print("  python -m pytest -v -s tests/smoke/monet_tb21_smoke/test_baseline.py")
-    print(f"Sync from upstream later:  git -C {dir_path} fetch upstream")
     return 0
 
 

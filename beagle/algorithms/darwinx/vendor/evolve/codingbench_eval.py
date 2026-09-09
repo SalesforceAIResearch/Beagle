@@ -574,10 +574,10 @@ def _agent_block(cb_cfg, forward_env):
             "container_path": cb_cfg.monet_container_path,
         },
     }
+    src["provider"] = {"type": "internal", "name": cb_cfg.monet_wire_provider}
     if cb_cfg.browser_mode:
         src["install_cmd"] = f"cd {cb_cfg.monet_container_path} && npm ci"
         src["monet_args"] = [
-            "--provider", cb_cfg.monet_wire_provider,
             "--browser-mode", "execute",
             "--browser-start-url", cb_cfg.browser_start_url,
             "--headless",
@@ -590,7 +590,6 @@ def _agent_block(cb_cfg, forward_env):
     else:
         src["install_cmd"] = _monet_install_cmd(cb_cfg.monet_container_path)
         src["monet_args"] = [
-            "--provider", cb_cfg.monet_wire_provider,
             *(["--effort", os.environ["DARWINX_EVAL_EFFORT"].strip()]
               if os.environ.get("DARWINX_EVAL_EFFORT", "").strip() else []),
             "--all-permissions",
@@ -1905,6 +1904,16 @@ _TRANSIENT_INFRA_SUBSTRINGS = (
     "socket hang up",
     "connection refused", "connection reset", "connection timed out",
     "network is unreachable", "could not connect", "failed to fetch",
+    # This cluster's sanitizer reports upstream loss as ``OpenAI API error
+    # 502: {"error": {"message": "gateway_sanitizer: upstream 127.0.0.1:18200
+    # unreachable: connect failed on 24 attempts over 300s (last:
+    # ConnectionRefusedError: [Errno 111] ...``. None of the generic markers
+    # match that: it is "error 502:" rather than "502 bad gateway", and
+    # "connection refused" does not appear in "ConnectionRefusedError".
+    "gateway_sanitizer: upstream",
+    "connectionrefusederror",
+    "errno 111",
+    "error 502",
     "502 bad gateway", "503 service unavailable", "504 gateway timeout",
     # bare "429"/"rate limit"/"too many requests" REMOVED (legitimacy audit
     # 2026-07-02): agent-controllable free-text (gaming vector) + coincidental
@@ -1915,6 +1924,25 @@ _TRANSIENT_INFRA_SUBSTRINGS = (
 def _absorb_transient_infra() -> bool:
     val = os.environ.get("DARWINX_GATE_ABSORB_TRANSIENT_INFRA", "1").strip().lower()
     return val not in {"0", "false", "no", "off"}
+
+
+def _absorb_min_kept_fraction() -> float:
+    """Minimum share of trial rows that must survive absorption for what is
+    left to count as a measurement.
+
+    Absorption deletes rows from the denominator, so a job that loses most of
+    its trials gets scored on whatever handful survived. Guarding only the
+    all-absorbed case is not enough: during the 2026-08-30 gateway outage a
+    120-trial panel lost 115 rows and the 5 survivors — all passing — were
+    reported as a perfect 1.0, which then became the parent score for the rest
+    of the lineage and turned every subsequent real gain into a "regression".
+    """
+    raw = os.environ.get("DARWINX_GATE_ABSORB_MIN_KEPT_FRAC", "0.5").strip()
+    try:
+        val = float(raw)
+    except ValueError:
+        return 0.5
+    return min(max(val, 0.0), 1.0)
 
 
 # ── Agent-timeout (contention) absorption ─────────────────────────────────
@@ -1992,6 +2020,27 @@ def _row_is_transient_infra(row: dict[str, Any]) -> bool:
         r = 0.0
     if r >= 1.0:
         return False  # it passed despite a noted error — keep it
+    # A trial that errored without ever taking a turn or producing a patch did
+    # not fail the task -- the agent never got to attempt it. Substring matching
+    # cannot see these, because ``error`` holds only the agent's FIRST stderr
+    # line: when anything benign is printed before the fatal error (a
+    # deprecation notice, a version warning) the real cause is discarded before
+    # the row is written, and no entry below can match text that no longer
+    # exists.
+    #
+    # Observed 2026-08-26 on a monet campaign: a gateway outage killed 12/12
+    # trials of a candidate mini-eval, every row recorded as an unrelated
+    # deprecation warning with no trace of the underlying "OpenAI API error 502:
+    # gateway_sanitizer: upstream ... unreachable". The candidate scored 0.0, all
+    # ten canaries "regressed", and the iteration was reverted for an outage it
+    # had no part in -- five of that campaign's nine outcomes, and no candidate
+    # had ever beaten root in eight campaigns.
+    #
+    # Not a gaming vector: a harness that produced zero turns everywhere has
+    # every trial absorbed, which empties the denominator and aborts the job as
+    # an infra failure rather than scoring a pass.
+    if not row.get("num_turns") and not row.get("patch_len"):
+        return True
     blob = str(err).lower()
     return any(s in blob for s in _TRANSIENT_INFRA_SUBSTRINGS)
 
@@ -2200,6 +2249,19 @@ def _build_eval_result(
                 job_dir=run_dir,
                 failures=failures,
             )
+        _min_kept = _absorb_min_kept_fraction()
+        if excluded_transient and len(kept_rows) < _min_kept * len(rows):
+            failures = _infrastructure_failures_from_raw(raw, run_dir)
+            raise EvalInfrastructureError(
+                f"{len(excluded_transient)} of {len(rows)} trials failed with "
+                f"transient gateway/tunnel errors in {run_dir.name}, leaving "
+                f"only {len(kept_rows)} scoreable trial(s) — under the "
+                f"{_min_kept:.0%} floor, so the job is a partial tunnel outage "
+                "rather than a measurement; scoring the survivors would "
+                "fabricate a result",
+                job_dir=run_dir,
+                failures=failures,
+            )
         if excluded_transient:
             print(
                 "[codingbench_eval] transient-infra absorption: excluding "
@@ -2231,6 +2293,22 @@ def _build_eval_result(
                 f"all {len(timed_out)} trials failed with agent timeouts "
                 f"in {run_dir.name} — treating as whole-job infra failure "
                 "(cluster likely starved); not reporting 0.0",
+                job_dir=run_dir,
+                failures=failures,
+            )
+        _min_kept = _absorb_min_kept_fraction()
+        if (
+            timed_out
+            and _timeout_mode == "row"
+            and len(kept_rows) < _min_kept * len(rows)
+        ):
+            failures = _infrastructure_failures_from_raw(raw, run_dir)
+            raise EvalInfrastructureError(
+                f"{len(timed_out)} of {len(rows)} trials timed out in "
+                f"{run_dir.name}, leaving only {len(kept_rows)} scoreable "
+                f"trial(s) — under the {_min_kept:.0%} floor, so the cluster "
+                "was starved for most of the job; scoring the survivors would "
+                "fabricate a result",
                 job_dir=run_dir,
                 failures=failures,
             )

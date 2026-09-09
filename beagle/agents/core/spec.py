@@ -21,10 +21,10 @@ class ModelSpec:
     ``name`` feeds the agent's ``--model``. ``provider`` / ``api_base`` / ``params``
     are optional model-plane metadata (kept for parity with the upstream config).
 
-    The agent's **gateway routing** — its ``--provider`` and the creds env forwarded
-    into the container — is NOT declared here: it lives in ``agent.config`` (e.g.
-    monet's ``monet_args`` + ``forward_env``). The harbor M+N shim serializes
-    ``agent.config`` but drops model-block details, so routing must ride in the config.
+    The agent's runtime provider route is NOT declared here: its typed ``provider``
+    object lives in ``agent.config``. ``forward_env`` is separate generic container
+    plumbing. The harbor M+N shim serializes ``agent.config`` but drops model-block
+    details, so runtime routing must ride in the config.
     """
 
     name: str

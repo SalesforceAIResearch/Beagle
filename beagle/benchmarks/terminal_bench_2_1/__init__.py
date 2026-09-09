@@ -26,6 +26,7 @@ class TerminalBench21(HarborBenchmark):
 
     #: xrlenv's on-disk harbor-cache dir (hyphenated); the registry name is underscored.
     cache_name = "terminal-bench-2-1"
+    cache_builder_module = "xrlenv_plugins.benchmarks.terminal_bench_2_1.build_cache"
 
 
 __all__ = ["TerminalBench21"]

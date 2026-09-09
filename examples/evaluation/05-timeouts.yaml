@@ -23,6 +23,7 @@ agent:
     version: v2.4.6
     source: {repo: https://github.com/<your-org>/mini_swe_agent_v2.4.6, ref: <baseline-commit-sha>}
   model: {name: gpt-5.5}
+  provider: {type: direct, name: openai}
   forward_env: [OPENAI_API_KEY]
   timeout: 1800                # only reached on a benchmark that declares no budget of its own
 

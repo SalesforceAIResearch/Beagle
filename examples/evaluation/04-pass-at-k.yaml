@@ -15,7 +15,8 @@ agent:
     name: mini-swe
     version: v2.4.6
     source: {repo: https://github.com/<your-org>/mini_swe_agent_v2.4.6, ref: <baseline-commit-sha>}
-  model: {name: claude-opus-4-8}      # a `claude-*` name routes to Anthropic
+  model: {name: claude-opus-4-8}
+  provider: {type: direct, name: anthropic}
   forward_env: [ANTHROPIC_API_KEY]
 
 data:

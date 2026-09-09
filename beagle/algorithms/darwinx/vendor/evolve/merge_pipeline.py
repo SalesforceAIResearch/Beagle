@@ -488,9 +488,29 @@ class NodeMergePipeline:
     def _try_skill_union_resolution(self) -> bool:
         """Resolve a merge conflict deterministically IFF it is confined to the
         additive-skill registry, by unioning the skill objects. Returns True on a
-        clean resolution (and commits it); False to defer to the LLM resolver."""
-        SKILLS = "src/core/bundled-skills.js"
-        TEST = "tests/bundled-skills.test.js"
+        clean resolution (and commits it); False to defer to the LLM resolver.
+
+        WHEN THIS APPLIES, AND WHEN IT CANNOT
+        This is for an evolvee that keeps every skill in ONE file: monet declares
+        them in a single `BUNDLED_SKILLS` array, so two candidates adding
+        different skills always collide textually even though the change is
+        additive, and unioning the array objects is both well defined and the
+        only way to avoid paying an LLM to re-derive it.
+
+        An evolvee with one file PER skill (opencode: `<root>/skills/<name>/
+        SKILL.md`) does not need it. Two candidates adding different skills touch
+        different paths and git merges them with no conflict at all, and if they
+        edit the SAME skill file there is no meaningful textual union of two
+        different procedures -- that is a real semantic conflict and belongs with
+        the LLM resolver. So a registry-less evolvee returns False here, which is
+        the correct outcome rather than a missing feature.
+        """
+        SKILLS = (os.environ.get("DARWINX_GATE_SKILL_REGISTRY_PATH")
+                  or "src/core/bundled-skills.js").strip()
+        TEST = (os.environ.get("DARWINX_GATE_SKILL_REGISTRY_TEST_PATH")
+                or "tests/bundled-skills.test.js").strip()
+        if not SKILLS:
+            return False
         try:
             u = _git(["diff", "--name-only", "--diff-filter=U"],
                      cwd=self.worktree.monet_dir, check=False)

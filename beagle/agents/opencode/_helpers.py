@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import shlex
 from dataclasses import dataclass, field
+from typing import Any
 
 from beagle.agents.core.usage import Usage
 from beagle.agents.core.usage import add as usage_add
@@ -70,9 +71,8 @@ done
 if [ -n "$GYP_PY" ]; then export PYTHON="$GYP_PY"; export npm_config_python="$GYP_PY"; fi
 bun install"""
 
-#: opencode has no turn/step cap flag (unlike monet's ``--max-turns`` or mini's
-#: ``agent.step_limit``); the config knob is accepted for a uniform vocabulary but is a
-#: best-effort no-op here. Kept so a config need not special-case opencode.
+#: OpenCode's omitted default is unbounded; positive values are written to the built-in
+#: ``build`` agent's ``steps`` setting through ``OPENCODE_CONFIG_CONTENT``.
 DEFAULT_MAX_TURNS = 0
 #: Harbor bind-mounts ``/logs/agent`` to the host trial dir, so opencode's event stream
 #: written there survives an agent-timeout cancel and lands as a native artifact.
@@ -82,10 +82,16 @@ DEFAULT_OUTPUT_DIR = "/logs/agent"
 #: ``--auto`` auto-approves non-denied permissions (opencode's documented headless mode) so
 #: a task doesn't stall on an approval prompt.
 DEFAULT_OPENCODE_ARGS: tuple[str, ...] = ("--auto",)
-#: opencode provider id we register the gateway under (and prefix ``--model`` with) when the
-#: run config names no ``provider``. A config that sets ``provider`` uses that string instead,
-#: so ``--model <provider>/<model>`` and the injected provider block agree.
-DEFAULT_PROVIDER_ID = "beagle"
+
+_DIRECT_PROVIDER_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("gpt", "openai"), ("o1", "openai"), ("o3", "openai"), ("o4", "openai"),
+    ("chatgpt", "openai"), ("claude", "anthropic"), ("gemini", "google"),
+    ("mistral", "mistral"), ("magistral", "mistral"), ("grok", "xai"),
+)
+_OPENAI_GATEWAY_MODEL_PREFIXES = tuple(
+    prefix for prefix, provider in _DIRECT_PROVIDER_PREFIXES if provider == "openai"
+)
+_OPENAI_REASONING_MODEL_PREFIXES = ("gpt-5", "o1", "o3", "o4")
 
 # Sentinel fences the opencode event stream inside the combined stdout so a single exec
 # round-trip returns both the exit code and the stream. Pure plumbing — never real output.
@@ -110,7 +116,7 @@ class OpenCodeConfig:
     install_cmd: str = DEFAULT_INSTALL_CMD
     opencode_args: tuple[str, ...] = DEFAULT_OPENCODE_ARGS
     #: opencode provider id the gateway is registered under; also the ``--model`` prefix.
-    provider_id: str = DEFAULT_PROVIDER_ID
+    provider_id: str = ""
     #: reasoning effort → opencode's ``--variant`` (provider-specific reasoning level); ``""`` = unset.
     variant: str = ""
     #: ``(container_name, host_name)`` pairs forwarded into the container.
@@ -131,6 +137,47 @@ class OpenCodeConfig:
         under harbor's ``/logs/agent`` mount by default)."""
         return f"{self.output_dir.rstrip('/')}/{_OPENCODE_STREAM_FILENAME}"
 
+    @property
+    def stderr_path(self) -> str:
+        """In-container path to OpenCode's captured stderr."""
+        return f"{self.output_dir.rstrip('/')}/{_OPENCODE_STDERR_FILENAME}"
+
+
+def resolve_direct_model(model: str, provider_id: str = "") -> tuple[str, str]:
+    """Resolve OpenCode's ``provider/model`` pair for a direct-provider run.
+
+    A gateway gets an explicitly declared synthetic provider, but the public/direct profile
+    deliberately has no such provider block. Infer the native provider from familiar bare model
+    names there, and also accept an explicit ``provider/model`` spelling without duplicating its
+    prefix on the CLI.
+    """
+    value = model.strip()
+    if not value:
+        raise ValueError("opencode requires a non-empty model name")
+    embedded_provider = ""
+    model_id = value
+    if "/" in value:
+        embedded_provider, model_id = value.split("/", 1)
+        if not embedded_provider or not model_id:
+            raise ValueError(f"invalid opencode model reference {model!r}; expected provider/model")
+    explicit = provider_id.strip()
+    if explicit:
+        if embedded_provider and embedded_provider != explicit:
+            raise ValueError(
+                f"opencode provider {explicit!r} conflicts with model reference {model!r}"
+            )
+        return explicit, model_id
+    if embedded_provider:
+        return embedded_provider, model_id
+    lower = model_id.lower()
+    for prefix, provider in _DIRECT_PROVIDER_PREFIXES:
+        if lower.startswith(prefix):
+            return provider, model_id
+    raise ValueError(
+        f"cannot infer a direct OpenCode provider from model {model!r}; "
+        "set agent.provider explicitly"
+    )
+
 
 def build_install_script(cfg: OpenCodeConfig) -> str:
     """The bash that builds opencode from its checkout (run after the clone).
@@ -145,31 +192,57 @@ def build_install_script(cfg: OpenCodeConfig) -> str:
     return f"cd {shlex.quote(cfg.container_path)} || exit 1\n{install_cmd}"
 
 
-def build_provider_config(cfg: OpenCodeConfig, gateway: dict[str, str]) -> str:
-    """opencode config JSON declaring the LLM gateway as an OpenAI-compatible provider.
+def _agent_config(cfg: OpenCodeConfig) -> dict[str, Any]:
+    """OpenCode config shared by direct and gateway routes."""
+    doc: dict[str, Any] = {"$schema": "https://opencode.ai/config.json"}
+    if cfg.max_turns > 0:
+        # OpenCode calls agentic iterations "steps". Configure the built-in primary agent used by
+        # `opencode run`; unlike a CLI flag, this is supported by the pinned v1.18.16 source.
+        doc["agent"] = {"build": {"steps": cfg.max_turns}}
+    return doc
+
+
+def build_agent_config(cfg: OpenCodeConfig) -> str:
+    """OpenCode config for route-independent agent controls such as max steps."""
+    return json.dumps(_agent_config(cfg))
+
+
+def build_provider_config(cfg: OpenCodeConfig, gateway: dict[str, Any]) -> str:
+    """OpenCode config JSON declaring the model gateway.
 
     Injected via opencode's native ``OPENCODE_CONFIG_CONTENT`` env (no file, no workspace
-    pollution). ``@ai-sdk/openai-compatible`` POSTs ``baseURL + /chat/completions`` — the
-    same OpenAI wire shape :func:`gateway_litellm_kwargs` speaks — so any model the gateway
-    routes (gpt or claude) works unchanged. The model is declared under the provider so
-    opencode needn't reach models.dev to resolve it.
+    pollution). OpenAI-family models use ``@ai-sdk/openai`` and its Responses API: unlike
+    the generic compatibility SDK, it does not send the legacy ``max_tokens`` field that
+    GPT-5 rejects. Other models retain ``@ai-sdk/openai-compatible`` chat completions.
+    The model is declared under the provider so OpenCode needn't reach models.dev.
+
+    A gateway that authenticates on its own header (``provider.extra_args.auth_header``, e.g.
+    ``x-api-key``) arrives as ``extra_headers``; the ai-sdk factory takes those as ``headers``, so
+    the same block serves a bearer proxy and a custom-header one.
     """
-    # Strip a trailing slash: @ai-sdk/openai-compatible POSTs ``baseURL + "/chat/completions"``, so a
-    # gateway URL ending in ``/`` would yield ``//chat/completions`` (many servers 404 the double slash).
-    base_url = gateway["api_base"].rstrip("/")
-    doc = {
-        "$schema": "https://opencode.ai/config.json",
-        "provider": {
-            cfg.provider_id: {
-                "npm": "@ai-sdk/openai-compatible",
-                "name": "beagle gateway",
-                "options": {
-                    "baseURL": base_url,
-                    "apiKey": gateway.get("api_key") or "sk-noauth",
-                },
-                "models": {cfg.model: {"name": cfg.model}},
-            }
-        },
+    # Both SDKs append their endpoint path to baseURL; avoid a double slash.
+    base_url = str(gateway["api_base"]).rstrip("/")
+    options: dict[str, Any] = {
+        "baseURL": base_url,
+        "apiKey": gateway.get("api_key") or "sk-noauth",
+    }
+    if gateway.get("extra_headers"):
+        options["headers"] = dict(gateway["extra_headers"])
+    model_lower = cfg.model.lower()
+    is_openai = model_lower.startswith(_OPENAI_GATEWAY_MODEL_PREFIXES)
+    is_reasoning = model_lower.startswith(_OPENAI_REASONING_MODEL_PREFIXES)
+    model_config: dict[str, Any] = {"name": cfg.model}
+    if is_reasoning:
+        # Enables OpenCode's standard effort variants, so ``--variant`` is honored.
+        model_config["reasoning"] = True
+    doc = _agent_config(cfg)
+    doc["provider"] = {
+        cfg.provider_id: {
+            "npm": "@ai-sdk/openai" if is_openai else "@ai-sdk/openai-compatible",
+            "name": "beagle gateway",
+            "options": options,
+            "models": {cfg.model: model_config},
+        }
     }
     return json.dumps(doc)
 
@@ -209,6 +282,8 @@ git clean -fd         >/dev/null 2>&1 || true
 set +e
 printf '%s' "$OPENCODE_PROMPT" | bun {shlex.quote(cfg.opencode_entry)} run \\
   --format json \\
+  --print-logs \\
+  --log-level ERROR \\
   --model {shlex.quote(model_ref)} \\
   {variant_flag}--dir {shlex.quote(repo_path)} \\
   {quoted_args} \\
@@ -309,6 +384,31 @@ def count_opencode_turns(stream: str) -> int:
     return sum(1 for o in _iter_json_lines(stream) if o.get("type") == "step_finish")
 
 
+def is_empty_unknown_completion(stream: str) -> bool:
+    """Whether OpenCode silently accepted an empty provider response.
+
+    AI SDK's generic SSE adapter emits ``reason=unknown`` with no usage when an
+    HTTP-200 response contains JSON instead of SSE (including some gateway validation
+    errors). Require both a terminal unknown reason and no observable model output so a
+    legitimate response with incomplete usage metadata is not rejected.
+    """
+    last_reason: str | None = None
+    has_output = False
+    usage = Usage()
+    for obj in _iter_json_lines(stream):
+        kind = obj.get("type")
+        part = obj.get("part")
+        if kind == "step_finish" and isinstance(part, dict):
+            if isinstance(part.get("reason"), str):
+                last_reason = part["reason"]
+            usage = usage_add(usage, _step_tokens(part))
+        elif kind == "text" and isinstance(part, dict):
+            has_output = has_output or bool(part.get("text"))
+        elif kind == "tool_use":
+            has_output = True
+    return last_reason == "unknown" and not has_output and usage.input == 0 and usage.output == 0
+
+
 def last_stream_error(stream: str) -> str | None:
     """Last ``error`` event's message, if any. opencode emits ``{type:"error", error:…}`` on
     a session failure (and exits non-zero); surfacing it marks the run failed."""
@@ -319,7 +419,9 @@ def last_stream_error(stream: str) -> str | None:
             if isinstance(err, str):
                 last = err
             elif isinstance(err, dict):
-                last = err.get("message") or err.get("name") or json.dumps(err)
+                data = err.get("data")
+                nested = data.get("message") if isinstance(data, dict) else None
+                last = nested or err.get("message") or err.get("name") or json.dumps(err)
     return last
 
 
@@ -347,14 +449,16 @@ __all__ = [
     "DEFAULT_OPENCODE_ARGS",
     "DEFAULT_MAX_TURNS",
     "DEFAULT_OUTPUT_DIR",
-    "DEFAULT_PROVIDER_ID",
     "build_install_script",
+    "build_agent_config",
     "build_provider_config",
     "build_inner_script",
+    "resolve_direct_model",
     "parse_combined_output",
     "slice_between",
     "parse_opencode_usage",
     "count_opencode_turns",
+    "is_empty_unknown_completion",
     "last_stream_error",
     "summarize_opencode_failure",
 ]

@@ -5,6 +5,7 @@ out via subprocess — no daemon connection, no Python SDK.
 """
 from __future__ import annotations
 
+import os
 import shlex
 import shutil
 import subprocess
@@ -188,14 +189,21 @@ class LocalDockerRuntime:
         argv: list[str] = [DOCKER, "exec"]
         if workdir:
             argv += ["-w", workdir]
-        for k, v in (env or {}).items():
-            argv += ["-e", f"{k}={v}"]
+        process_env = None
+        if env:
+            # `docker exec -e NAME=value` exposes credentials in the host process argv (`ps`) and
+            # command diagnostics. Put values in the docker CLI's environment and ask Docker to
+            # copy each named variable instead; argv contains names only.
+            process_env = os.environ.copy()
+            process_env.update(env)
+            for k in env:
+                argv += ["-e", k]
         argv.append(handle.container_id)
         argv += list(command)
         try:
             result = subprocess.run(
                 argv, capture_output=True, text=True,
-                timeout=timeout, check=False,
+                timeout=timeout, check=False, env=process_env,
             )
         except subprocess.TimeoutExpired as e:
             return ExecResult(

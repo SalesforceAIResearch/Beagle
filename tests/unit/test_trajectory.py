@@ -66,6 +66,7 @@ def test_monet_stream_to_valid_atif(tmp_path) -> None:
     assert fm["total_prompt_tokens"] == canon["prompt"] == 360
     assert fm["total_completion_tokens"] == canon["completion"] == 65
     assert fm["total_cached_tokens"] == canon["cache_read"] == 10
+    assert fm["total_steps"] == 2  # two agent turns; the initial user prompt is not an LLM turn
 
 
 def test_subagent_usage_stays_main_only_in_final_metrics(tmp_path) -> None:

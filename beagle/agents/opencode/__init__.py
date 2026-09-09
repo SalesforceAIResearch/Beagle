@@ -31,6 +31,7 @@ from beagle.agents.core.base import (
     Topology,
     resolve_agent_timeout,
 )
+from beagle.agents.core.provider import DirectProvider, provider_config
 from beagle.agents.core.registry import register
 from beagle.agents.opencode._helpers import (
     DEFAULT_BUN_VERSION,
@@ -39,16 +40,18 @@ from beagle.agents.opencode._helpers import (
     DEFAULT_MAX_TURNS,
     DEFAULT_OPENCODE_ARGS,
     DEFAULT_OUTPUT_DIR,
-    DEFAULT_PROVIDER_ID,
     OPENCODE_ENTRYPOINT,
     OpenCodeConfig,
+    build_agent_config,
     build_inner_script,
     build_install_script,
     build_provider_config,
     count_opencode_turns,
+    is_empty_unknown_completion,
     last_stream_error,
     parse_combined_output,
     parse_opencode_usage,
+    resolve_direct_model,
     summarize_opencode_failure,
 )
 from beagle.rollout.runtime import ContainerRuntime
@@ -61,13 +64,10 @@ class OpenCodeAgent(Agent, Runnable, Evolvable, Editor):
     """The opencode harness — white-box, usable as evolvee or evolver.
 
     Config keys (``spec.config``): ``container_path``, ``bun_version``, ``install_cmd``,
-    ``opencode_args``, ``provider`` (LLM gateway → the opencode provider id the gateway is
-    registered under and the ``--model`` prefix; without it opencode uses its own provider
-    defaults, which fail in a sealed container), ``effort`` (reasoning level → ``--variant``;
+    ``opencode_args``, typed ``provider`` routing, ``effort`` (reasoning level → ``--variant``;
     survives the harbor shim, unlike the model's ``reasoning_effort``), ``forward_env``,
-    ``max_turns`` (accepted for a uniform vocabulary but a no-op — opencode has no turn-cap
-    flag), ``timeout``, ``output_dir``, ``token_env`` (env var holding a clone credential for
-    a private experiment copy).
+    ``max_turns`` (mapped to OpenCode's built-in ``build.steps``), ``timeout``, ``output_dir``,
+    ``token_env`` (env var holding a clone credential for a private experiment copy).
     """
 
     transparency = Transparency.WHITE_BOX
@@ -100,9 +100,8 @@ class OpenCodeAgent(Agent, Runnable, Evolvable, Editor):
         # block, so a model's typed ``reasoning_effort`` is lost on the harbor path) or, as a fallback
         # for the docker path (full spec preserved), the model's ``reasoning_effort``.
         variant = c.get("effort") or getattr(self.spec.model, "reasoning_effort", None) or ""
-        # The provider (LLM gateway) is the opencode provider id we register the gateway under and
-        # prefix ``--model`` with, so a caller selects the gateway without restating behavior flags.
-        provider_id = str(c.get("provider") or DEFAULT_PROVIDER_ID)
+        route = provider_config(c)
+        provider_id = route.name
         forward_env = tuple(normalize_forward_env(c.get("forward_env")))  # (container, host) pairs
         return OpenCodeConfig(
             model=model,
@@ -176,23 +175,27 @@ class OpenCodeAgent(Agent, Runnable, Evolvable, Editor):
                            self.source().entrypoint)
         env = {"OPENCODE_PROMPT": task.prompt()}
         # Point opencode at the LLM gateway via its native config-content env — an OpenAI-compatible
-        # provider block (no file, no workspace pollution). Bun's fetch honors HTTPS_PROXY natively, so
+        # provider block (OpenAI Responses for GPT, generic chat-completions otherwise; no file or
+        # workspace pollution). Bun's fetch honors HTTPS_PROXY natively, so
         # on a filtered-egress trial (DeepSWE/pier) the harness's injected proxy env is enough — no
         # undici/preload shim. When no gateway is configured, opencode falls back to its own provider
         # resolution (a direct key), which fails in a sealed container — the same contract as monet.
-        from beagle.agents.core.litellm_gateway import gateway_litellm_kwargs
+        from beagle.agents.core.litellm_gateway import resolve_gateway
 
-        gateway = gateway_litellm_kwargs()
+        gateway = resolve_gateway(self.config)
         if gateway and gateway.get("api_base"):
             env["OPENCODE_CONFIG_CONTENT"] = build_provider_config(cfg, gateway)
-            # Our provider block declares the model inline, so opencode never needs its remote model
-            # catalog. Disable that fetch (opencode's native flag): from *source* the build-time model
-            # snapshot is absent, so opencode would otherwise GET https://models.opencode.ai/api.json at
-            # startup and — because that populate path is `Effect.orDie` — a restricted-egress trial
-            # (DeepSWE/pier seals the run phase to the gateway IP) turns the blocked fetch into a fatal
-            # "Unexpected server error" *before the first LLM call*. The prebuilt binary bakes the
-            # snapshot in and never hits this; running the source (required for an evolved ref) does.
+            # The injected provider block declares the model, so gateway routes do not need the
+            # remote catalog. Direct routes do: source checkouts lack the prebuilt snapshot.
             env["OPENCODE_DISABLE_MODELS_FETCH"] = "1"
+        else:
+            try:
+                provider_id, model = resolve_direct_model(cfg.model, cfg.provider_id)
+            except ValueError as exc:
+                return self._error(task, cfg, str(exc))
+            cfg = replace(cfg, provider_id=provider_id, model=model)
+            if cfg.max_turns > 0:
+                env["OPENCODE_CONFIG_CONTENT"] = build_agent_config(cfg)
         for container_name, host_name in cfg.forward_env:
             v = os.environ.get(host_name)
             if v is not None:
@@ -208,6 +211,13 @@ class OpenCodeAgent(Agent, Runnable, Evolvable, Editor):
         # agent.timeout if the run config sets one. No house default — see resolve_agent_timeout.
         cfg = replace(cfg, timeout=resolve_agent_timeout(self.config, task_ctx))
         invoke = runtime.exec(handle, ["bash", "-lc", script], env=env, timeout=cfg.timeout)
+        invoke_stderr = invoke.stderr
+        if not invoke_stderr.strip():
+            diagnostic = runtime.exec(
+                handle,
+                ["bash", "-lc", f"cat {shlex.quote(cfg.stderr_path)} 2>/dev/null || true"],
+            )
+            invoke_stderr = diagnostic.stdout
         runtime.exec(handle, ["bash", "-lc",
             f'cd {repo} && git add -A && git -c user.email=agent@beagle.local '
             f'-c user.name=beagle commit -q -m "beagle agent changes" || true'])
@@ -217,32 +227,30 @@ class OpenCodeAgent(Agent, Runnable, Evolvable, Editor):
                 f"cd {repo} && git diff {shlex.quote(base_ref)}..HEAD 2>/dev/null || true"])
             base_patch = diff.stdout
         return self._result(
-            task, cfg, invoke.returncode, invoke.stdout, invoke.stderr, base_patch=base_patch)
+            task, cfg, invoke.returncode, invoke.stdout, invoke_stderr, base_patch=base_patch)
 
     def network_hosts(self) -> list[str]:
         """Hosts opencode reaches during :meth:`run_in`, allowlisted on a network-restricted run
         phase (DeepSWE/pier). With a gateway that's its ``api_base``; WITHOUT one opencode calls the
         model provider directly, so fall back to that provider's API host (best-effort from the model
-        name) rather than leave a restricted-egress run with no allowlist. Empty only when neither is
-        known (unrestricted benchmarks unaffected)."""
-        from beagle.agents.core.litellm_gateway import (
-            gateway_key_pool,
-            gateway_litellm_kwargs,
-            provider_api_host,
-        )
+        name). Every direct route also allows ``models.opencode.ai`` because a source checkout needs
+        its model catalog even when the provider API host cannot be inferred."""
+        from beagle.agents.core.litellm_gateway import provider_api_host, resolve_gateway
 
-        kw = gateway_litellm_kwargs()
+        route = provider_config(self.config)
+        kw = resolve_gateway(self.config)
         if kw and kw.get("api_base"):
             return [kw["api_base"]]
-        # Direct-provider fallback only in a genuine no-gateway setup. If any gateway credential is
-        # present (``forward_env`` may feed it into ``OPENAI_API_KEY``), fail safe (``[]``) rather than
-        # open a public endpoint and risk leaking an internal key.
-        if os.environ.get("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL") or gateway_key_pool():
+        if not isinstance(route, DirectProvider):
             return []
-        host = provider_api_host(self.spec.model.name if self.spec.model else "gpt-5.5")
+        model = self.spec.model.name if self.spec.model else "gpt-5.5"
+        host = provider_api_host(f"{route.name}/{model}" if route.name else model)
         # Scheme-qualified (like the gateway path): the pier allowlist urlparses each entry, and a
         # bare ``api.openai.com`` has no ``.hostname`` — it would drop out of the allowlist.
-        return [f"https://{host}"] if host else []
+        # Source checkouts also need OpenCode's model catalog to recognize direct provider/model
+        # pairs; gateway routes inject that model definition and skip the catalog fetch.
+        hosts = [f"https://{host}"] if host else []
+        return [*hosts, "https://models.opencode.ai"]
 
     def install_hosts(self) -> list[str]:
         """Hosts :meth:`install` reaches: opencode's git host + the Bun/npm indexes its bootstrap pulls
@@ -285,12 +293,14 @@ class OpenCodeAgent(Agent, Runnable, Evolvable, Editor):
             error = f"runtime error during exec: {stderr.strip()!r}"
         opencode_rc, stream = parse_combined_output(stdout)
         patch = base_patch if base_patch.strip() else ""
-        if error is None and opencode_rc not in (None, 0):
-            error = summarize_opencode_failure(opencode_rc, stderr)  # type: ignore[arg-type]
         if error is None:
             se = last_stream_error(stream)
             if se is not None:
                 error = f"stream_error: {se}"
+        if error is None and is_empty_unknown_completion(stream):
+            error = "provider returned an empty completion (reason=unknown, zero tokens)"
+        if error is None and opencode_rc not in (None, 0):
+            error = summarize_opencode_failure(opencode_rc, stderr)  # type: ignore[arg-type]
         usage = parse_opencode_usage(stream)
         # Resolved = opencode finished a normal run with no surfaced error. The scorable patch
         # (base..HEAD) is graded by the benchmark; opencode itself reports success via rc + stream.

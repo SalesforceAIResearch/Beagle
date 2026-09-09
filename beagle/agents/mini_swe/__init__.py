@@ -22,10 +22,12 @@ own environment (mini's ``LocalEnvironment`` subprocess), so the repo's testbed 
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 from beagle.agents.core.base import (
     Agent,
@@ -43,7 +45,9 @@ from beagle.agents.core.litellm_gateway import (
     gateway_key_pool,
     gateway_litellm_kwargs,
     provider_api_host,
+    resolve_gateway,
 )
+from beagle.agents.core.provider import DirectProvider, InternalProvider, provider_config
 from beagle.agents.core.registry import register
 from beagle.agents.core.usage import Usage
 from beagle.agents.core.usage import add as usage_add
@@ -76,8 +80,9 @@ fi
 class MiniSweAgent(Agent, Runnable, Evolvable, Editor):
     """mini-swe-agent — white-box, usable as evolvee or evolver.
 
-    Config keys (``spec.config``): the shared first-level vocabulary — ``provider`` (gates gateway
-    routing), ``effort`` (→ ``model.model_kwargs.reasoning_effort``), ``max_turns`` (→
+    Config keys (``spec.config``): the shared first-level vocabulary — typed ``provider``
+    routing (see :mod:`beagle.agents.core.provider`), ``effort`` (→
+    ``model.model_kwargs.reasoning_effort``), ``max_turns`` (→
     ``agent.step_limit``) — plus ``config_path`` (mini's ``-c`` preset = the evolvable surface),
     ``timeout``, ``forward_env`` (``[container_var, host_var]`` gateway-creds pairs), and
     ``responses_api`` (default ``true``; set ``false`` to keep mini on Chat Completions even with an
@@ -155,17 +160,31 @@ class MiniSweAgent(Agent, Runnable, Evolvable, Editor):
         src = self.source()
         model = self.spec.model.name if self.spec.model else "gpt-5"
         cfg = self.config
+        route = provider_config(cfg)
+        if isinstance(route, DirectProvider) and route.name:
+            if "/" in model:
+                embedded, _model_id = model.split("/", 1)
+                if embedded != route.name:
+                    raise ValueError(
+                        f"direct provider {route.name!r} conflicts with model reference {model!r}")
+            else:
+                model = f"{route.name}/{model}"
         config_path = f"/agent/{cfg.get('config_path', src.entrypoint)}"
         # Upstream's OWN `mini` CLI, non-interactive single run (https://mini-swe-agent.com): -t task,
         # -m model, -y (yolo), --exit-immediately, --agent-class default (non-interactive), -c the
         # config preset (the evolvable surface), -l 0 (no cost cap). The first-level vocabulary
-        # (effort/max_turns) rides `vocab`, gateway routing rides `gw` (gated on `provider`), all as
-        # `-c` overrides that layer over the preset; MSWEA_CONFIGURED skips mini's TTY-requiring
+        # (effort/max_turns) rides `vocab`, gateway routing rides a `-c` CONFIG FILE (see below), all
+        # layering over the preset; MSWEA_CONFIGURED skips mini's TTY-requiring
         # first-time wizard; creds ride forward_env.
-        gw = _mini_gateway_c_args(_probe_working_key(runtime, handle, cfg)) if cfg.get("provider") else ""
+        kw = resolve_gateway(cfg)
+        # Probe only when a gateway is actually in force — otherwise it would spend an in-container
+        # request against a gateway this run never calls.
+        if kw and isinstance(route, InternalProvider):
+            kw = _with_probed_key(kw, _probe_working_key(runtime, handle, cfg, kw))
+        gw, gw_env, gw_setup = _mini_gateway_config(kw)
         vocab = _mini_vocab_c_args(cfg)
         ov = _mini_prompt_override_c_args(self.prompt_override())
-        run_env = {"MSWEA_CONFIGURED": "1"}
+        run_env = {"MSWEA_CONFIGURED": "1", **gw_env}
         run_env.update({c: os.environ[h] for c, h in
                         normalize_forward_env(cfg.get("forward_env")) if os.environ.get(h) is not None})
         repo = shlex.quote(task_ctx.repo_path)
@@ -186,7 +205,7 @@ class MiniSweAgent(Agent, Runnable, Evolvable, Editor):
         run_res = runtime.exec(
             handle,
             ["bash", "-lc", (
-                f"{pre}mkdir -p /logs/agent && cd {repo} && "
+                f"{pre}mkdir -p /logs/agent && {gw_setup}cd {repo} && "
                 f"/agent/.venv/bin/mini -t {shlex.quote(task.prompt())} -m {shlex.quote(model)} "
                 f"-y --exit-immediately --environment-class local --agent-class default "
                 f"-c {shlex.quote(config_path)}{gw}{vocab}{ov} -o /logs/agent/mini.traj.json -l 0")],
@@ -225,19 +244,17 @@ class MiniSweAgent(Agent, Runnable, Evolvable, Editor):
 
     def network_hosts(self) -> list[str]:
         """Hosts contacted during :meth:`run_in`, allowlisted on a network-restricted run phase
-        (deep-swe/pier). Mirrors run_in's routing gate: the gateway is used ONLY when ``provider``
-        is set, so we advertise it only then. Otherwise mini calls the model provider directly and
-        we allowlist that provider's API host (best-effort from the model name) — BUT only in a
-        genuine no-gateway setup. If any gateway credential is present (``forward_env`` may feed it
-        into ``OPENAI_API_KEY``), opening a public endpoint could leak an internal key, so we fail
-        safe (``[]``). Empty too when the provider isn't derivable (litellm's own default)."""
-        if self.config.get("provider"):
-            kw = gateway_litellm_kwargs()
+        (deep-swe/pier). Uses the same typed provider route as :meth:`run_in`: gateway/internal
+        routes advertise their endpoint and direct access advertises the inferred first-party API
+        host. Empty when the selected route cannot resolve an endpoint."""
+        route = provider_config(self.config)
+        if not isinstance(route, DirectProvider):
+            kw = resolve_gateway(self.config)
             if kw and kw.get("api_base"):
                 return [kw["api_base"]]
-        if os.environ.get("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL") or gateway_key_pool():
-            return []                              # gateway creds present → don't open a public endpoint
-        host = provider_api_host(self.spec.model.name if self.spec.model else "")
+            return []
+        model = self.spec.model.name if self.spec.model else ""
+        host = provider_api_host(f"{route.name}/{model}" if route.name else model)
         # Scheme-qualified (like the gateway path): pier's allowlist urlparses each entry, and a bare
         # ``api.openai.com`` has no ``.hostname`` — it would drop out of the allowlist.
         return [f"https://{host}"] if host else []
@@ -282,28 +299,62 @@ def _tail(text: str, limit: int = 2000) -> str:
     return t if len(t) <= limit else "…(truncated)…\n" + t[-limit:]
 
 
-def _mini_gateway_c_args(api_key: str | None = None) -> str:
-    """The shared litellm→gateway settings (:func:`gateway_litellm_kwargs`), formatted as mini's
-    ``-c model.model_kwargs.…`` CLI overrides — ``""`` when no gateway is configured. The routing
-    itself is reusable infra; only this CLI *formatting* is mini-swe-specific. ``api_key`` overrides
-    the default pool pick (the container probe's choice, see :func:`_probe_working_key`)."""
-    kw = gateway_litellm_kwargs()
+#: In-container path of the generated gateway settings file (see :func:`_mini_gateway_config`).
+#: Beside the checkout, not inside the task workspace, so it can never land in the agent's diff.
+_MINI_GATEWAY_CONFIG_PATH = "/agent/.beagle-gateway.yaml"
+
+
+def _with_probed_key(kw: dict[str, Any], api_key: str | None) -> dict[str, Any]:
+    """``kw`` with the container probe's key substituted (:func:`_probe_working_key`) — unchanged
+    when the probe picked nothing."""
+    if not api_key:
+        return kw
+    return {**kw, "api_key": api_key}
+
+
+def _mini_gateway_config(kw: dict[str, Any] | None) -> tuple[str, dict[str, str], str]:
+    """The resolved litellm→gateway settings (:func:`resolve_gateway`) as an extra mini ``-c``
+    **config file** — ``("", {}, "")`` when no gateway is in force. Returns
+    ``(flag, env, setup_shell)``: the ``-c <path>`` to append, the env carrying the file's content,
+    and the shell that materializes it.
+
+    The settings hold the gateway CREDENTIAL, so they must not ride the command line: argv is
+    visible to every process in the container (``ps``), and beagle echoes commands into runtime
+    records, error tails and test output. Instead the document travels in the exec's **environment**
+    and a ``umask 077`` heredoc writes it to a file only the agent's user can read. mini accepts a
+    LIST of ``-c`` specs — each either ``key=value`` or a file path — and ``recursive_merge``s them
+    in order (``minisweagent/run/mini.py``), so a file layers over the preset exactly as the old
+    inline overrides did.
+
+    The document is emitted as JSON, which is valid YAML: it round-trips through mini's
+    ``yaml.safe_load`` and needs no quoting rules of its own.
+    """
     if not kw:
-        return ""
-    if api_key:
-        kw = {**kw, "api_key": api_key}
-    return "".join(f" -c model.model_kwargs.{k}={shlex.quote(str(v))}" for k, v in kw.items())
+        return "", {}, ""
+    doc = json.dumps({"model": {"model_kwargs": kw}})
+    path = shlex.quote(_MINI_GATEWAY_CONFIG_PATH)
+    # printf '%s' keeps the value an ARGUMENT to printf, never a format string, so a '%' in a key
+    # can't be interpreted. The var is expanded by the container's shell from the exec env.
+    setup = f'(umask 077 && printf %s "$BEAGLE_GATEWAY_CONFIG" > {path}) && '
+    return f" -c {path}", {"BEAGLE_GATEWAY_CONFIG": doc}, setup
 
 
-def _probe_working_key(runtime: ContainerRuntime, handle: object, cfg: dict) -> str | None:
+def _probe_working_key(runtime: ContainerRuntime, handle: object, cfg: dict,
+                       kw: dict[str, Any] | None = None) -> str | None:
     """Pick a gateway key that isn't ALREADY blocked, by probing from **inside the container** —
     one request against the endpoint this run will hit. A login-node probe isn't trustworthy: the
     gateway's 200/401 split differs per replica, per endpoint, and host-vs-container. This closes
     the "pool[0] is already blocked at run start" gap; a key that flips mid-rollout is still
     unrecoverable here (mini owns its in-container calls). Best-effort — returns ``None`` (→ default
     pool pick) when there's nothing to choose (0/1 keys), no gateway, or the probe can't run, so a
-    probe miss never fails the run."""
-    kw = gateway_litellm_kwargs()
+    probe miss never fails the run.
+
+    ``kw`` is the gateway actually in force (so the probe hits the endpoint the run will use); it
+    defaults to the env gateway for callers that don't resolve one."""
+    route = provider_config(cfg)
+    if not isinstance(route, InternalProvider):
+        return None
+    kw = kw or gateway_litellm_kwargs()
     pool = gateway_key_pool()
     if not kw or len(pool) < 2:            # nothing to choose between → don't spend a request
         return None

@@ -23,8 +23,8 @@ from beagle.benchmarks.base import (
     Benchmark,
     BenchmarkHarness,
     BenchmarkSpec,
-    GradeReport,
     Grader,
+    GradeReport,
     TaskSource,
     write_result_json,
 )
@@ -38,10 +38,12 @@ from beagle.types import Task, TaskContext, TaskResult
 LOGGER = logging.getLogger(__name__)
 
 _BENCH = "swe-bench-verified"
+_CACHE_SHARD = "swebench-verified"
 
 #: HuggingFace dataset the upstream harness loads test specs from.
 _DATASET = "SWE-bench/SWE-Bench_Verified"
 _SPLIT = "test"
+_DEFAULT_DATASET_IDS = {_DATASET.lower()}
 
 #: Label the single-entry prediction under (any stable string works; the
 #: report dir is namespaced by this via ``model_name_or_path``).
@@ -49,14 +51,51 @@ _MODEL_NAME = "beagle"
 
 
 class _SweBenchSource(TaskSource):
-    """Enumerate SWE-bench Verified from HuggingFace and derive per-instance images."""
+    """Enumerate SWE-bench Verified from its populated cache or Hugging Face."""
 
     def tasks(self, spec: BenchmarkSpec) -> Iterator[TaskItem]:
-        from datasets import load_dataset  # lazy: beagle[swe-bench]
+        cache_root = os.environ.get("XRLENV_BENCHMARK_CACHE")
+        uses_default_dataset = (
+            spec.dataset is None or spec.dataset.lower() in _DEFAULT_DATASET_IDS
+        ) and (spec.split is None or spec.split == _SPLIT)
+        if cache_root and uses_default_dataset:
+            rows = self._cached_rows(Path(cache_root).expanduser() / _CACHE_SHARD)
+        else:
+            from datasets import load_dataset  # lazy: beagle[swe-bench]
 
-        ds = load_dataset(spec.dataset or "SWE-bench/SWE-Bench_Verified", split=spec.split or "test")
-        items = [self._to_item(row) for row in ds]
+            rows = load_dataset(spec.dataset or _DATASET, split=spec.split or _SPLIT)
+        items = [self._to_item(row) for row in rows]
         yield from select_and_sample(items, spec)
+
+    @staticmethod
+    def _cached_rows(shard: Path) -> list[dict]:
+        if not shard.is_dir():
+            raise RuntimeError(
+                f"SWE-bench Verified cache not found at {shard}. Run "
+                "`python scripts/populate_benchmarks_cache.py "
+                "--benchmark swe-bench-verified` first."
+            )
+        rows: list[dict] = []
+        for instance_dir in sorted(
+            path for path in shard.iterdir() if path.is_dir() and not path.name.startswith(".")
+        ):
+            anchor = instance_dir / "instance.json"
+            try:
+                row = json.loads(anchor.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise RuntimeError(f"invalid SWE-bench cache record {anchor}: {exc}") from exc
+            if not isinstance(row, dict) or row.get("instance_id") != instance_dir.name:
+                raise RuntimeError(
+                    f"invalid SWE-bench cache record {anchor}: instance_id must match directory"
+                )
+            rows.append(row)
+        if not rows:
+            raise RuntimeError(
+                f"SWE-bench Verified cache at {shard} contains no complete instances. Run "
+                "`python scripts/populate_benchmarks_cache.py "
+                "--benchmark swe-bench-verified` first."
+            )
+        return rows
 
     def _to_item(self, row: dict) -> TaskItem:
         iid = row["instance_id"]
@@ -276,56 +315,12 @@ class SweBenchGrader(PatchEvalGrader):
             ) from e
         docker.from_env = xrlenv_from_env  # type: ignore[assignment]
 
-    @staticmethod
-    def _read_resolved(run_dir: Path, run_id: str, task_id: str) -> float:
-        """Read this instance's ``report.json`` → ``resolved`` (1.0/0.0).
-
-        Layout (relative to ``run_dir``, from the chdir above)::
-
-            logs/run_evaluation/<run_id>/<model_name>/<instance_id>/report.json
-
-        A missing report means the instance didn't demonstrably resolve — swebench
-        leaves a small tail of unscored instances (transient pulls, timeouts, a few
-        deterministic upstream-harness failures). We score those 0.0 but log the
-        reason so it isn't a silent zero.
-        """
-        report_path = (
-            run_dir
-            / "logs"
-            / "run_evaluation"
-            / run_id
-            / _MODEL_NAME.replace("/", "__")
-            / task_id
-            / "report.json"
-        )
-        if not report_path.exists():
-            LOGGER.warning(
-                "swe-bench %s: no report.json at %s — scoring 0.0 (instance did "
-                "not demonstrably resolve; check the swebench eval log for the "
-                "underlying error)",
-                task_id,
-                report_path,
-            )
-            return 0.0
-        try:
-            report = json.loads(report_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            LOGGER.warning(
-                "swe-bench %s: report.json at %s is not valid JSON — scoring 0.0",
-                task_id,
-                report_path,
-            )
-            return 0.0
-        # The report is keyed by instance_id: report[task_id]["resolved"].
-        resolved = bool(report.get(task_id, {}).get("resolved"))
-        return 1.0 if resolved else 0.0
-
-
 @register("swe-bench-verified")
 class SweBenchVerified(Benchmark):
     """SWE-bench Verified: HF source + docker drop-in harness + patch-eval grader."""
 
     name = _BENCH
+    cache_builder_module = "xrlenv_plugins.benchmarks.swebench_verified.build_cache"
 
     def additional_info_post(self, task: Task, ctx: TaskContext) -> str | None:
         """Append the instance's ``hints_text`` (the maintainer's original-issue hints) after the

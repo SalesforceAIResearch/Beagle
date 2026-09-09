@@ -21,12 +21,14 @@ every agent×benchmark combination *works* is the smoke gate's job
 
 | File | Shows |
 |---|---|
-| [`01-minimal.yaml`](01-minimal.yaml) | the smallest whole config: pick a harness + version + model, pick a benchmark |
+| [`01-minimal.yaml`](01-minimal.yaml) | the smallest whole config: pick a harness + version + provider + model, pick a benchmark |
 | [`02-task-subset-and-exclusions.yaml`](02-task-subset-and-exclusions.yaml) | `tasks` selects *and orders*; `exclude_task_ids` applies after |
 | [`03-benchmark-mixture.yaml`](03-benchmark-mixture.yaml) | several `data` entries in one run, each keeping its own task selection |
 | [`04-pass-at-k.yaml`](04-pass-at-k.yaml) | `num_samples` — N rollouts per task, for variance rather than a single draw |
 | [`05-timeouts.yaml`](05-timeouts.yaml) | `run.timeout_multiplier` scales the *task's own* budget; `agent.timeout` is only the fallback |
 | [`06-retry.yaml`](06-retry.yaml) | `retry.infra` (safe) vs `retry.content` (best-of-N — changes what you measure) |
+| [`07-org-gateway.yaml`](07-org-gateway.yaml) | `provider.type: gateway` — route through an org's OpenAI-compatible proxy |
+| [`08-harness-extra-args.yaml`](08-harness-extra-args.yaml) | harness-specific named knobs versus raw CLI argument lists |
 
 Each is validated in CI (`tests/unit/test_examples.py`) through the same loader `beagle evaluate`
 uses, so a renamed field breaks the build rather than a user's copy-paste.
@@ -36,26 +38,55 @@ these files carry `https://github.com/<your-org>/…` and `<baseline-commit-sha>
 (`python -m beagle.tools.onboard …`) and paste `repo` / `ref` / `token_env` from the manifest it
 writes to `.beagle/agents/<profile>.json`.
 
-## Which model, which key
+## Which provider, model, and key
 
-The **model name** selects the provider — there is no separate provider field to set for direct
-access. beagle uses this mapping to allowlist the right API host when a benchmark restricts the
-network, so a name outside it will run but cannot be allowlisted.
+For first-party access, declare `provider: {type: direct, name: <provider>}` and put the model
+identifier under `model.name`. The provider name also gives network-restricted benchmarks an
+unambiguous API host to allowlist.
 
-| Model name starts with | Provider | Key to put in `.env` **and** `forward_env` |
+| Direct provider name | Typical bare model name | Key to put in `.env` **and** `forward_env` |
 |---|---|---|
-| `gpt-`, `o1`/`o3`/`o4`, `chatgpt` | OpenAI | `OPENAI_API_KEY` |
-| `claude-` | Anthropic | `ANTHROPIC_API_KEY` |
-| `gemini-` | Google | `GEMINI_API_KEY` |
-| `mistral-`, `magistral-` | Mistral | `MISTRAL_API_KEY` |
-| `grok-` | xAI | `XAI_API_KEY` |
+| `openai` | `gpt-*`, `o1`/`o3`/`o4`, `chatgpt*` | `OPENAI_API_KEY` |
+| `anthropic` | `claude-*` | `ANTHROPIC_API_KEY` |
+| `google` | `gemini-*` | `GEMINI_API_KEY` |
+| `mistral` | `mistral-*`, `magistral-*` | `MISTRAL_API_KEY` |
+| `xai` | `grok-*` | `XAI_API_KEY` |
 
-A litellm-style prefix works too (`openai/…`, `anthropic/…`, `gemini/…`, `google/…`, `mistral/…`,
-`groq/…`, `xai/…`) and takes precedence over the bare name.
+`provider.name` may be omitted for direct access; beagle then infers it from a recognized bare model
+name or LiteLLM-style prefix such as `openai/…` or `anthropic/…`. This is a convenience fallback,
+not the form taught by these examples. If both an explicit provider name and a model prefix are
+present, they must agree.
 
-Set `agent.provider` **only** when the model is served by an OpenAI-compatible proxy rather than the
-provider's own API — then `provider` names that route and `forward_env` carries the proxy's
-credentials. Leave it out for direct access, as these examples do.
+### No first-party key? Point at your org's gateway
+
+If your org fronts the providers with its own **OpenAI-compatible proxy** (its own base URL, its own
+key) instead of handing out `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`, declare a gateway provider
+— see [`07-org-gateway.yaml`](07-org-gateway.yaml):
+
+```yaml
+agent:
+  model: {name: gpt-5.5}         # whatever model id YOUR gateway routes
+  provider:
+    type: gateway
+    name: my-org-gateway
+    extra_args:
+      api_base: https://gateway.<your-org>.example/openai/v1
+      api_key_env: MY_ORG_API_KEY  # env var NAME; secret stays in `.env`
+      auth_header: x-api-key       # optional; default is `Authorization: Bearer <key>`
+```
+
+`api_key_env` is the **name** of an environment variable, not the key: put `MY_ORG_API_KEY=sk-…` in
+`.env` (beagle loads it at CLI start) and the config stays committable.
+
+LiteLLM does the routing (`api_base` + the OpenAI wire shape), so the model name alone still picks
+what the gateway serves — gpt or claude, no other change. On a network-restricted benchmark beagle
+allowlists `api_base` instead of the provider's public host. `--dry-run` prints the resolved endpoint
+and whether `api_key_env` is actually set, so a typo fails before you spend.
+
+**Which endpoint gets called** is decided by `effort`, not by the provider block — `api_base` is only
+the prefix. With mini-swe, `effort` set → `POST <api_base>/responses` (the Responses API); `effort`
+unset → `POST <api_base>/chat/completions`. opencode is Chat Completions only. So if your gateway
+serves just one of the two, that constrains `effort` and the harness, not the provider block.
 
 ## Config shape
 
@@ -64,7 +95,8 @@ run:   {dir, name, runtime, parallelism}   # evaluate stamps <dir>/<name>-<times
 agent:
   harness: {name, version, source}         # agent type + version + source (repo/ref/token_env)
   model: {name}
-  provider / effort / max_turns / forward_env / timeout   # first-level vocabulary (every agent)
+  provider: {type, name, extra_args?}        # name required except on inferred direct routes
+  forward_env / effort / max_turns / timeout # independent first-level knobs
   extra_args: {<agent>_args: …}            # the one agent-specific block (mini_swe_args / opencode_args)
 data:  [{benchmark, tasks?, …}]            # omit `tasks` → the whole suite
 ```
@@ -74,11 +106,38 @@ data:  [{benchmark, tasks?, …}]            # omit `tasks` → the whole suite
   no `token_env` omits the line). `harness.name` is the registered agent (`mini-swe`/`opencode`).
   These example files are hand-written; only the smoke gate and the sweep are generated.
 - **`effort`** drives reasoning: mini-swe selects the Responses-API model class; opencode passes
-  `--variant`. Each reaches the LLM via `provider` + the key you forward in `forward_env` (bring your
-  own API key). (opencode accepts `max_turns` for a uniform vocabulary but has no turn-cap flag — it
+  `--variant`. (opencode accepts `max_turns` for a uniform vocabulary but has no turn-cap flag — it
   is a no-op there.)
+- **Reaching the LLM** — `provider.type` is exactly one of `direct`, `gateway`, or `internal`.
+  `gateway` carries `api_base` / `api_key_env` / `auth_header` under `provider.extra_args`;
+  `internal` names an agent/deployment-native provider; `direct` calls the first-party API.
+- **`forward_env` is independent of `provider`**. It forwards arbitrary host variables into the
+  agent container for provider credentials, Git credentials, tool tokens, or any other purpose.
 - **`extra_args`** is keyed by `<agent>_args` so a config names which knobs belong to which agent —
   `mini_swe_args: [{config_path: …}]` (its `-c` preset) vs `opencode_args: [--…]` (its raw CLI).
+
+### Harness-specific `extra_args`
+
+Only the block matching `harness.name` is folded into that agent's runtime config:
+
+```yaml
+# mini-swe: named adapter knobs (a mapping is preferred)
+extra_args:
+  mini_swe_args:
+    config_path: src/minisweagent/config/mini.yaml
+    responses_api: false
+```
+
+```yaml
+# OpenCode: raw CLI argv
+extra_args:
+  opencode_args: [--auto]
+```
+
+For mini-swe, a list of single-key mappings (the form emitted by the experiment generator) is
+equivalent to one mapping. OpenCode lists replace their complete default argument lists, so include
+every default flag the run still needs. Provider routing remains in `agent.provider`; do not put
+provider flags in these lists.
 
 ## deep-swe (filtered egress)
 

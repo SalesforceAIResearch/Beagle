@@ -54,7 +54,8 @@ Or drive the generator directly — every knob is a flag:
 
 Important flags include `--agents`, `--benches`, `--model`, `--effort`,
 `--max-turns`, `--parallelism`, `--timeout`, `--retry-infra`, `--runtime`,
-`--provider`, `--out`, `--results`, `--manifest-dir`, and `--check`.
+`--provider-type`, `--provider-name`, `--provider-api-base`, `--provider-api-key-env`,
+`--provider-auth-header`, `--out`, `--results`, `--manifest-dir`, and `--check`.
 
 Agent arguments, benchmark dataset/split settings, per-benchmark parallelism, forwarded
 credentials, and the version-to-manifest join come from the canonical
@@ -98,9 +99,8 @@ For browsing results or recovering an interrupted SWE-bench grading phase, see
 [`scripts/README.md`](scripts/README.md).
 
 ## Prereqs
-- The gateway relay must be running and the config's forwarded gateway credentials must
-  be available. Relay scripts live under `scripts/gateway/`; supported model/effort
-  combinations are documented in `notes/gateway-models.md`.
+- Provider credentials must be available (API keys in `.env`, or an OpenAI-compatible
+  org gateway — see [examples/evaluation/07-org-gateway.yaml](../examples/evaluation/07-org-gateway.yaml)).
 - DeepSWE requires `uv pip install -e '.[deep-swe]'`.
 - Agents must be onboarded at the versions selected by the canonical generator. Missing
   versions under `.beagle/agents/` are skipped during generation.

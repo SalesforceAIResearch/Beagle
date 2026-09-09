@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import os
 import re
 from pathlib import Path
 from typing import Any, Callable
@@ -58,12 +59,22 @@ def translate_config(raw: dict[str, Any]):
         rt.pop("grpc_secure", None)                       # unexpressible TLS toggle (contract #3)
     bench = d.get("benchmark")
     if isinstance(bench, dict):
-        # The algorithm's `benchmark.dataset` is its OWN dataset reference (a benchmark-suite relative
-        # path, e.g. "benchmarks/terminal_bench/vendor"); beagle's loaders resolve tasks
-        # themselves — harbor-family from `$XRLENV_BENCHMARK_CACHE` — and `BenchmarkSpec.dataset`
-        # means a task-source PATH override, a different thing. Drop it so we don't mis-glob an
-        # empty/foreign dir instead of the cache. (task_ids/name/etc. are the same in both.)
-        bench.pop("dataset", None)
+        # The algorithm's `benchmark.dataset` is usually its OWN dataset reference (a
+        # benchmark-suite relative path, e.g. "benchmarks/terminal_bench/vendor"); beagle's
+        # loaders resolve tasks themselves — harbor-family from `$XRLENV_BENCHMARK_CACHE` —
+        # and `BenchmarkSpec.dataset` means a task-source PATH override, a different thing.
+        # Dropping that relative form is right: it would mis-glob an empty/foreign dir.
+        #
+        # But an ABSOLUTE path to a real directory is not the driver's default, it is a
+        # deliberate task-source override, and dropping it silently sends the eval back to
+        # the benchmark cache. That is how arm A5 -- which evolves on a SYNTHESIZED pool --
+        # had every mini-eval die with `KeyError: task id 'canonical-debt-settler' not in
+        # benchmark 'terminal_bench_2_1'`: the ids were the pool's, the source was the real
+        # tb2.1 cache. The campaign ran for hours looking healthy and scored nothing.
+        ds = bench.get("dataset")
+        keep = isinstance(ds, str) and os.path.isabs(ds) and os.path.isdir(ds)
+        if not keep:
+            bench.pop("dataset", None)
     return RunConfig.from_dict(d)
 
 

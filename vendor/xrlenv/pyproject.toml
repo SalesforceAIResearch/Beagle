@@ -2,7 +2,7 @@
 name = "xrlenv"
 dynamic = ["version"]
 description = "Agentic RL sandbox infrastructure: sandboxing + orchestration for long-horizon rollouts."
-readme = "specs/00-overview.md"
+readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 authors = [{ name = "XRLEnv contributors" }]

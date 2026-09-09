@@ -60,6 +60,31 @@ def _timeout_multiplier_kwarg(harness: Any, multiplier: float) -> dict[str, floa
     return {}
 
 
+def _debug_wall_time_kwarg(harness: Any, cap_s: float | None) -> dict[str, float]:
+    """Pass the internal agent-phase wall-time cap only to supporting harnesses."""
+    import inspect
+
+    try:
+        accepts = "debug_max_agent_wall_time_sec" in inspect.signature(
+            harness.rollout
+        ).parameters
+    except (TypeError, ValueError):
+        accepts = False
+    if accepts:
+        return (
+            {"debug_max_agent_wall_time_sec": cap_s}
+            if cap_s is not None
+            else {}
+        )
+    if cap_s is not None:
+        raise TypeError(
+            f"{type(harness).__name__}.rollout() does not accept "
+            "`debug_max_agent_wall_time_sec`, but this debug run sets it; refusing to "
+            "silently run without the requested kill switch."
+        )
+    return {}
+
+
 @contextlib.contextmanager
 def _tag_group(run_id: str) -> Iterator[None]:
     """Tag every container acquired in this scope with ``xrlenv.group_id=run_id``.
@@ -226,12 +251,17 @@ class Runner:
             g0 = time.monotonic()
             items = groups[name]
             bench = benchmarks.get(name)
-            # A benchmark's ``options`` block can override the harbor/pier cluster Environment
-            # (env_import_path) — e.g. a local, non-cluster tb2 run. Pass the kwarg ONLY when set,
-            # so a benchmark with the plain ``harness(self)`` signature keeps working.
+            # Harbor/pier's native Job owns its containers, so its Environment import path must
+            # follow the run runtime (local vs xrlenv-cluster). A benchmark option can explicitly
+            # override that selection. Older third-party benchmark objects without the selector
+            # retain the original harness() fallback.
             _eip = next((b.options.get("env_import_path")
                          for b in config.all_benchmarks() if b.name == name), None)
-            harness = bench.harness(env_import_path=_eip) if _eip else bench.harness()
+            selector = getattr(bench, "harness_for_runtime", None)
+            if selector is not None:
+                harness = selector(config.runtime.kind, env_import_path=_eip)
+            else:
+                harness = bench.harness(env_import_path=_eip) if _eip else bench.harness()
 
             # Resume: ask the harness what's already done (read from ITS native tree, not a house
             # ledger), then let ``plan_resume`` (shared with ``--dry-run``) decide what re-runs — each
@@ -260,7 +290,11 @@ class Runner:
                 produced = harness.rollout(
                     agent, remaining, runtime=self.runtime, run_dir=run_dir,
                     parallelism=self.parallelism, retry=retry,
-                    **_timeout_multiplier_kwarg(harness, config.timeout_multiplier), attempt=attempt,
+                    **_timeout_multiplier_kwarg(harness, config.timeout_multiplier),
+                    **_debug_wall_time_kwarg(
+                        harness, config.debug_max_agent_wall_time_sec
+                    ),
+                    attempt=attempt,
                     resuming=resuming,
                 )
                 for r in produced:

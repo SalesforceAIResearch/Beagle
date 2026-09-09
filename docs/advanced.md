@@ -78,10 +78,72 @@ write harness-specific code. Closed-source CLI you can't evolve:
 `class MyAgent(Agent, Editor)`. Start from `beagle/agents/core/_template.py`.
 Benchmarks and algorithms onboard the same way — one file, `@register`, done.
 
+## Onboard your own benchmark
+
+A benchmark is three pluggables behind the `Benchmark` ABC, each independently
+overridable. Most harbor-family benchmarks need **zero** custom code:
+
+```python
+# beagle/benchmarks/my_bench/__init__.py
+from beagle.benchmarks.harness import HarborBenchmark
+from beagle.benchmarks.registry import register
+
+@register("my-bench")
+class MyBench(HarborBenchmark):
+    cache_name = "my-bench"   # subdirectory under XRLENV_BENCHMARK_CACHE
+    cache_builder_module = "xrlenv_plugins.benchmarks.my_bench.build_cache"
+```
+
+When the defaults don't fit, override the pluggables individually:
+
+| Pluggable | Default (`HarborBenchmark`) | Override when |
+| --- | --- | --- |
+| `source()` → `TaskSource` | `HarborCache` (reads the benchmark cache directly) | Tasks come from Hugging Face, a local file, or a custom API |
+| `harness()` → `BenchmarkHarness` | `HarborHarness` (harbor trial driver) | Using a docker drop-in, pier, or a benchmark's own vendored orchestrator |
+| `grader()` → `Grader` | `InBandGrader` (reads verifier reward from the trial) | Patch-eval grading (`PatchEvalGrader`) or a custom judge |
+
+### `cache_builder_module` — registry-driven cache population
+
+Set `Benchmark.cache_builder_module` to the import path of the benchmark's xrlenv
+`build_cache` module to make it discoverable by the cache bootstrap script:
+
+```python
+cache_builder_module = "xrlenv_plugins.benchmarks.my_bench.build_cache"
+```
+
+`None` (the default) means this benchmark has no local cache population step —
+tasks are fetched at run time (e.g. from Hugging Face). When set, the module must
+expose a `main(argv: list[str]) -> int` that accepts
+`["--stage", "all", "--dest", "<path>"]`.
+
+`scripts/populate_benchmarks_cache.py` discovers cache-capable benchmarks from
+this attribute at run time — no edit to the script is needed when you add a new
+benchmark. Use `--list` to verify your registration is visible:
+
+```bash
+.venv/bin/python scripts/populate_benchmarks_cache.py --list
+# my-bench    xrlenv_plugins.benchmarks.my_bench.build_cache
+```
+
+See [`scripts/README.md`](../scripts/README.md) for the full operator workflow
+(setting `XRLENV_BENCHMARK_CACHE` in `.env`, populating subsets with
+`--benchmark NAME`, and idempotent reruns).
+
+## Provider routing
+
+How an agent reaches its model — `provider` type (`direct` / `gateway` / `internal`),
+`forward_env` forwarding, and the agent support matrix — is covered in a dedicated page:
+
+👉 [Provider routing](provider-routing.md)
+
 ## Prefer Python?
 
 The CLI is a thin wrapper. Compose the pieces yourself (PyTorch-shaped
 model / optimizer / dataloader → `fit`):
+
+For the canonical YAML workflow and guidance on DarwinX's typed parameters, start with
+[`examples/evolution/README.md`](../examples/evolution/README.md) and
+[`docs/darwinx-configuration.md`](darwinx-configuration.md).
 
 ```python
 import beagle as bgl
@@ -97,11 +159,13 @@ best = trainer.fit(train_dataset=bgl.TaskDataset.from_benchmark(benchmark_config
 bgl.evaluate(run_config)   # pure eval — no evolver/algorithm
 ```
 
-Full example: [examples/quick-start/quick_start_inline.py](../examples/quick-start/quick_start_inline.py).
+Full example:
+[examples/evolution/quick_start_inline.py](../examples/evolution/quick_start_inline.py).
 Build by name: `bgl.agents.build(...)`, `bgl.algorithms.build(...)`,
 `bgl.benchmarks.get(...)`.
 
 > **Status.** Both paths run today from one `config.yaml` — pure evaluation and the
 > DarwinX loop (baseline → edit → candidate eval → keep/reject → best node + branch).
-> `Trainer.fit`, DarwinX, and the version gate are wired end-to-end; `DataMixture` is
-> the main piece still landing.
+> `Trainer.fit`, DarwinX, and the version gate are wired end-to-end. Beagle can evaluate a
+> `DataMixture`; DarwinX currently trains on the first data group and can apply configured
+> cross-benchmark or mixture gates during candidate selection.

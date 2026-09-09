@@ -663,7 +663,27 @@ def _count_gateable(shard_dir: Path) -> int:
     return sum(1 for _ in shard_dir.glob(f"*/{_SOLVE_ANCHOR}"))
 
 
+def is_complete(shard_dir: Path) -> bool:
+    """True only for a fully materialized shard from a completed populate.
+
+    ``TaskClient`` writes tasks incrementally, so an interrupted download can leave
+    hundreds of valid task dirs behind. The provenance file is deliberately written
+    only after every expected task lands; require it and verify its recorded count so
+    ``--stage all`` resumes an incomplete download instead of advancing to patching.
+    """
+    provenance_path = shard_dir / _PROVENANCE
+    if not shard_dir.is_dir() or not provenance_path.is_file():
+        return False
+    try:
+        provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+        expected = provenance["task_count"]
+    except (OSError, KeyError, TypeError, ValueError):
+        return False
+    return isinstance(expected, int) and expected > 0 and _count_tasks(shard_dir) == expected
+
+
 def is_populated(shard_dir: Path) -> bool:
+    """Whether the shard has task content on which an explicit later stage can operate."""
     return shard_dir.is_dir() and _count_tasks(shard_dir) > 0
 
 
@@ -684,7 +704,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--stage",
         choices=("all", "populate", "repin", "patch"),
         default="all",
-        help="all (default): populate (if missing) + repin + patch. populate: "
+        help="all (default): populate (if missing or incomplete) + repin + patch. populate: "
         "download+normalize only (needs network). repin: write each task's "
         "authoritative docker_image. patch: curated content fixes — patches/ "
         "overlays plus the task.toml resource routing (cpu-pinning markers + "
@@ -731,7 +751,7 @@ def main(argv: list[str] | None = None) -> int:
 
     downloaded = normalized = 0
     if args.stage in ("all", "populate"):
-        if args.stage == "populate" or not is_populated(shard_dir):
+        if args.stage == "populate" or not is_complete(shard_dir):
             downloaded, normalized = populate_hub(shard_dir)
         else:
             print(

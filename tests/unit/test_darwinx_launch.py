@@ -271,13 +271,15 @@ def test_evolvee_block_passes_registry_name_and_extra_knobs_through() -> None:
     # dropped from the passthrough (the eval threads code version from the benchmark block instead).
     evolvee = SimpleNamespace(spec=AgentSpec(
         name="mini-swe", model=ModelSpec(name="gpt-5.5"),
-        config={"max_turns": 30, "timeout": 1800, "provider": "sfr-gateway",
+        config={"max_turns": 30, "timeout": 1800,
+                "provider": {"type": "internal", "name": "sfr-gateway"},
                 "effort": "high", "config_path": "src/minisweagent/config/benchmarks/swebench.yaml",
                 "agent_source": {"repo": "x"}}))
     block = _launch._evolvee_block(evolvee)
     assert block["name"] == "mini-swe" and block["model"] == "gpt-5.5"
     assert block["max_turns"] == 30 and block["timeout"] == 1800     # budgets stay top-level
-    assert block["config"] == {"provider": "sfr-gateway", "effort": "high",
+    assert block["config"] == {"provider": {"type": "internal", "name": "sfr-gateway"},
+                                "effort": "high",
                                "config_path": "src/minisweagent/config/benchmarks/swebench.yaml"}
 
 

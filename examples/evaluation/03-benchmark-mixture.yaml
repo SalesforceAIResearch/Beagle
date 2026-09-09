@@ -16,6 +16,7 @@ agent:
     version: 1.18.16
     source: {repo: https://github.com/<your-org>/opencode_v1.18.16, ref: <baseline-commit-sha>}
   model: {name: gpt-5.5}
+  provider: {type: direct, name: openai}
   forward_env: [OPENAI_API_KEY]
 
 data:

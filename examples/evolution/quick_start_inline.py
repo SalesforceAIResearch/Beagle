@@ -15,9 +15,8 @@ The evolvee (repo / ref / local checkout) is read from an **onboarded-agent mani
 
 Usage
 -----
-    python examples/quick-start/quick_start_inline.py --dry-run       # preview the plan, NO spend
-    python examples/quick-start/quick_start_inline.py --agent my_agent  # pick an onboarded agent
-    python examples/quick-start/quick_start_inline.py                 # launch the evolution loop (spends)
+    python examples/evolution/quick_start_inline.py --runtime local --dry-run  # preview, NO spend
+    python examples/evolution/quick_start_inline.py --runtime local             # launch (spends)
 """
 
 from __future__ import annotations
@@ -33,21 +32,21 @@ from beagle.config import (
     BenchmarkConfig,
     ModelConfig,
 )
-from beagle.tools.onboard import latest_manifest, load_manifest
+from beagle.tools.onboard import load_manifest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]   # the beagle repo (examples/quick-start/<this>)
+REPO_ROOT = Path(__file__).resolve().parents[2]   # the beagle repo (examples/evolution/<this>)
 
 # Portable run knobs — edit to taste (these are benchmark-side, not machine-specific).
 BENCHMARK = "terminal_bench_2_1"
-TASKS = ["bn-fit-modify"]                    # keep it to 1 task for a cheap smoke
+TASKS = ["gcode-to-text"]                    # keep it to 1 task for a cheap smoke
 EVOLVEE_TYPE = "opencode"                    # the agent adapter the onboarded repo is built with
 EVOLVEE_MODEL = "gpt-5.5"
 EVOLVEE_EFFORT = "high"                      # opencode reasoning effort (→ --variant; default is weak)
-EVOLVEE_PROVIDER = "openai"                  # opencode's provider id — reads EVOLVEE_KEY_ENV (use "anthropic" for claude)
+EVOLVEE_PROVIDER = "openai"                  # direct provider name (use "anthropic" for Claude)
 EVOLVEE_KEY_ENV = "OPENAI_API_KEY"           # your provider key, forwarded into the run container
 EVOLVER = "cursor"
-#: The cursor proposer model — a bare family slug passed verbatim to `cursor-agent --model`.
-EVOLVER_MODEL = "gpt-5.5-high"
+#: `auto` is portable; replace it with a value from `cursor-agent models` to pin a campaign.
+EVOLVER_MODEL = "auto"
 
 
 def _evolvee_agent_config(m: dict) -> AgentConfig:
@@ -56,7 +55,7 @@ def _evolvee_agent_config(m: dict) -> AgentConfig:
     provider directly, reading ``EVOLVEE_KEY_ENV`` (forwarded into the container via ``forward_env``)."""
     config: dict = {
         "effort": EVOLVEE_EFFORT,
-        "provider": EVOLVEE_PROVIDER,        # opencode provider id (no gateway — direct to the provider)
+        "provider": {"type": "direct", "name": EVOLVEE_PROVIDER},
         "forward_env": [EVOLVEE_KEY_ENV],    # your provider key, forwarded into the run container
     }
     if m.get("token_env"):
@@ -89,6 +88,12 @@ def build_trainer(agent: str, *, runtime: str, run_dir: Path, runname: str) -> b
         evolvee_checkout=str((REPO_ROOT / m["dir"]).resolve()),
         campaign=runname,
         max_loop_iters=1,
+        n_failure_tasks=1,
+        mini_eval_k_samples=1,
+        fullset_eval_n_attempts=1,
+        fullset_metric="best",
+        guard_enabled=True,
+        anti_cheat=True,
         evolvee_effort=EVOLVEE_EFFORT,
     ))
     return bgl.Trainer(
@@ -99,13 +104,13 @@ def build_trainer(agent: str, *, runtime: str, run_dir: Path, runname: str) -> b
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--agent", default=None,
-                   help="onboarded agent manifest under .beagle/agents/ (default: the newest)")
+    p.add_argument("--agent", default="opencode_v1.18.16",
+                   help="onboarded manifest under .beagle/agents/ (default: opencode_v1.18.16)")
     p.add_argument("--dir", default=None,
                    help="base directory to host run results (default: <repo>/.beagle/runs)")
     p.add_argument("--runname", default=None,
                    help="run name; results land in <dir>/<runname>/ (default: the agent name)")
-    p.add_argument("--runtime", default="xrlenv-cluster", choices=["local", "xrlenv-cluster"])
+    p.add_argument("--runtime", default="local", choices=["local", "xrlenv-cluster"])
     p.add_argument("--dry-run", action="store_true",
                    help="resolve + print the plan and exit — no spend (default: launch the loop)")
     args = p.parse_args()
@@ -113,7 +118,7 @@ def main() -> int:
     # Bucket-1 facts/secrets (xrlenv topology + your provider API key + benchmark cache) from .env.
     bgl.load_dotenv()
 
-    agent = args.agent or latest_manifest(root=REPO_ROOT)
+    agent = args.agent
     base_dir = Path(args.dir) if args.dir else REPO_ROOT / ".beagle" / "runs"
     runname = args.runname or agent
     run_dir = base_dir / runname                       # results land here: <dir>/<runname>/

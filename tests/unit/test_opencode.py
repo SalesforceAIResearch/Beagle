@@ -57,15 +57,107 @@ def test_last_stream_error_reads_error_events() -> None:
     )
     assert _oc.last_stream_error(stream) == "429 rate limited"
     assert _oc.last_stream_error(_stream({"type": "error", "error": "boom"})) == "boom"
+    nested = _stream({
+        "type": "error",
+        "error": {"name": "APIError", "data": {"message": "invalid x-api-key"}},
+    })
+    assert _oc.last_stream_error(nested) == "invalid x-api-key"
 
 
-def test_build_provider_config_is_openai_compatible() -> None:
-    cfg = _oc.OpenCodeConfig(model="gpt-5.5", provider_id="gw")
+@pytest.mark.parametrize(
+    ("model", "provider", "expected"),
+    [
+        ("gpt-5.5", "", ("openai", "gpt-5.5")),
+        ("claude-sonnet-4-5", "", ("anthropic", "claude-sonnet-4-5")),
+        ("anthropic/claude-sonnet-4-5", "", ("anthropic", "claude-sonnet-4-5")),
+        ("claude-sonnet-4-5", "anthropic", ("anthropic", "claude-sonnet-4-5")),
+    ],
+)
+def test_resolve_direct_model(model: str, provider: str, expected: tuple[str, str]) -> None:
+    assert _oc.resolve_direct_model(model, provider) == expected
+
+
+def test_resolve_direct_model_rejects_conflicting_or_unknown_provider() -> None:
+    with pytest.raises(ValueError, match="conflicts"):
+        _oc.resolve_direct_model("anthropic/claude-sonnet-4-5", "openai")
+    with pytest.raises(ValueError, match="cannot infer"):
+        _oc.resolve_direct_model("some-private-model")
+
+
+def test_build_provider_config_uses_openai_responses_for_gpt() -> None:
+    cfg = _oc.OpenCodeConfig(model="gpt-5.5", provider_id="gw", max_turns=3)
     doc = json.loads(_oc.build_provider_config(cfg, {"api_base": "http://gw/v1", "api_key": "sk-1"}))
     prov = doc["provider"]["gw"]
-    assert prov["npm"] == "@ai-sdk/openai-compatible"
+    assert prov["npm"] == "@ai-sdk/openai"
     assert prov["options"] == {"baseURL": "http://gw/v1", "apiKey": "sk-1"}
-    assert "gpt-5.5" in prov["models"]
+    assert prov["models"]["gpt-5.5"] == {"name": "gpt-5.5", "reasoning": True}
+    assert doc["agent"]["build"]["steps"] == 3
+
+
+def test_build_provider_config_keeps_generic_sdk_for_non_openai_models() -> None:
+    cfg = _oc.OpenCodeConfig(model="claude-sonnet-4-5", provider_id="gw")
+    doc = json.loads(_oc.build_provider_config(cfg, {"api_base": "http://gw/v1"}))
+    prov = doc["provider"]["gw"]
+    assert prov["npm"] == "@ai-sdk/openai-compatible"
+    assert prov["models"]["claude-sonnet-4-5"] == {"name": "claude-sonnet-4-5"}
+
+
+@pytest.mark.parametrize(
+    ("model", "reasoning"),
+    [
+        ("gpt-4o", False),
+        ("o1-preview", True),
+        ("o3-mini", True),
+        ("o4-mini", True),
+        ("chatgpt-4o-latest", False),
+    ],
+)
+def test_build_provider_config_recognizes_openai_model_families(
+    model: str, reasoning: bool
+) -> None:
+    cfg = _oc.OpenCodeConfig(model=model, provider_id="gw")
+    prov = json.loads(_oc.build_provider_config(cfg, {"api_base": "http://gw/v1"}))[
+        "provider"
+    ]["gw"]
+    assert prov["npm"] == "@ai-sdk/openai"
+    assert prov["models"][model].get("reasoning", False) is reasoning
+
+
+def test_empty_unknown_completion_requires_no_output_or_usage() -> None:
+    empty = _stream({
+        "type": "step_finish",
+        "part": {"reason": "unknown", "tokens": {"input": 0, "output": 0}},
+    })
+    assert _oc.is_empty_unknown_completion(empty)
+    assert not _oc.is_empty_unknown_completion(_stream(
+        {"type": "text", "part": {"text": "answer"}},
+        {"type": "step_finish", "part": {"reason": "unknown", "tokens": {}}},
+    ))
+    assert not _oc.is_empty_unknown_completion(_stream(
+        {"type": "tool_use", "part": {"tool": "read"}},
+        {"type": "step_finish", "part": {"reason": "unknown", "tokens": {}}},
+    ))
+    assert not _oc.is_empty_unknown_completion(_stream({
+        "type": "step_finish",
+        "part": {"reason": "unknown", "tokens": {"input": 2, "output": 0}},
+    }))
+    assert not _oc.is_empty_unknown_completion(_stream({
+        "type": "step_finish",
+        "part": {"reason": "stop", "tokens": {"input": 0, "output": 0}},
+    }))
+    assert not _oc.is_empty_unknown_completion(_stream(
+        {"type": "step_finish", "part": {"reason": "unknown", "tokens": {}}},
+        {"type": "step_finish", "part": {"reason": "stop", "tokens": {}}},
+    ))
+
+
+def test_build_agent_config_omits_unbounded_steps() -> None:
+    bounded = json.loads(_oc.build_agent_config(_oc.OpenCodeConfig(
+        model="gpt-5.5", provider_id="openai", max_turns=4,
+    )))
+    assert bounded["agent"]["build"]["steps"] == 4
+    unbounded = json.loads(_oc.build_agent_config(_oc.OpenCodeConfig(model="gpt-5.5")))
+    assert "agent" not in unbounded
 
 
 def test_build_inner_script_pipes_prompt_and_composes_flags() -> None:
@@ -73,6 +165,7 @@ def test_build_inner_script_pipes_prompt_and_composes_flags() -> None:
     s = _oc.build_inner_script(cfg, repo_path="/testbed")
     assert 'printf \'%s\' "$OPENCODE_PROMPT" | bun ' in s   # prompt via stdin (dodges argv limits)
     assert "index.ts run" in s and "--format json" in s
+    assert "--print-logs" in s and "--log-level ERROR" in s
     assert "--model gw/gpt-5.5" in s
     assert "--variant high" in s
     assert "--dir /testbed" in s
@@ -106,9 +199,10 @@ class _FakeRuntime:
     A command containing ``fail`` comes back non-zero (models a swallowed clone/install failure)."""
 
     def __init__(self, *, invoke_out: str = "", diff: str = "", base: str | None = None,
-                 fail: str | None = None) -> None:
+                 fail: str | None = None, diagnostic_out: str = "") -> None:
         self.calls: list[tuple[str, dict | None]] = []
         self._invoke_out, self._diff, self._base, self._fail = invoke_out, diff, base, fail
+        self._diagnostic_out = diagnostic_out
         self.destroyed = False
 
     def acquire(self, **kw):
@@ -126,6 +220,8 @@ class _FakeRuntime:
             return _Exec(self._base or "")
         if "git diff" in joined and "HEAD" in joined:              # base..HEAD submission
             return _Exec(self._diff)
+        if "opencode.stderr.log" in joined and joined.lstrip().startswith("bash -lc cat"):
+            return _Exec(self._diagnostic_out)
         return _Exec("")
 
     def destroy(self, handle):
@@ -143,7 +239,10 @@ def _agent(config: dict | None = None):
         name="opencode",
         source=AgentSource(repo="https://github.com/o/opencode-beagle", ref="deadbeef"),
         model=ModelSpec(name="gpt-5.5"),
-        config=config or {"provider": "gw", "forward_env": ["LLM_GATEWAY_EXPRESS_API_KEY"]},
+        config=config or {
+            "provider": {"type": "internal", "name": "gw"},
+            "forward_env": ["LLM_GATEWAY_EXPRESS_API_KEY"],
+        },
     ))
 
 
@@ -185,6 +284,67 @@ def test_run_happy_path_clones_invokes_and_captures_base_head(monkeypatch) -> No
     assert env["OPENCODE_DISABLE_MODELS_FETCH"] == "1"
 
 
+def test_run_infers_native_provider_without_gateway(monkeypatch) -> None:
+    monkeypatch.delenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", raising=False)
+    stream = _stream({"type": "step_finish", "part": {"tokens": {"input": 1, "output": 1}}})
+    rt = _FakeRuntime(invoke_out=_combined(0, stream), base="b")
+    agent = _agent({"forward_env": ["OPENAI_API_KEY"]})
+
+    res = agent.run(
+        Task(task_id="t", problem_statement="x"),
+        TaskContext(image="i", repo_path="/w", agent_timeout_s=1800),
+        runtime=rt,
+    )
+
+    assert res.status is RolloutStatus.COMPLETED
+    invoke = next(c for c, e in rt.calls if e and "OPENCODE_PROMPT" in e)
+    assert "--model openai/gpt-5.5" in invoke
+    invoke_env = rt.invoke_env() or {}
+    assert "OPENCODE_CONFIG_CONTENT" not in invoke_env
+    assert "OPENCODE_DISABLE_MODELS_FETCH" not in invoke_env
+
+
+def test_run_sets_direct_provider_max_steps(monkeypatch) -> None:
+    monkeypatch.delenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", raising=False)
+    rt = _FakeRuntime(invoke_out=_combined(0, _stream({"type": "step_finish", "part": {}})), base="b")
+    agent = _agent({"provider": {"type": "direct"}, "max_turns": 3})
+
+    res = agent.run(
+        Task(task_id="t", problem_statement="x"),
+        TaskContext(image="i", repo_path="/w", agent_timeout_s=1800),
+        runtime=rt,
+    )
+
+    assert res.status is RolloutStatus.COMPLETED
+    config = json.loads((rt.invoke_env() or {})["OPENCODE_CONFIG_CONTENT"])
+    assert config["agent"]["build"]["steps"] == 3
+    assert "provider" not in config
+
+
+def test_run_uses_default_synthetic_provider_with_gateway(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "http://gw/v1")
+    stream = _stream({"type": "step_finish", "part": {"tokens": {"input": 1, "output": 1}}})
+    rt = _FakeRuntime(invoke_out=_combined(0, stream), base="b")
+    agent = _agent({
+        "provider": {"type": "internal", "name": "beagle"},
+        "forward_env": ["LLM_GATEWAY_EXPRESS_API_KEY"],
+        "max_turns": 3,
+    })
+
+    res = agent.run(
+        Task(task_id="t", problem_statement="x"),
+        TaskContext(image="i", repo_path="/w", agent_timeout_s=1800),
+        runtime=rt,
+    )
+
+    assert res.status is RolloutStatus.COMPLETED
+    invoke = next(c for c, e in rt.calls if e and "OPENCODE_PROMPT" in e)
+    assert "--model beagle/gpt-5.5" in invoke
+    config = json.loads((rt.invoke_env() or {})["OPENCODE_CONFIG_CONTENT"])
+    assert "beagle" in config["provider"]
+    assert config["agent"]["build"]["steps"] == 3
+
+
 def test_run_records_harbor_shaped_phase_timing(monkeypatch) -> None:
     # The shared run() seam times acquire/install/run_in as harbor-shaped spans + duration_sec, so a
     # docker-drop-in task's result.json timing is comparable to a harbor/pier trial's native breakdown.
@@ -213,7 +373,7 @@ def test_install_failure_result_still_carries_timing() -> None:
 def test_run_reports_opencode_nonzero_exit_as_failed() -> None:
     rt = _FakeRuntime(invoke_out=_combined(1, _stream({"type": "text", "part": {"id": "t", "text": "x"}})),
                       base="b")
-    res = _agent().run(Task(task_id="t", problem_statement="x"),
+    res = _agent({"provider": {"type": "direct"}}).run(Task(task_id="t", problem_statement="x"),
                        TaskContext(image="i", repo_path="/w", agent_timeout_s=1800), runtime=rt)
     assert res.status is RolloutStatus.FAILED and not res.resolved
     assert res.error and "opencode exited rc=1" in res.error
@@ -222,10 +382,53 @@ def test_run_reports_opencode_nonzero_exit_as_failed() -> None:
 def test_run_surfaces_stream_error(monkeypatch) -> None:
     stream = _stream({"type": "error", "error": {"message": "no provider configured"}})
     rt = _FakeRuntime(invoke_out=_combined(0, stream), base="b")
-    res = _agent().run(Task(task_id="t", problem_statement="x"),
+    res = _agent({"provider": {"type": "direct"}}).run(Task(task_id="t", problem_statement="x"),
                        TaskContext(image="i", repo_path="/w", agent_timeout_s=1800), runtime=rt)
     assert res.status is RolloutStatus.FAILED
     assert res.error == "stream_error: no provider configured"
+
+
+def test_run_rejects_empty_unknown_provider_completion() -> None:
+    stream = _stream({
+        "type": "step_finish",
+        "part": {"reason": "unknown", "tokens": {"input": 0, "output": 0}},
+    })
+    rt = _FakeRuntime(invoke_out=_combined(0, stream), base="b")
+    res = _agent({"provider": {"type": "direct"}}).run(
+        Task(task_id="t", problem_statement="x"),
+        TaskContext(image="i", repo_path="/w", agent_timeout_s=1800),
+        runtime=rt,
+    )
+    assert res.status is RolloutStatus.FAILED and not res.resolved
+    assert res.error == "provider returned an empty completion (reason=unknown, zero tokens)"
+
+
+def test_run_prefers_stream_error_over_nonzero_exit() -> None:
+    stream = _stream({
+        "type": "error",
+        "error": {"name": "APIError", "data": {"message": "invalid x-api-key"}},
+    })
+    rt = _FakeRuntime(invoke_out=_combined(1, stream), base="b")
+    res = _agent({"provider": {"type": "direct"}}).run(
+        Task(task_id="t", problem_statement="x"),
+        TaskContext(image="i", repo_path="/w", agent_timeout_s=1800),
+        runtime=rt,
+    )
+    assert res.error == "stream_error: invalid x-api-key"
+
+
+def test_run_recovers_persisted_stderr_when_runtime_drops_it() -> None:
+    rt = _FakeRuntime(
+        invoke_out=_combined(1, ""),
+        diagnostic_out="ProviderModelNotFoundError: Model not found: anthropic/bad\n",
+        base="b",
+    )
+    res = _agent({"provider": {"type": "direct"}}).run(
+        Task(task_id="t", problem_statement="x"),
+        TaskContext(image="i", repo_path="/w", agent_timeout_s=1800),
+        runtime=rt,
+    )
+    assert "ProviderModelNotFoundError" in (res.error or "")
 
 
 def test_install_raises_on_clone_failure() -> None:
@@ -258,7 +461,7 @@ def test_install_run_in_split_for_pier(monkeypatch) -> None:
 
 
 def test_variant_wired_from_effort_config() -> None:
-    cfg = _agent({"provider": "gw", "effort": "high"})._cfg()
+    cfg = _agent({"provider": {"type": "internal", "name": "gw"}, "effort": "high"})._cfg()
     assert cfg.variant == "high"
     assert "--variant high" in _oc.build_inner_script(cfg, repo_path="/w")
 
@@ -284,27 +487,71 @@ def _clear_gateway_env(monkeypatch) -> None:
 
 def test_network_hosts_is_gateway(monkeypatch) -> None:
     _clear_gateway_env(monkeypatch)
-    assert _agent().network_hosts() == ["https://api.openai.com"]       # no gateway creds → provider fallback
+    direct = _agent({"provider": {"type": "direct"}})
+    assert direct.network_hosts() == [
+        "https://api.openai.com", "https://models.opencode.ai",
+    ]
     monkeypatch.setenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "http://gw/v1")
-    assert _agent().network_hosts() == ["http://gw/v1"]                 # gateway wins when its URL is set
+    assert _agent().network_hosts() == ["http://gw/v1"]                 # helper default = internal
 
 
-def test_network_hosts_no_fallback_when_a_gateway_key_is_present(monkeypatch) -> None:
-    # #22: a gateway key present (forward_env may feed it into OPENAI_API_KEY) → no public fallback.
+def test_direct_network_host_ignores_unselected_internal_credentials(monkeypatch) -> None:
+    # Ambient internal credentials cannot change an explicitly direct route.
     _clear_gateway_env(monkeypatch)
     monkeypatch.setenv("LLM_GATEWAY_EXPRESS_API_KEY", "internal-key")
-    assert _agent().network_hosts() == []                              # fail safe, don't open the endpoint
+    direct = _agent({"provider": {"type": "direct"}})
+    assert direct.network_hosts() == [
+        "https://api.openai.com", "https://models.opencode.ai",
+    ]
 
 
-def test_network_hosts_empty_for_unknown_model_without_gateway(monkeypatch) -> None:
+def test_network_hosts_direct_unknown_model_allows_catalog(monkeypatch) -> None:
     _clear_gateway_env(monkeypatch)
     unknown = bgl.agents.build(AgentSpec(
         name="opencode", source=AgentSource(repo="https://x/o", ref="d"),
         model=ModelSpec(name="mystery-model-9")))               # provider not derivable
-    assert unknown.network_hosts() == []                        # → litellm's default, no allowlist
+    assert unknown.network_hosts() == ["https://models.opencode.ai"]
 
 
 def test_default_source_requires_repo() -> None:
     a = bgl.agents.build(AgentSpec(name="opencode", model=ModelSpec(name="gpt-5.5")))
     with pytest.raises(ValueError, match="experiment-copy repo"):
         a._cfg()
+
+
+# -- a config-declared org gateway --------------------------------------------------------------
+
+
+def test_build_provider_config_carries_a_custom_auth_header() -> None:
+    # A proxy that authenticates on its own header (provider.extra_args.auth_header) reaches ai-sdk
+    # factory as `headers`; without it the block is unchanged, so a bearer gateway is unaffected.
+    cfg = _oc.OpenCodeConfig(model="gpt-5.5", provider_id="gw")
+    doc = json.loads(_oc.build_provider_config(
+        cfg, {"api_base": "https://gw/v1/", "api_key": "sk-1",
+              "extra_headers": {"x-api-key": "sk-1"}}))
+    opts = doc["provider"]["gw"]["options"]
+    assert opts == {"baseURL": "https://gw/v1", "apiKey": "sk-1",   # trailing slash still stripped
+                    "headers": {"x-api-key": "sk-1"}}
+    assert "agent" not in doc  # max_turns=0 leaves OpenCode's step count unbounded
+
+
+def test_opencode_routes_at_a_config_declared_gateway(monkeypatch) -> None:
+    # No gateway env or first-party key: provider type gateway declares the provider block opencode
+    # runs against, and it is the host a filtered-egress run allowlists.
+    monkeypatch.delenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", raising=False)
+    monkeypatch.delenv("LLM_GATEWAY_EXPRESS_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_GATEWAY_EXPRESS_API_KEY_LIST", raising=False)
+    monkeypatch.setenv("MY_ORG_API_KEY", "sk-org")
+    agent = _agent({"provider": {
+        "type": "gateway", "name": "org", "extra_args": {
+            "api_base": "https://gw.example/openai/v1",
+            "api_key_env": "MY_ORG_API_KEY", "auth_header": "x-api-key"}}})
+    assert agent.network_hosts() == ["https://gw.example/openai/v1"]
+    rt = _FakeRuntime(invoke_out=_combined(0, _stream({"type": "step_finish", "part": {}})), base="b")
+    agent.run(Task(task_id="t", problem_statement="x"),
+              TaskContext(image="i", repo_path="/testbed", agent_timeout_s=1800), runtime=rt)
+    env = rt.invoke_env()
+    prov = json.loads(env["OPENCODE_CONFIG_CONTENT"])["provider"]["org"]
+    assert prov["options"]["baseURL"] == "https://gw.example/openai/v1"
+    assert prov["options"]["headers"] == {"x-api-key": "sk-org"}
+    assert prov["options"]["apiKey"] == "sk-org"

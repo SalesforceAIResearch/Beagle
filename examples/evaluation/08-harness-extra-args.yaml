@@ -1,0 +1,38 @@
+# 8. PASS HARNESS-SPECIFIC OPTIONS WITHOUT POLLUTING THE SHARED AGENT VOCABULARY.
+#
+# Shared knobs such as model, provider, effort, and max_turns stay directly under `agent`.
+# Harness-only knobs go under `agent.extra_args.<harness_name>_args`.
+#
+# mini-swe uses NAMED KNOBS (a mapping, as below). A list of single-key mappings, like the
+# generated experiment configs use, is equivalent.
+#
+# OpenCode instead takes a RAW CLI ARGUMENT LIST:
+#
+#   extra_args:
+#     opencode_args: [--auto]
+#
+# Raw argument lists REPLACE that harness's default list; include every default you still need.
+run:
+  dir: ./results
+  name: eval-harness-extra-args
+  runtime: xrlenv-cluster
+  parallelism: 1
+
+agent:
+  harness:
+    name: mini-swe
+    version: v2.4.6
+    source: {repo: https://github.com/<your-org>/mini_swe_agent_v2.4.6, ref: <baseline-commit-sha>}
+  model: {name: gpt-5.5}
+  provider: {type: direct, name: openai}
+  forward_env: [OPENAI_API_KEY]
+  effort: high
+  max_turns: 150
+  extra_args:
+    mini_swe_args:
+      config_path: src/minisweagent/config/mini.yaml
+      responses_api: false      # force Chat Completions even when `effort` is set
+
+data:
+  - benchmark: terminal_bench_2_1
+    tasks: [code-from-image]

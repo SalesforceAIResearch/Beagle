@@ -135,6 +135,22 @@ def test_harbor_benchmark_source_keeps_canonical_and_cache_names_split() -> None
     assert src.cache_name == "terminal-bench-2-1"            # filesystem
 
 
+def test_harbor_cache_expands_tilde_in_cache_root(tmp_path, monkeypatch) -> None:
+    from beagle.benchmarks.base import BenchmarkSpec
+    from beagle.benchmarks.source import HarborCache
+
+    home = tmp_path / "home"
+    task_dir = home / ".cache" / "benchmarks" / "demo" / "task-1"
+    task_dir.mkdir(parents=True)
+    (task_dir / "task.toml").write_text('[environment]\ndocker_image = "img:1"\n')
+    monkeypatch.setenv("HOME", str(home))
+
+    source = HarborCache("demo", cache_root="~/.cache/benchmarks")
+    tasks = list(source.tasks(BenchmarkSpec(name="demo")))
+
+    assert [task.task_id for task, _context in tasks] == ["task-1"]
+
+
 def test_container_runtime_ported() -> None:
     # The runtime is the real ported impl (LocalDocker + Xrlenv), not a stub.
     from beagle.rollout import (

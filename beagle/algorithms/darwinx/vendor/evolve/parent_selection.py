@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 from abc import ABC, abstractmethod
 
@@ -116,12 +117,70 @@ def _cumulative_net_gain(node: tree.Node, by_id: dict[str, tree.Node]) -> int:
     return total
 
 
+def _lineage_depth(node: tree.Node, by_id: dict[str, tree.Node]) -> int:
+    """Hops from ``node`` up to the root along one chain."""
+    depth = 0
+    seen: set[str] = set()
+    cur: tree.Node | None = node
+    while cur is not None and cur.parent_id and cur.id not in seen:
+        seen.add(cur.id)
+        depth += 1
+        cur = by_id.get(cur.parent_id)
+    return depth
+
+
+def _shrink_bonus(node: tree.Node) -> int:
+    """Let a successful compaction become a parent.
+
+    A CONSOLIDATE that works holds capability while shedding complexity, so it
+    improves nothing and regresses nothing and its net gain is exactly 0. Under
+    a key that ranks on net gain alone it therefore ties with every no-op and
+    loses the tiebreak to whatever scored higher, which means the search
+    compacts and then immediately abandons the compacted line -- observed: a
+    consolidation the judge had already PROMOTEd was never selected again.
+    One rank point, given only to a *completed* node that neither improved nor
+    regressed, is enough to keep that line alive without letting it outrank a
+    real capability win.
+    """
+    if node.status != "completed":
+        return 0
+    if _net_gain(node) != 0:
+        return 0
+    return 1
+
+
+def _deepest_p() -> float:
+    """Probability of picking the DEEPEST eligible parent instead of the best.
+
+    Consolidation needs lineage depth to have anything to fold together, but
+    depth only appears if something extends the same line. When improvements are
+    rare the best-scoring node is the same one every time, the tree grows wide,
+    and a depth-gated mechanism never becomes reachable -- the campaign health
+    line read `CONSOLIDATE threshold 2: NOT YET REACHABLE` for an entire run.
+    Default 0 keeps the previous behaviour exactly.
+    """
+    try:
+        return min(1.0, max(0.0, float(os.environ.get("DARWINX_GATE_PARENT_DEEPEST_P", "0"))))
+    except ValueError:
+        return 0.0
+
+
+def _coin_deepest(pipeline_id: str, p: float) -> bool:
+    if p <= 0:
+        return False
+    if p >= 1:
+        return True
+    h = hashlib.sha256(f"{pipeline_id}:deepest".encode()).digest()
+    return (int.from_bytes(h[:4], "big") / 0xFFFFFFFF) < p
+
+
 def _rank_key(
     conn: sqlite3.Connection, campaign: str, node: tree.Node,
     by_id: dict[str, tree.Node],
-) -> tuple[int, float]:
-    """Rank parents by CUMULATIVE net task-gain from root (compounding), with
-    the subset_final score as a secondary tiebreak.
+) -> tuple[int, int, float]:
+    """Rank parents by CUMULATIVE net task-gain from root (compounding), then a
+    shrink bonus so a successful compaction survives selection, then the
+    subset_final score as a tiebreak.
 
     Why NOT absolute solved-count (the previous key): each node's subset_final
     is on a DIFFERENT claimed+guard subset, so the count isn't comparable — the
@@ -135,7 +194,7 @@ def _rank_key(
     """
     ev = tree.node_search_eval(conn, campaign=campaign, node_id=node.id)
     score = (ev.score if ev is not None else node.score) or 0.0
-    return (_cumulative_net_gain(node, by_id), score)
+    return (_cumulative_net_gain(node, by_id), _shrink_bonus(node), score)
 
 
 class MixedHighScoreStrategy(ParentSelectionStrategy):
@@ -171,26 +230,39 @@ class MixedHighScoreStrategy(ParentSelectionStrategy):
             for n in tree.list_nodes(conn, campaign=campaign, subset=subset)
         }
 
-        if _coin_explore(pipeline_id):
-            # Broaden half: `(cum_net_gain DESC, score DESC, child_count ASC, tiebreak)`.
+        # Deepest half (off unless DARWINX_GATE_PARENT_DEEPEST_P > 0): extend the
+        # longest line so depth-gated mechanisms become reachable at all.
+        p = _deepest_p()
+        if p > 0 and _coin_deepest(pipeline_id, p):
             scored = []
             for n in eligible:
-                net, score = _rank_key(conn, campaign, n, by_id)
+                net, shrink, score = _rank_key(conn, campaign, n, by_id)
+                depth = _lineage_depth(n, by_id)
+                tb = _tiebreak_hash(pipeline_id, n.id)
+                scored.append((-depth, -net, -shrink, -score, tb, n))
+            scored.sort(key=lambda t: (t[0], t[1], t[2], t[3], t[4]))
+            return scored[0][5]
+
+        if _coin_explore(pipeline_id):
+            # Broaden half: `(cum_net_gain, shrink, score DESC, child_count ASC, tiebreak)`.
+            scored = []
+            for n in eligible:
+                net, shrink, score = _rank_key(conn, campaign, n, by_id)
                 cc = tree.child_count(conn, n.id)
                 tb = _tiebreak_hash(pipeline_id, n.id)
-                scored.append((-net, -score, cc, tb, n))
-            scored.sort(key=lambda t: (t[0], t[1], t[2], t[3]))
-            return scored[0][4]
+                scored.append((-net, -shrink, -score, cc, tb, n))
+            scored.sort(key=lambda t: (t[0], t[1], t[2], t[3], t[4]))
+            return scored[0][5]
 
-        # Exploit half: `(cum_net_gain DESC, score DESC, tiebreak)` — greedy on
+        # Exploit half: `(cum_net_gain, shrink, score DESC, tiebreak)` — greedy on
         # compounding improvement, score only as a tiebreak.
         scored = []
         for n in eligible:
-            net, score = _rank_key(conn, campaign, n, by_id)
+            net, shrink, score = _rank_key(conn, campaign, n, by_id)
             tb = _tiebreak_hash(pipeline_id, n.id)
-            scored.append((-net, -score, tb, n))
-        scored.sort(key=lambda t: (t[0], t[1], t[2]))
-        return scored[0][3]
+            scored.append((-net, -shrink, -score, tb, n))
+        scored.sort(key=lambda t: (t[0], t[1], t[2], t[3]))
+        return scored[0][4]
 
 
 class LlmFirstStrategy(ParentSelectionStrategy):

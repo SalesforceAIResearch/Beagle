@@ -20,6 +20,7 @@ readers parse it.
 
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -448,11 +449,127 @@ def run_campaign(pipeline_cls: type, cfg: Any, tree: Any, *, log=print) -> int:
         rc = pipeline_cls(cfg).run()                 # bootstraps the root; evolves if already scored
         root_id = _unscored_root_id(tree, cfg)
         if root_id is None:
-            return rc                                # root was already scored → that run evolved
+            # That run evolved (the root was already scored), so one node of the
+            # budget is spent. Spend the rest -- returning here is what limited a
+            # RESUMED campaign to a single node.
+            return _evolve_steps(pipeline_cls, cfg, tree, log=log, already_done=1)
     log(f"[darwinx] scoring baseline root {root_id} (bootstrap precursor), then evolving")
     precursor = dataclasses.replace(cfg, bootstrap_only=True, parent_id_override=root_id)
     pipeline_cls(precursor).run()                    # score the root's baseline
-    return pipeline_cls(cfg).run()                   # evolve from the scored root
+    return _evolve_steps(pipeline_cls, cfg, tree, log=log)
+
+
+def _total_steps(cfg: Any) -> int:
+    """How many evolve nodes this campaign should produce (default 1).
+
+    WHY THIS EXISTS. One `SelfEvolvePipeline.run()` produces exactly ONE node.
+    Running it once therefore yields a campaign of a single lineage of length
+    one, in which:
+
+      * parent selection has nothing to choose between,
+      * lineage depth never exceeds 1, so every depth-gated variant (PRUNE at
+        depth>=3, CONSOLIDATE at depth>=2) is unreachable by construction,
+      * a scheduled compaction after K accepted additive nodes can never
+        trigger, because there is never a second accepted node, and
+      * recombination is impossible, since a merge needs two complementary
+        scored children.
+
+    That is not a degraded version of population-based search, it is a different
+    algorithm -- and it is what the hosted path did, while the campaign YAML
+    said `prune_enabled` and `consolidate_enabled` and the logs said nothing.
+    Default stays 1 so an existing single-node run is unchanged.
+    """
+    # The vendored PipelineConfig has no field for this (it was a CLI arg of the
+    # un-vendored supervisor), so it arrives through the env that
+    # DarwinXConfig.to_driver_env() populates.
+    val = getattr(cfg, "total_steps", None) or os.environ.get("DARWINX_EVOLVE_TOTAL_STEPS")
+    try:
+        return max(1, int(val)) if val else 1
+    except (TypeError, ValueError):
+        return 1
+
+
+def _merge_every(cfg: Any) -> int:
+    """Attempt a recombination every N evolve steps (0 = never, the default)."""
+    val = getattr(cfg, "merge_every", None) or os.environ.get("DARWINX_EVOLVE_MERGE_EVERY")
+    try:
+        return max(0, int(val)) if val else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _pair_ids(pair: Any) -> tuple[str, str]:
+    """(primary_id, secondary_id) from whatever shape the selector returned.
+
+    `merge_selection.eligible_pairs` returns `list[tuple[Node, Node]]` today, but
+    a `MergePair` dataclass also exists in that module. Accepting both is the
+    difference between recombination running and it silently never firing --
+    `_try_merge` swallows exceptions so a shape mismatch would look exactly like
+    "no pair was eligible", forever.
+    """
+    primary = getattr(pair, "primary", None)
+    secondary = getattr(pair, "secondary", None)
+    if primary is None or secondary is None:
+        primary, secondary = pair[0], pair[1]
+    return getattr(primary, "id", primary), getattr(secondary, "id", secondary)
+
+
+def _try_merge(cfg: Any, tree: Any, *, log=print) -> bool:
+    """Run one recombination if two complementary scored children exist.
+
+    Returns True if a merge pipeline ran. Never raises: recombination is an
+    opportunistic extra, and a campaign must not die because no pair qualified.
+    """
+    try:
+        from evolve import merge_pipeline, merge_selection
+
+        conn = tree.connect(tree.db_path_for(cfg.reports_root, cfg.campaign))
+        try:
+            pairs = merge_selection.eligible_pairs(
+                conn, campaign=cfg.campaign, subset=cfg.subset_label,
+            )
+        finally:
+            conn.close()
+        if not pairs:
+            log("[darwinx] merge: no complementary pair eligible yet")
+            return False
+        pid, sid = _pair_ids(pairs[0])
+        log(f"[darwinx] merge: recombining {str(pid)[:8]} x {str(sid)[:8]}")
+        mp = merge_pipeline.NodeMergePipeline(
+            merge_pipeline.MergePipelineConfig(
+                base=cfg, primary_parent_id=pid, secondary_parent_id=sid,
+            )
+        )
+        mp.run()
+        return True
+    except Exception as exc:  # noqa: BLE001 — an unmergeable tree is not a failure
+        log(f"[darwinx] merge skipped: {exc!r}")
+        return False
+
+
+def _evolve_steps(
+    pipeline_cls: type, cfg: Any, tree: Any, *, log=print, already_done: int = 0,
+) -> int:
+    """Produce ``total_steps`` nodes, interleaving recombination.
+
+    Sequential on purpose. The driver mutates process-global environment, so
+    in-process parallelism is unsafe; and the atomic claims table already makes
+    it correct to run several `beagle evolve` OS processes against one campaign,
+    which is the supported way to add workers.
+
+    ``already_done`` accounts for a node the caller has produced before reaching
+    here, so the budget means nodes-per-campaign rather than nodes-after-setup.
+    """
+    steps = _total_steps(cfg)
+    every = _merge_every(cfg)
+    rc = 0
+    for step in range(already_done + 1, steps + 1):
+        if steps > 1:
+            log(f"[darwinx] === evolve step {step}/{steps} ===")
+        rc = pipeline_cls(cfg).run()
+        if every and step % every == 0 and step < steps:
+            _try_merge(cfg, tree, log=log)
+    return rc
 
 
 # --- read the winner back ----------------------------------------------------

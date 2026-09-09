@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 import types
+from types import SimpleNamespace
 
 import pytest
 
@@ -28,6 +29,9 @@ def test_deepswe_registered_with_pier_harness() -> None:
     assert h.FRAMEWORK == "pier"
     assert h.ENV_IMPORT_PATH == "xrlenv_plugins.pier:XrlenvPierEnvironmentCluster"
     assert h.SHIM_IMPORT_PATH == "beagle.benchmarks.harness._pier_agent:BeaglePierAgent"
+    local = b.harness_for_runtime("local")
+    assert isinstance(local, PierHarness)
+    assert local.ENV_IMPORT_PATH == "xrlenv_plugins.pier:XrlenvPierEnvironment"
     assert isinstance(b.grader(), InBandGrader)
 
 
@@ -80,9 +84,7 @@ def test_harbor_harness_api_still_resolves_harbor() -> None:
     assert all(k in api for k in ("JobConfig", "RetryConfig", "AgentConfig", "EnvironmentConfig", "TaskConfig"))
 
 
-def test_pier_open_install_egress_helpers(monkeypatch) -> None:
-    """The IP-vs-hostname decision that routes a trial onto pier's open-install path (direct install
-    + iptables run-seal) vs. the Squid domain-filter path. Imports the shim behind a fake `pier`."""
+def _import_pier_shim(monkeypatch):
     import importlib
 
     def _mod(name: str) -> types.ModuleType:
@@ -93,12 +95,18 @@ def test_pier_open_install_egress_helpers(monkeypatch) -> None:
     _mod("pier"); _mod("pier.agents"); _mod("pier.agents.installed")
     _mod("pier.agents.installed.base").BaseInstalledAgent = type(  # type: ignore[attr-defined]
         "BaseInstalledAgent", (), {"__init__": lambda self, *a, **k: None})
+    _mod("pier.agents.network").allowlist_from_urls = list  # type: ignore[attr-defined]
     _mod("pier.environments")
     _mod("pier.environments.base").BaseEnvironment = type("BaseEnvironment", (), {})  # type: ignore[attr-defined]
     _mod("pier.models"); _mod("pier.models.agent")
     _mod("pier.models.agent.context").AgentContext = type("AgentContext", (), {})  # type: ignore[attr-defined]
     monkeypatch.delitem(sys.modules, "beagle.benchmarks.harness._pier_agent", raising=False)
-    m = importlib.import_module("beagle.benchmarks.harness._pier_agent")
+    return importlib.import_module("beagle.benchmarks.harness._pier_agent")
+
+
+def test_pier_open_install_egress_helpers(monkeypatch) -> None:
+    """Legacy configs retain their historical IP-vs-hostname routing decision."""
+    m = _import_pier_shim(monkeypatch)
 
     # deep-swe's LLM-gateway local proxy is a bare IPv4 → open-install path, sealed to /32
     assert m._all_ipv4(["http://192.0.2.20:18088"]) is True
@@ -109,3 +117,178 @@ def test_pier_open_install_egress_helpers(monkeypatch) -> None:
     # mixed or empty → not open-install
     assert m._all_ipv4(["http://192.0.2.20", "https://x.com"]) is False
     assert m._all_ipv4([]) is False
+
+
+def test_pier_phase_split_allowlist_is_empty_but_legacy_is_unchanged(monkeypatch) -> None:
+    m = _import_pier_shim(monkeypatch)
+    fake_agent = type("Agent", (), {
+        "network_hosts": lambda self: ["https://api.openai.com"],
+        "install_hosts": lambda self: ["https://github.com", "https://registry.npmjs.org"],
+    })()
+    shim = m.BeaglePierAgent.__new__(m.BeaglePierAgent)
+    shim._agent = fake_agent
+
+    shim._phase_split_egress = True
+    assert shim.network_allowlist() == []
+
+    shim._phase_split_egress = False
+    assert shim.network_allowlist() == [
+        "https://api.openai.com", "https://github.com", "https://registry.npmjs.org",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_pier_resolves_pins_and_scopes_hostname_egress(monkeypatch) -> None:
+    m = _import_pier_shim(monkeypatch)
+
+    class Env:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict]] = []
+
+        async def exec(self, command: str, **kwargs):
+            self.calls.append((command, kwargs))
+            if command.startswith("getent "):
+                return SimpleNamespace(
+                    return_code=0,
+                    stdout="203.0.113.8 STREAM api.openai.com\n203.0.113.9 STREAM api.openai.com\n",
+                    stderr=None,
+                )
+            return SimpleNamespace(return_code=0, stdout=None, stderr=None)
+
+    env = Env()
+    cidrs, ports = await m._resolve_and_pin_run_egress(
+        env, ["https://api.openai.com/v1"],
+    )
+
+    assert cidrs == ["203.0.113.8/32", "203.0.113.9/32"]
+    assert ports == (443,)
+    assert env.calls[0][0] == "getent ahostsv4 api.openai.com"
+    assert env.calls[1][1]["user"] == "root"
+    assert "203.0.113.8 api.openai.com" in env.calls[1][0]
+
+
+@pytest.mark.asyncio
+async def test_pier_hostname_resolution_failure_aborts_before_seal(monkeypatch) -> None:
+    m = _import_pier_shim(monkeypatch)
+
+    class Env:
+        async def exec(self, command: str, **kwargs):
+            return SimpleNamespace(return_code=2, stdout="", stderr="not found")
+
+    with pytest.raises(RuntimeError, match="could not resolve"):
+        await m._resolve_and_pin_run_egress(Env(), ["https://missing.example"])
+
+
+@pytest.mark.asyncio
+async def test_pier_ip_and_empty_targets_need_no_dns_or_hosts_write(monkeypatch) -> None:
+    m = _import_pier_shim(monkeypatch)
+
+    class Env:
+        async def exec(self, command: str, **kwargs):
+            raise AssertionError(f"unexpected exec: {command}")
+
+    assert await m._resolve_and_pin_run_egress(
+        Env(), ["http://192.0.2.20:18088/v1"],
+    ) == (["192.0.2.20/32"], (18088,))
+    assert await m._resolve_and_pin_run_egress(Env(), []) == ([], None)
+
+
+@pytest.mark.asyncio
+async def test_pier_rejects_heterogeneous_ports_instead_of_broadening(monkeypatch) -> None:
+    m = _import_pier_shim(monkeypatch)
+
+    class Env:
+        async def exec(self, command: str, **kwargs):
+            raise AssertionError(f"unexpected exec: {command}")
+
+    with pytest.raises(ValueError, match="heterogeneous endpoint ports"):
+        await m._resolve_and_pin_run_egress(
+            Env(), ["https://192.0.2.10", "http://192.0.2.20:8080"],
+        )
+
+
+@pytest.mark.parametrize(
+    "host", ["https://bad host/v1", "https://x.test:99999", "ftp://x.test/file"],
+)
+def test_pier_rejects_malformed_run_targets(monkeypatch, host: str) -> None:
+    m = _import_pier_shim(monkeypatch)
+    with pytest.raises(ValueError, match="invalid RUN egress"):
+        m._run_egress_targets([host])
+
+
+@pytest.mark.asyncio
+async def test_pier_phase_split_seals_before_agent_run(monkeypatch, tmp_path) -> None:
+    m = _import_pier_shim(monkeypatch)
+    state = {"sealed": False, "ran": False}
+
+    class Agent:
+        def network_hosts(self):
+            return ["https://api.openai.com"]
+
+        def run_in(self, handle, task, task_ctx, *, runtime):
+            assert state["sealed"] is True
+            state["ran"] = True
+            return m.TaskResult(task_id=task.task_id, status=m.RolloutStatus.COMPLETED)
+
+    class Env:
+        def task_internet_disabled(self):
+            return True
+
+        async def exec(self, command: str, **kwargs):
+            if command.startswith("getent "):
+                return SimpleNamespace(
+                    return_code=0, stdout="203.0.113.8 STREAM api.openai.com\n", stderr=None,
+                )
+            return SimpleNamespace(return_code=0, stdout=None, stderr=None)
+
+        async def apply_egress(self, cidrs, *, ports=None):
+            assert cidrs == ["203.0.113.8/32"]
+            assert ports == (443,)
+            state["sealed"] = True
+
+    shim = m.BeaglePierAgent.__new__(m.BeaglePierAgent)
+    shim._agent = Agent()
+    shim._phase_split_egress = True
+    shim._install_error = None
+    shim._task_ctx = None
+    shim._logs_dir = tmp_path / "agent"
+    shim._handle = object()
+    shim._runtime = object()
+
+    await shim.run("fix it", Env(), object())
+
+    assert state == {"sealed": True, "ran": True}
+
+
+@pytest.mark.asyncio
+async def test_pier_phase_split_leaves_online_task_open(monkeypatch, tmp_path) -> None:
+    m = _import_pier_shim(monkeypatch)
+    state = {"ran": False}
+
+    class Agent:
+        def network_hosts(self):
+            return ["https://api.openai.com"]
+
+        def run_in(self, handle, task, task_ctx, *, runtime):
+            state["ran"] = True
+            return m.TaskResult(task_id=task.task_id, status=m.RolloutStatus.COMPLETED)
+
+    class Env:
+        def task_internet_disabled(self):
+            return False
+
+        async def apply_egress(self, cidrs, *, ports=None):
+            raise AssertionError("online task must not be sealed")
+
+    shim = m.BeaglePierAgent.__new__(m.BeaglePierAgent)
+    shim._agent = Agent()
+    shim._phase_split_egress = True
+    shim._install_error = None
+    shim._task_ctx = None
+    shim._logs_dir = tmp_path / "agent"
+    shim._handle = object()
+    shim._runtime = object()
+
+    await shim.run("fix it", Env(), object())
+
+    assert state["ran"] is True

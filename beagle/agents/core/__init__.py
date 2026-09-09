@@ -20,28 +20,42 @@ from beagle.agents.core.base import (
     Agent,
     AgentSource,
     Capability,
-    EditResult,
     Editor,
+    EditResult,
     Evolvable,
     Runnable,
     Topology,
+)
+from beagle.agents.core.provider import (
+    DirectProvider,
+    GatewayArgs,
+    GatewayProvider,
+    InternalProvider,
+    Provider,
+    provider_config,
 )
 from beagle.agents.core.registry import AGENTS, available, build, register
 from beagle.agents.core.spec import AgentSpec, ModelSpec
 
 __all__ = [
+    "AGENTS",
     "Agent",
     "AgentSource",
+    "AgentSpec",
     "Capability",
+    "DirectProvider",
     "EditResult",
     "Editor",
     "Evolvable",
+    "GatewayArgs",
+    "GatewayProvider",
+    "InternalProvider",
+    "ModelSpec",
+    "Provider",
     "Runnable",
     "Topology",
-    "AGENTS",
     "available",
     "build",
+    "provider_config",
     "register",
-    "AgentSpec",
-    "ModelSpec",
 ]

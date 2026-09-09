@@ -3,7 +3,7 @@
 
 This BORROWS the canonical matrix from ``scripts/generate_eval_configs.py`` — each agent's
 ``extra_args`` (e.g. monet's REQUIRED stream flags), each benchmark's ``dataset``/``split`` and
-per-benchmark ``parallelism``, the ``forward_env`` list, and the version→manifest join — so the
+per-benchmark ``parallelism``, profile defaults, and the version→manifest join — so the
 agent/benchmark facts stay in ONE place. What lives HERE is the *experiment* surface: the model,
 reasoning effort, max turns, and the output naming/layout, all exposed as CLI flags.
 
@@ -17,13 +17,17 @@ deep-swe→deepswe, swe-bench-verified→swebench_verified, swe-rebench→swereb
 
 Examples::
 
-    # ONE command = every onboarded agent × every registered benchmark, at the baseline knobs
+    # ONE command = every public agent × every registered benchmark, at the baseline knobs
     # (gpt-5.6-sol / medium / 200 turns). Both matrices come from the canonical tables, so a newly
-    # onboarded agent or benchmark is picked up here with no edit.
+    # onboarded public agent or benchmark is picked up here with no edit.
     python experiments/scripts/generate_eval_configs.py
 
-    # one config
-    python experiments/scripts/generate_eval_configs.py --agents monet-20260826 --benches deep-swe
+    # internal profile: also Monet, Gateway Express, xrlenv-cluster, and cluster parallelism
+    python experiments/scripts/generate_eval_configs.py --internal
+
+    # one internal config
+    python experiments/scripts/generate_eval_configs.py --internal \\
+        --agents monet-20260826 --benches deep-swe
 
     # a variant sweep (different model/effort/turns → different filenames, no collision)
     python experiments/scripts/generate_eval_configs.py --model gpt-5.6 --effort high --max-turns 150
@@ -48,7 +52,7 @@ MANIFEST_DIR = REPO_ROOT / ".beagle" / "agents"
 
 def _load_canonical():
     """Import ``scripts/generate_eval_configs.py`` as a module (it's a script, not a package),
-    to reuse AGENTS / BENCHMARKS / _FORWARD_ENV / _manifests_by_version. No side effects on import."""
+    to reuse the agent/benchmark tables, profiles, and manifest loader. No side effects on import."""
     spec = importlib.util.spec_from_file_location("canonical_gen", CANONICAL)
     assert spec and spec.loader, f"cannot load {CANONICAL}"
     mod = importlib.util.module_from_spec(spec)
@@ -64,25 +68,39 @@ gen = _load_canonical()
 # BENCHMARKS is that ONE command regenerates every config, and a hand-kept copy silently drops any
 # newly-onboarded benchmark from the default sweep (swe-rebench was missing for exactly that
 # reason). Narrow a run with --agents / --benches; never by editing a list here.
-DEF_AGENTS = [label for _n, _v, label in gen.agent_cells()]   # one per experiment COPY
+DEF_AGENTS = [label for _n, _v, label in gen.agent_cells()]   # public-safe copies
+INTERNAL_DEF_AGENTS = [label for _n, _v, label in gen.agent_cells(internal=True)]
 DEF_BENCHES = list(gen.BENCHMARKS)
 DEF_MODEL = "gpt-5.6-sol"
 DEF_EFFORT = "medium"
 DEF_MAX_TURNS = 200
-DEF_PROVIDER = "llm-gateway-express-local-proxy"
-DEF_RUNTIME = "xrlenv-cluster"
+_PUBLIC_PROFILE = gen.profile_defaults()
+_INTERNAL_PROFILE = gen.profile_defaults(internal=True)
+DEF_PROVIDER = _PUBLIC_PROFILE["provider"]
+INTERNAL_DEF_PROVIDER = _INTERNAL_PROFILE["provider"]
+DEF_FORWARD_ENV = list(_PUBLIC_PROFILE["forward_env"])
+INTERNAL_DEF_FORWARD_ENV = list(_INTERNAL_PROFILE["forward_env"])
+DEF_RUNTIME = _PUBLIC_PROFILE["runtime"]
+INTERNAL_DEF_RUNTIME = _INTERNAL_PROFILE["runtime"]
 # Last-resort agent wall clock, emitted explicitly into each config; it applies ONLY to a benchmark
 # that ships no agent budget of its own. A harbor task's own task.toml budget always wins, and is
 # scaled (not replaced) by the multiplier.
 DEF_TIMEOUT = 1800
 DEF_TIMEOUT_MULTIPLIER = 1.0
 DEF_RETRY_INFRA = 2
-DEF_PARALLELISM = 32  # deep-swe overrides lower (from the canonical BENCHMARKS table)
+DEF_PARALLELISM = _PUBLIC_PROFILE["parallelism"]
+INTERNAL_DEF_PARALLELISM = _INTERNAL_PROFILE["parallelism"]
 
 
 #: label -> (harness name, version). A label is the bare harness name while it has one copy, and
 #: ``<name>-<version>`` once it has more, so two copies never collide on a filename or a run.name.
 _CELLS = {label: (name, version) for name, version, label in gen.agent_cells()}
+_CELLS.update({
+    label: (name, version) for name, version, label in gen.agent_cells(internal=True)
+})
+_PUBLIC_CELLS = {
+    label: (name, version) for name, version, label in gen.agent_cells()
+}
 
 
 def _agent_label(value: str) -> str:
@@ -117,7 +135,27 @@ def build_config(agent: str, bench: str, manifest: dict, args: argparse.Namespac
     for k in ("dataset", "split"):
         if b.get(k):
             data_entry[k] = b[k]
-    parallelism = args.parallelism if args.parallelism is not None else b.get("parallelism", DEF_PARALLELISM)
+    default_parallelism = INTERNAL_DEF_PARALLELISM if args.internal else DEF_PARALLELISM
+    parallelism = (
+        args.parallelism if args.parallelism is not None
+        else b.get("parallelism", default_parallelism) if args.internal
+        else default_parallelism
+    )
+    agent_config = {
+        "harness": {"name": harness, "version": version, "source": source},
+        "model": {"name": args.model},
+        "effort": args.effort,
+        "max_turns": args.max_turns,
+        "forward_env": list(args.forward_env),
+        "timeout": args.timeout,
+        "extra_args": a["extra_args"],
+    }
+    if args.provider:
+        if not isinstance(args.provider, dict):
+            raise ValueError("provider override must use the typed provider mapping")
+        agent_config["provider"] = gen.provider_dict(
+            gen.provider_config({"provider": args.provider})
+        )
     return {
         "run": {
             "dir": str(args.results),
@@ -125,7 +163,9 @@ def build_config(agent: str, bench: str, manifest: dict, args: argparse.Namespac
             "runtime": args.runtime,
             "parallelism": parallelism,
             # A two-phase benchmark (SWE-bench) fans patch EVAL out wider than patch generation.
-            **({"parallelism_eval_patches": b["parallelism_eval_patches"]}
+            **({"parallelism_eval_patches": (
+                b["parallelism_eval_patches"] if args.internal else parallelism
+            )}
                if b.get("parallelism_eval_patches") else {}),
             # Scales the TASK's own declared phase budgets. RUN-level, not under `retry`.
             "timeout_multiplier": args.timeout_multiplier,
@@ -133,16 +173,7 @@ def build_config(agent: str, bench: str, manifest: dict, args: argparse.Namespac
             # content outcomes are never re-rolled. See notes/retry-coverage.md.
             "retry": {"infra": args.retry_infra},
         },
-        "agent": {
-            "harness": {"name": harness, "version": version, "source": source},
-            "model": {"name": args.model},
-            "provider": args.provider,
-            "effort": args.effort,
-            "max_turns": args.max_turns,
-            "forward_env": list(gen._FORWARD_ENV),
-            "timeout": args.timeout,
-            "extra_args": a["extra_args"],
-        },
+        "agent": agent_config,
         "data": [data_entry],
     }
 
@@ -166,7 +197,7 @@ def generate(args: argparse.Namespace) -> tuple[int, list[str]]:
     """Write one config per (agent × benchmark) in the flags' cross-product. Returns
     (written, missing-agent names)."""
     manifests = gen._manifests_by_version(Path(args.manifest_dir))
-    missing = [f"{ag} (v{_CELLS[ag][1]})"
+    missing = [f"{ag} ({_CELLS[ag][1]})"
                for ag in args.agents if manifests.get(_CELLS[ag][1]) is None]
     out = Path(args.out)
     print(f"[gen] baseline configs → {out}  (model={args.model} effort={args.effort} turns={args.max_turns})")
@@ -181,16 +212,22 @@ def generate(args: argparse.Namespace) -> tuple[int, list[str]]:
             if not args.check:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_text(_dump(agent, bench, cfg, args), encoding="utf-8")
-            print(f"  {'would write' if args.check else '✓'} {dest.relative_to(REPO_ROOT)}")
+            try:
+                shown = dest.relative_to(REPO_ROOT)
+            except ValueError:
+                shown = dest
+            print(f"  {'would write' if args.check else '✓'} {shown}")
             written += 1
     return written, missing
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Generate baseline eval configs (experiments/).")
-    ap.add_argument("--agents", nargs="+", default=DEF_AGENTS, type=_agent_label,
+    ap.add_argument("--internal", action="store_true",
+                    help="include Monet and default to Gateway Express on xrlenv-cluster")
+    ap.add_argument("--agents", nargs="+", default=None, type=_agent_label,
                     metavar="AGENT",
-                    help=f"experiment copies, as <harness>-<version> (default: all — "
+                    help=f"experiment copies, as <harness>-<version> (public default: "
                          f"{', '.join(DEF_AGENTS)})")
     ap.add_argument("--benches", nargs="+", default=DEF_BENCHES, choices=list(gen.BENCHMARKS),
                     metavar="BENCH", help=f"benchmarks (default: {' '.join(DEF_BENCHES)})")
@@ -199,7 +236,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--max-turns", type=int, default=DEF_MAX_TURNS, dest="max_turns",
                     help=f"agent turn cap (default: {DEF_MAX_TURNS})")
     ap.add_argument("--parallelism", type=int, default=None,
-                    help="override trial parallelism (default: per-benchmark, else 32)")
+                    help="override trial parallelism (public: 1; internal: per-benchmark, else 32)")
     ap.add_argument("--timeout", type=int, default=DEF_TIMEOUT,
                     help="last-resort wall clock s, used only by benchmarks that declare none "
                          f"(default: {DEF_TIMEOUT})")
@@ -209,8 +246,20 @@ def main(argv: list[str] | None = None) -> int:
                          f"(default: {DEF_TIMEOUT_MULTIPLIER} = the task's own value)")
     ap.add_argument("--retry-infra", type=int, default=DEF_RETRY_INFRA, dest="retry_infra",
                     help=f"infra-transient retries (default: {DEF_RETRY_INFRA})")
-    ap.add_argument("--runtime", default=DEF_RUNTIME, help=f"runtime (default: {DEF_RUNTIME})")
-    ap.add_argument("--provider", default=DEF_PROVIDER, help=f"model provider (default: {DEF_PROVIDER})")
+    ap.add_argument("--runtime", default=None, choices=["local", "xrlenv-cluster"],
+                    help="override the profile runtime (public: local; internal: xrlenv-cluster)")
+    ap.add_argument("--provider-type", choices=["direct", "gateway", "internal"],
+                    help="override the profile provider route type")
+    ap.add_argument("--provider-name",
+                    help="provider name (required with every --provider-type)")
+    ap.add_argument("--provider-api-base",
+                    help="gateway API base URL (required for provider type gateway)")
+    ap.add_argument("--provider-api-key-env",
+                    help="gateway API-key environment variable name")
+    ap.add_argument("--provider-auth-header",
+                    help="optional gateway authentication header")
+    ap.add_argument("--forward-env", nargs="+", default=None, metavar="NAME",
+                    help="override credential variables forwarded to the agent container")
     ap.add_argument("--out", default=str(OUT_DIR), metavar="DIR", help="output dir for the .yaml configs")
     ap.add_argument("--results", default=str(RESULTS_DIR), metavar="DIR",
                     help="run.dir baked into each config (where raw results land)")
@@ -218,6 +267,33 @@ def main(argv: list[str] | None = None) -> int:
                     help="onboarded manifests (default: .beagle/agents)")
     ap.add_argument("--check", action="store_true", help="dry-run: list what would be written, write nothing")
     args = ap.parse_args(argv)
+    try:
+        provider_override = gen.provider_override(
+            provider_type=args.provider_type,
+            name=args.provider_name,
+            api_base=args.provider_api_base,
+            api_key_env=args.provider_api_key_env,
+            auth_header=args.provider_auth_header,
+        )
+    except ValueError as exc:
+        ap.error(str(exc))
+
+    profile_agents = INTERNAL_DEF_AGENTS if args.internal else DEF_AGENTS
+    args.agents = args.agents if args.agents is not None else list(profile_agents)
+    if not args.internal:
+        internal_requested = [agent for agent in args.agents if agent not in _PUBLIC_CELLS]
+        if internal_requested:
+            ap.error(f"internal-only agent(s) require --internal: {', '.join(internal_requested)}")
+    args.runtime = args.runtime or (INTERNAL_DEF_RUNTIME if args.internal else DEF_RUNTIME)
+    args.provider = (
+        provider_override if provider_override is not None
+        else INTERNAL_DEF_PROVIDER if args.internal
+        else DEF_PROVIDER
+    )
+    args.forward_env = (
+        args.forward_env if args.forward_env is not None
+        else list(INTERNAL_DEF_FORWARD_ENV if args.internal else DEF_FORWARD_ENV)
+    )
 
     written, missing = generate(args)
     print(f"[gen] {'would generate' if args.check else 'generated'} {written} config(s)")

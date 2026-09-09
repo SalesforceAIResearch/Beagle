@@ -74,23 +74,59 @@ class TrialClassification:
 
 
 def _read_trajectory_activity(traj_path: str | None) -> tuple[Counter, str]:
-    """Return (tool-name counts, concatenated bash command text)."""
+    """Return (tool-name counts, concatenated bash command text).
+
+    Two stream shapes are understood, because the timeout sub-classification is
+    entirely downstream of this function: when it returns nothing, every timeout
+    falls through to ``TIMEOUT_OTHER``, which is a theme the digest does not even
+    render. Measured on the opencode A0 baseline: all 35 timeout trials landed in
+    ``timeout-other`` and none in setup/compute, purely because the stream was
+    not in the shape below.
+
+      monet    ``{"type": "tool_start", "name": "bash", "input": "<cmd>"}``
+      opencode ``{"type": "tool_use", "part": {"type": "tool", "tool": "bash",
+                  "state": {"input": {"command": "<cmd>"}}}}``
+
+    Tool naming happens to agree across the two (``read``/``grep``/``glob``), so
+    :data:`_EXPLORE_TOOLS` needs no per-agent mapping.
+    """
     tools: Counter = Counter()
     cmds: list[str] = []
     if not traj_path:
         return tools, ""
+
+    def _bash_text(inp: object) -> str:
+        """A bash command, whether the harness logs a bare string or an arg map."""
+        if isinstance(inp, dict):
+            return str(inp.get("command") or inp.get("cmd") or "").lower()
+        return str(inp or "").lower()
+
     try:
-        with open(traj_path) as fh:
+        with open(traj_path, errors="replace") as fh:
             for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
                 try:
                     e = json.loads(line)
                 except (json.JSONDecodeError, ValueError):
                     continue
-                if e.get("type") == "tool_start":
+                if not isinstance(e, dict):
+                    continue
+                if e.get("type") == "tool_start":                    # monet
                     name = e.get("name") or e.get("toolName")
                     tools[name] += 1
                     if name == "bash":
-                        cmds.append(str(e.get("input") or "").lower())
+                        cmds.append(_bash_text(e.get("input")))
+                    continue
+                part = e.get("part")                                  # opencode
+                if isinstance(part, dict) and part.get("type") == "tool":
+                    name = part.get("tool") or part.get("name")
+                    if not name:
+                        continue
+                    tools[name] += 1
+                    if name == "bash":
+                        cmds.append(_bash_text((part.get("state") or {}).get("input")))
     except OSError:
         pass
     return tools, " ".join(cmds)

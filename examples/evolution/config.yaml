@@ -5,8 +5,8 @@
 run:
   dir: ./tmp                  # a run lands in <dir>/<name>/
   name: darwin-yaml           # run name = campaign id
-  runtime: xrlenv-cluster     # local | xrlenv-cluster
-  parallelism: 8              # concurrent eval trials
+  runtime: local              # local | xrlenv-cluster
+  parallelism: 1              # concurrent eval trials; keep the one-task smoke simple
 
 # θ — the harness under evolution. opencode: a stable released agent with an experiment copy.
 evolvee:
@@ -21,7 +21,9 @@ evolvee:
       dir: ../beagle-experiments/opencode_v1.18.16                   # local checkout (DarwinX links it in)
   model:
     name: gpt-5.5               # --effort works across model families, so this isolates the model.
-  provider: openai            # opencode's provider id — reads your OPENAI_API_KEY (use `anthropic` for claude)
+  provider:
+    type: direct
+    name: openai            # opencode's provider id — reads your OPENAI_API_KEY (use `anthropic` for claude)
   forward_env:
     - OPENAI_API_KEY          # your provider key, forwarded into the run container (LiteLLM/opencode read it)
   effort: high                # reasoning effort
@@ -35,16 +37,21 @@ evolvee:
 evolver:
   harness:
     name: cursor-agent
-    version: 2026.08.04-aaa8809
+    # version: <cursor-agent --version>  # optional drift gate for a pinned campaign
   model:
-    name: gpt-5.5-high
+    name: auto                # replace with a model shown by `cursor-agent models` to pin it
 
 # the optimizer — DarwinX + its typed knobs (launch paths + effort derived from the run/evolvee).
 algorithm:
   name: darwinx
   hparams:
-    max_loop_iters: 1
+    max_loop_iters: 1             # one proposal attempt
+    n_failure_tasks: 1            # one target task
+    mini_eval_k_samples: 1        # smoke only; use repeated samples for real selection
     fullset_eval_n_attempts: 1
+    fullset_metric: best           # with one attempt, this is one final sample
+    guard_enabled: true
+    anti_cheat: true
 
 # The data — the benchmark + tasks to evolve on. DarwinX is single-benchmark → the first group.
 #
@@ -54,7 +61,7 @@ algorithm:
 # unset to use the benchmark's default. Agent-agnostic: the framing is benchmark-side, not per-agent.
 data:
   - benchmark: terminal_bench_2_1
-    tasks: [bn-fit-modify]                                 # the primary set to evolve on (→ subset_tasks)
+    tasks: [gcode-to-text]                                 # the primary set to evolve on (→ subset_tasks)
     # exclude_task_ids: [flaky-task]                       # → DARWINX_EVAL_EXCLUDE_TASKS (denylist)
     # options:
     #   instruction_template: prompts/my_tb_framing.j2      # override this benchmark's default prompt

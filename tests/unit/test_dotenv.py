@@ -49,6 +49,23 @@ def test_load_override_true_clobbers(tmp_path, monkeypatch) -> None:
     assert os.environ["XEV_KEEP"] == "from-dotenv"
 
 
+def test_cache_path_is_resolved_from_dotenv_directory(tmp_path, monkeypatch) -> None:
+    project = tmp_path / "project"
+    elsewhere = tmp_path / "elsewhere"
+    project.mkdir()
+    elsewhere.mkdir()
+    env = project / ".env"
+    env.write_text("XRLENV_BENCHMARK_CACHE=.cache/xrlenv_benchmark_cache\n")
+    monkeypatch.delenv("XRLENV_BENCHMARK_CACHE", raising=False)
+    monkeypatch.chdir(elsewhere)
+
+    load_project_dotenv(env, verbose=False)
+
+    assert os.environ["XRLENV_BENCHMARK_CACHE"] == str(
+        project / ".cache" / "xrlenv_benchmark_cache"
+    )
+
+
 def test_load_missing_file_is_noop(tmp_path) -> None:
     assert load_project_dotenv(tmp_path / "nope.env", verbose=False) is None
 

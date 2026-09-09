@@ -3,8 +3,8 @@
 
 One shape for both modes: a role block (``evolvee`` / ``evolver`` / ``agent``) carries a nested
 ``harness: {name, version, source}`` (the harness/adapter type + version + INLINE source), a
-``model``, and agent-level knobs (``provider`` / ``forward_env`` / ``effort`` / ``max_turns`` /
-``timeout`` / ``extra_args``); ``data`` is a list of ``{benchmark, tasks, …}``. This module translates that shape
+``model``, and agent-level knobs (``provider`` / ``forward_env`` / ``effort`` /
+``max_turns`` / ``timeout`` / ``extra_args``); ``data`` is a list of ``{benchmark, tasks, …}``. This module translates that shape
 into the framework's typed :class:`~beagle.config.BeagleConfig` (evolution) or
 :class:`~beagle.config.RunConfig` (evaluation) — pydantic validates every field.
 """
@@ -21,7 +21,7 @@ from beagle.config import AgentConfig, BeagleConfig, RunConfig
 
 #: **First-level** knobs — the shared agent vocabulary, spelled at the top of EVERY agent's role
 #: block (uniform across agents; each adapter maps them to its mechanism).
-_GENERIC_KNOBS = ("provider", "effort", "max_turns", "max_tokens", "timeout")
+_GENERIC_KNOBS = ("effort", "max_turns", "max_tokens", "timeout")
 
 #: Agent-harness-specific knobs that USED to sit flat on the role block. Still accepted for
 #: backward-compat, but the canonical home is the agent's ``extra_args: {<agent>_args: …}`` block.
@@ -86,7 +86,7 @@ def agent_dict(role: dict) -> dict:
 
     Canonical shape: the nested ``harness`` block carries the adapter type/version + inline
     ``source``. **First-level** (top of the role block, uniform across EVERY agent) are ``model`` /
-    ``forward_env`` plus the shared vocabulary ``provider`` / ``effort`` / ``max_turns`` /
+    ``forward_env`` / typed ``provider`` plus the shared vocabulary ``effort`` / ``max_turns`` /
     ``max_tokens`` / ``timeout``. An agent-harness's *own* args live under ``extra_args:``, keyed by
     ``<agent>_args`` (``monet_args`` / ``mini_swe_args``) — so a config names which knobs belong to
     which agent. All fold into the agent's freeform ``config``; knobs spelled flat at the top level
@@ -107,6 +107,14 @@ def agent_dict(role: dict) -> dict:
         if role.get(k) is not None and k not in config:
             config[k] = list(role[k]) if k == "monet_args" else role[k]
 
+    if "gateway" in role:
+        raise ValueError(
+            "top-level `gateway:` was replaced by `provider: {type: gateway, "
+            "name: <gateway-name>, extra_args: {api_base, api_key_env, auth_header}}`")
+    if role.get("provider") is not None:
+        from beagle.agents.core.provider import provider_config, provider_dict
+
+        config["provider"] = provider_dict(provider_config({"provider": role["provider"]}))
     if role.get("prompt_override"):
         # Escape hatch (eval/ablation): {system?, instruction?} replaces the agent's own layer-1/2
         # framing. Best-effort — only config-driven adapters apply it. See notes/task-prompt-injection.md.
@@ -225,6 +233,9 @@ def build_evaluation(raw: dict) -> tuple[RunConfig, Path]:
         # attempt as much as to a re-run (it briefly lived under `retry`, which is why RetryPolicy
         # rejects the key with a pointer here).
         "timeout_multiplier": run.get("timeout_multiplier", 1.0),
+        # Internal smoke-test kill switch. It caps only the agent phase and is intentionally absent
+        # from user-facing examples/docs.
+        "debug_max_agent_wall_time_sec": run.get("debug_max_agent_wall_time_sec"),
         "retry": run.get("retry", {}),      # {infra, content}; default = no retry
     })
     return cfg, run_dir

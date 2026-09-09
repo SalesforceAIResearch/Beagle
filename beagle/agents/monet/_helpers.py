@@ -64,8 +64,8 @@ if [ "$need_install" = "1" ]; then
   done
 fi
 npm ci --omit=dev"""
-#: monet-idiosyncratic *behavior* flags only — the gateway (``--provider``) comes
-#: from ``ModelSpec.provider``, not here. stream-json so per-turn events reach stdout
+#: monet-idiosyncratic *behavior* flags only — routing comes from the typed
+#: ``agent.config.provider`` block, not here. stream-json makes per-turn events reach stdout
 #: (one NDJSON line per turn, which the parsers below consume).
 #: ``--permissive-auto-approve`` is monet's documented mode for *ephemeral containers
 #: / benchmarks*: it auto-approves but keeps the narrow catastrophic-only classifier,

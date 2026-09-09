@@ -2583,6 +2583,45 @@ def release_claims(conn: sqlite3.Connection, *, pipeline_id: str) -> int:
         return cur.rowcount or 0
 
 
+def reap_dead_pipelines(
+    conn: sqlite3.Connection, *, campaign: str, host: str | None = None
+) -> list[tuple[str, int]]:
+    """Release claims held by pipelines whose process no longer exists.
+
+    A claim's active-uniqueness scope is the whole campaign, and a pipeline that
+    dies mid-flight -- killed, OOMed, or gone with its host -- never reaches
+    ``release_claims``. Those tasks are then held forever by a process that will
+    never work on them, so they are permanently subtracted from the pool. Enough
+    crashes and every new worker short-circuits on a preflight that correctly
+    reports nothing unclaimed, which reads as "the campaign is out of work" when
+    in fact it is out of *reachable* work. Restarting does not clear it, because
+    the claims outlive the process that took them.
+
+    Only pipelines recorded on ``host`` are reaped: a pid is meaningless on
+    another machine, so a live sibling elsewhere must not be mistaken for dead.
+    Returns ``(pipeline_id, claims_released)`` for each pipeline reaped.
+    """
+    host = host or socket.gethostname()
+    placeholders = ", ".join("?" * len(PIPELINE_NON_TERMINAL))
+    rows = conn.execute(
+        f"SELECT id, pid FROM pipelines WHERE campaign = ? AND host = ? "
+        f"AND status IN ({placeholders})",
+        (campaign, host, *sorted(PIPELINE_NON_TERMINAL)),
+    ).fetchall()
+    reaped: list[tuple[str, int]] = []
+    for row in rows:
+        pid = row["pid"] if isinstance(row, sqlite3.Row) else row[1]
+        pipeline_id = row["id"] if isinstance(row, sqlite3.Row) else row[0]
+        # No recorded pid: nothing to prove it dead, so leave it alone.
+        if not pid or os.path.exists(f"/proc/{int(pid)}"):
+            continue
+        n = release_claims(conn, pipeline_id=pipeline_id)
+        update_pipeline(conn, pipeline_id, status="failed",
+                        finished_at=utcnow_iso())
+        reaped.append((pipeline_id, n))
+    return reaped
+
+
 def list_active_claims(
     conn: sqlite3.Connection,
     *,
@@ -2686,6 +2725,7 @@ __all__ = [
     "ClaimConflict",
     "NODE_STATUSES",
     "PIPELINE_NON_TERMINAL",
+    "reap_dead_pipelines",
     "PIPELINE_TERMINAL",
     "CLAIM_KINDS",
     "EVAL_KINDS",

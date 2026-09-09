@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from xrlenv_plugins.benchmarks.swe_rebench.build_cache import (
     apply_all_patches,
+    is_complete,
     normalize_task_toml_text,
     repin_all,
     set_environment_docker_image,
@@ -240,6 +241,35 @@ def test_apply_all_patches_is_a_noop_when_empty(tmp_path: Path) -> None:
     assert (shard / "a" / "tests" / "test.sh").read_text() == before
 
 
+# ── completeness / interrupted-download recovery ─────────────────────────────
+
+
+def test_is_complete_requires_matching_completed_provenance(tmp_path: Path) -> None:
+    shard = tmp_path / "swe-rebench"
+    _make_task(shard, "a")
+    _make_task(shard, "b")
+
+    # Task directories alone can be leftovers from an interrupted concurrent download.
+    assert is_complete(shard) is False
+
+    provenance = shard / ".dataset-version.json"
+    provenance.write_text(json.dumps({"task_count": 3}))
+    assert is_complete(shard) is False
+
+    provenance.write_text(json.dumps({"task_count": 2}))
+    assert is_complete(shard) is True
+
+
+def test_is_complete_rejects_invalid_provenance(tmp_path: Path) -> None:
+    shard = tmp_path / "swe-rebench"
+    _make_task(shard, "a")
+    provenance = shard / ".dataset-version.json"
+
+    for contents in ("{bad-json", "{}", '{"task_count": 0}', '{"task_count": "1"}'):
+        provenance.write_text(contents)
+        assert is_complete(shard) is False
+
+
 # ── resources: cpu-pinning markers + FAIR memory overrides ───────────────────
 
 
@@ -403,6 +433,7 @@ def test_patch_stage_applies_the_resource_routing(
     shard = tmp_path / "swe-rebench"
     _make_task(shard, "pinned-task", image="swerebench/x:latest")
     _make_task(shard, "hermetic-task", image="swerebench/y:latest")
+    (shard / ".dataset-version.json").write_text(json.dumps({"task_count": 2}))
     monkeypatch.setattr(bc, "CPU_PINNING_TASKS", frozenset({"pinned-task"}))
     monkeypatch.setattr(bc, "MEMORY_OVERRIDES", {"pinned-task": "16G"})
     monkeypatch.setattr(bc, "HERMETICITY_ENV", {"hermetic-task": {"UV_NO_SYNC": "1"}})

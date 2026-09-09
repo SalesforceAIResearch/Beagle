@@ -135,8 +135,14 @@ class HarborEnvRuntime:
             return ExecResult(returncode=124, stdout="", stderr=f"cancelled: {type(e).__name__}")
         except Exception as e:  # noqa: BLE001 — transport/backend error, distinct from timeout
             return ExecResult(returncode=125, stdout="", stderr=f"{type(e).__name__}: {e}")
+        return_code = int(getattr(result, "return_code", 1))
+        # xrlenv's streamed exec currently reports a deadline as -1 instead of
+        # the shell convention 124. Normalize only this sentinel when the caller
+        # actually supplied a deadline; preserve real signal exits such as -9.
+        if timeout_sec is not None and return_code == -1:
+            return_code = 124
         return ExecResult(
-            returncode=int(getattr(result, "return_code", 1)),
+            returncode=return_code,
             stdout=getattr(result, "stdout", None) or "",
             stderr=getattr(result, "stderr", None) or "",
         )

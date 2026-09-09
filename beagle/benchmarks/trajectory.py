@@ -322,7 +322,9 @@ def _monet_to_atif(logs_dir: Path, *, instruction: str, agent_name: str,
         total_prompt_tokens=tc["prompt"] or None,
         total_completion_tokens=tc["completion"] or None,
         total_cached_tokens=tc["cache_read"] or None,
-        total_steps=len(steps),
+        # ATIF total_steps is the agent's LLM-turn count; the initial user
+        # instruction remains a trajectory step but is not an agent turn.
+        total_steps=len(turns),
     ) if (tc["prompt"] or tc["completion"]) else None)
     return Trajectory(
         schema_version="ATIF-v1.7",

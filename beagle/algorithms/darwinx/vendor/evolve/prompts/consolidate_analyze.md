@@ -39,10 +39,10 @@ overlapping rules where the agent visibly cannot tell which applies.
 
 ## The two surfaces
 
-- **SKILLS / accumulated procedures** (the `BUNDLED_SKILLS` entries). Accumulation
+- **SKILLS / accumulated procedures** (the accumulated skill entries). Accumulation
   shows up here first: several narrow, cue-gated skills that overlap. Consolidating
   means replacing them with one general procedure whose cue covers all their cases.
-- **CORE** (`src/` — the agent loop, tool/command dispatch, verification, recovery).
+- **CORE** (`{{ core_path_doc }}` — the agent loop, tool/command dispatch, verification, recovery).
   Consolidating here means collapsing branches: where several guarded paths handle
   variants of one situation, replace them with the general case. You MAY rewrite
   pre-evolve core code to do this; that is what separates this node from a prune.

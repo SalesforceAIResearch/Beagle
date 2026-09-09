@@ -26,7 +26,7 @@ def test_dry_run_prints_plan_and_rolls_out_nothing(tmp_path, monkeypatch, capsys
     cfg_path.write_text(
         "model: {name: gpt-5.5}\n"
         "agent:\n  name: monet\n  config:\n"
-        "    monet_args: [--provider, llm-gateway-express-local-proxy]\n"
+        "    provider: {type: internal, name: llm-gateway-express-local-proxy}\n"
         "    forward_env: [[LLM_GATEWAY_EXPRESS_API_KEY, HOST_KEY]]\n"
         "benchmark: {name: terminal_bench_2_1, task_ids: [t1, t2]}\n"
         "parallelism: 2\nruntime: {kind: xrlenv-cluster}\n")
@@ -39,10 +39,38 @@ def test_dry_run_prints_plan_and_rolls_out_nothing(tmp_path, monkeypatch, capsys
     assert rc == 0
     assert "DRY RUN" in out and "rolls out NOTHING" in out
     assert "t1" in out and "t2" in out                      # task selection shown
-    assert "--provider llm-gateway-express-local-proxy" in out
+    assert "provider internal (llm-gateway-express-local-proxy)" in out
     assert "1/1 host vars set" in out and "HOST_KEY" in out  # gateway pre-flight
     assert "✓ resolves via benchmarks.get" in out           # Runner-lookup pre-flight
     assert "terminal_bench_2_1" in out and "xrlenv-cluster" in out
+
+
+@pytest.mark.parametrize("agent_name", ["mini-swe", "opencode"])
+def test_dry_run_resolves_explicit_gateway_provider(
+    agent_name, tmp_path, monkeypatch, capsys
+) -> None:
+    cfg_path = tmp_path / "gateway.yaml"
+    cfg_path.write_text(
+        "model: {name: gpt-5.5}\n"
+        f"agent:\n  name: {agent_name}\n  config:\n"
+        "    provider:\n"
+        "      type: gateway\n"
+        "      name: org\n"
+        "      extra_args:\n"
+        "        api_base: https://gw.example/openai/v1\n"
+        "        api_key_env: ORG_API_KEY\n"
+        "        auth_header: X-Api-Key\n"
+        "benchmark: {name: terminal_bench_2_1, task_ids: [t1]}\n"
+    )
+    monkeypatch.setenv("ORG_API_KEY", "present")
+    cfg = load_config(str(cfg_path))
+
+    rc = cli._dry_run(cfg, cfg.agent_spec(), _items("t1"), run_dir=_RD)
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "provider    : gateway https://gw.example/openai/v1" in out
+    assert "key from $ORG_API_KEY ✓, X-Api-Key header" in out
 
 
 def test_dry_run_resume_plan_shows_retry_vs_keep(tmp_path, capsys) -> None:
@@ -172,7 +200,7 @@ agent:
     version: v1
     source: {repo: https://x/r, ref: abc, token_env: GH_TOKEN, container_path: /opt/agent}
   model: {name: gpt-5.5}
-  provider: llm-gateway-express-local-proxy
+  provider: {type: internal, name: llm-gateway-express-local-proxy}
   effort: high
   max_turns: 150
   forward_env: [LLM_GATEWAY_EXPRESS_API_KEY]
@@ -192,7 +220,9 @@ def test_canonical_build_evaluation(tmp_path) -> None:
     assert cfg.benchmark.name == "terminal_bench_2_1" and cfg.benchmark.task_ids == ["t1", "t2"]
     # first-level vocabulary + the agent's own `extra_args.monet_args` all land flat in agent.config
     ac = cfg.agent.config
-    assert ac["provider"] and ac["effort"] == "high" and ac["max_turns"] == 150
+    assert ac["provider"] == {
+        "type": "internal", "name": "llm-gateway-express-local-proxy"}
+    assert ac["effort"] == "high" and ac["max_turns"] == 150
     assert ac["token_env"] == "GH_TOKEN" and ac["timeout"] == 1800
     assert ac["monet_args"] == ["--no-monet-md", "--output-format", "stream-json"]
     assert cfg.runtime.kind == "local" and cfg.parallelism == 2
@@ -229,20 +259,24 @@ def test_canonical_first_level_vocab_and_per_agent_extra_args() -> None:
     monet = agent_dict({
         "harness": {"name": "monet", "source": {"repo": "r", "token_env": "GH_TOKEN"}},
         "model": {"name": "m"}, "forward_env": ["A"], "timeout": 1800,
-        "provider": "gw", "effort": "high", "max_turns": 150,
+        "provider": {"type": "internal", "name": "gw"},
+        "effort": "high", "max_turns": 150,
         "extra_args": {"monet_args": ["--x"]}})           # monet's own args = a raw CLI list
     c = monet["config"]
-    assert c["provider"] == "gw" and c["effort"] == "high" and c["max_turns"] == 150  # first-level
+    assert c["provider"] == {"type": "internal", "name": "gw"}
+    assert c["effort"] == "high" and c["max_turns"] == 150
     assert c["monet_args"] == ["--x"]                                                  # extra_args
     assert c["forward_env"] == ["A"] and c["timeout"] == 1800 and c["token_env"] == "GH_TOKEN"
 
     # mini-swe: SAME first-level vocab; its own args are named knobs (config_path) under mini_swe_args
     # — written as the list-of-one-map form and flattened into config.
     mini = agent_dict({"harness": {"name": "mini-swe"}, "model": {"name": "m"},
-                       "provider": "gw", "effort": "high", "max_turns": 150,
+                       "provider": {"type": "internal", "name": "gw"},
+                       "effort": "high", "max_turns": 150,
                        "extra_args": {"mini_swe_args": [{"config_path": "mini.yaml"}]}})
     mc = mini["config"]
-    assert mc["provider"] == "gw" and mc["effort"] == "high" and mc["max_turns"] == 150
+    assert mc["provider"] == {"type": "internal", "name": "gw"}
+    assert mc["effort"] == "high" and mc["max_turns"] == 150
     assert mc["config_path"] == "mini.yaml"
 
     # a plain map under <agent>_args works too; and flat top-level knobs still fold (backward-compat).
@@ -250,8 +284,10 @@ def test_canonical_first_level_vocab_and_per_agent_extra_args() -> None:
                      "extra_args": {"mini_swe_args": {"config_path": "b.yaml"}}})
     assert m2["config"]["config_path"] == "b.yaml"
     legacy = agent_dict({"harness": {"name": "monet"}, "model": {"name": "m"},
-                         "monet_args": ["--a"], "provider": "gw"})
-    assert legacy["config"]["monet_args"] == ["--a"] and legacy["config"]["provider"] == "gw"
+                         "monet_args": ["--a"],
+                         "provider": {"type": "internal", "name": "gw"}})
+    assert legacy["config"]["monet_args"] == ["--a"]
+    assert legacy["config"]["provider"] == {"type": "internal", "name": "gw"}
 
     # source.entrypoint (the invoke/config path — e.g. mini's config YAML) is carried through;
     # dropping it made a repo+ref yaml install mini with an empty entrypoint → `-c /agent/` (#12).
@@ -271,6 +307,39 @@ def test_canonical_folds_prompt_override(tmp_path) -> None:
     p = tmp_path / "ov.yaml"; p.write_text(text)
     cfg, _ = build_evaluation(load(p))
     assert cfg.agent.config["prompt_override"] == {"system": "SYS-P", "instruction": "do {{task}}"}
+
+
+def test_canonical_folds_the_gateway_provider(tmp_path) -> None:
+    # An org's OpenAI-compatible proxy (its own api_base + its own key var). It folds into
+    # agent.config — NOT the model block — because agent.config is the only block the harbor shim
+    # preserves, so the routing survives to the in-trial adapter.
+    from beagle.agents.core.litellm_gateway import resolve_gateway
+    from beagle.cli._canonical import build_evaluation, load
+    text = _CANONICAL_EVAL.replace(
+        "data:\n", "  provider:\n    type: gateway\n    name: org\n    extra_args:\n"
+                   "      api_base: https://gw.example/openai/v1\n"
+                   "      api_key_env: MY_ORG_API_KEY\n      auth_header: x-api-key\ndata:\n")
+    p = tmp_path / "gw.yaml"; p.write_text(text)
+    cfg, _ = build_evaluation(load(p))
+    assert cfg.agent.config["provider"] == {
+        "type": "gateway", "name": "org", "extra_args": {
+            "api_base": "https://gw.example/openai/v1",
+            "api_key_env": "MY_ORG_API_KEY", "auth_header": "x-api-key"}}
+    assert resolve_gateway(cfg.agent.config)["api_base"] == "https://gw.example/openai/v1"
+
+
+def test_canonical_rejects_old_and_malformed_provider_shapes(tmp_path) -> None:
+    from beagle.cli._canonical import build_evaluation, load
+    text = _CANONICAL_EVAL.replace("data:\n", '  gateway: ""\ndata:\n')
+    p = tmp_path / "bad.yaml"; p.write_text(text)
+    with pytest.raises(ValueError, match="top-level `gateway:` was replaced"):
+        build_evaluation(load(p))
+
+    p.write_text(_CANONICAL_EVAL.replace(
+        "provider: {type: internal, name: llm-gateway-express-local-proxy}",
+        "provider: old-scalar"))
+    with pytest.raises(ValueError, match="scalar `provider:` was replaced"):
+        build_evaluation(load(p))
 
 
 def test_canonical_old_agent_key_gives_migration_error(tmp_path) -> None:

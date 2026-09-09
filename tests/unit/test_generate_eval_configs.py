@@ -25,7 +25,7 @@ _MANIFEST = {"name": f"monet_code_{_MONET_VERSION}", "version": _MONET_VERSION,
 
 
 def test_build_config_shape_and_source() -> None:
-    cfg = gen.build_config("monet", "swe-bench-verified", _MANIFEST)
+    cfg = gen.build_config("monet", "swe-bench-verified", _MANIFEST, internal=True)
     assert cfg["run"]["name"] == f"eval-monet-{_MONET_VERSION}-swebench_verified"
     assert cfg["run"]["parallelism_eval_patches"] == 64   # two-phase eval fan-out (SWE-bench only)
     h = cfg["agent"]["harness"]
@@ -58,14 +58,127 @@ def test_build_config_public_manifest_omits_token() -> None:
     assert "token_env" not in src and src["repo"] == public["repo"]
 
 
+def test_public_profile_is_local_direct_and_excludes_monet() -> None:
+    assert {name for name, _version, _label in gen.agent_cells()} == {"mini-swe", "opencode"}
+    cfg = gen.build_config("opencode", "terminal_bench_2_1", _MANIFEST)
+
+    assert cfg["run"]["runtime"] == "local"
+    assert cfg["run"]["parallelism"] == 1
+    assert cfg["agent"]["model"]["name"] == "gpt-5.6-sol"
+    assert cfg["agent"]["effort"] == "medium"
+    assert cfg["agent"]["provider"] == {"type": "direct", "name": "openai"}
+    assert cfg["agent"]["forward_env"] == ["OPENAI_API_KEY"]
+    with pytest.raises(ValueError, match="internal-only"):
+        gen.build_config("monet", "terminal_bench_2_1", _MANIFEST)
+
+
+def test_internal_profile_uses_gateway_cluster_and_includes_monet() -> None:
+    assert "monet" in {name for name, _version, _label in gen.agent_cells(internal=True)}
+    cfg = gen.build_config("monet", "terminal_bench_2_1", _MANIFEST, internal=True)
+
+    assert cfg["run"]["runtime"] == "xrlenv-cluster"
+    assert cfg["run"]["parallelism"] == 32
+    assert cfg["agent"]["provider"] == {
+        "type": "internal", "name": "llm-gateway-express-local-proxy"}
+    assert cfg["agent"]["forward_env"] == gen._INTERNAL_FORWARD_ENV
+
+
+def test_profile_defaults_can_be_overridden() -> None:
+    cfg = gen.build_config(
+        "opencode",
+        "terminal_bench_2_1",
+        _MANIFEST,
+        runtime="xrlenv-cluster",
+        provider={"type": "internal", "name": "custom-proxy"},
+        forward_env=["CUSTOM_API_KEY"],
+    )
+
+    assert cfg["run"]["runtime"] == "xrlenv-cluster"
+    assert cfg["agent"]["provider"] == {"type": "internal", "name": "custom-proxy"}
+    assert cfg["agent"]["forward_env"] == ["CUSTOM_API_KEY"]
+
+    internal_cfg = gen.build_config(
+        "monet",
+        "terminal_bench_2_1",
+        _MANIFEST,
+        internal=True,
+        runtime="local",
+        provider={"type": "internal", "name": "custom-proxy"},
+        forward_env=["CUSTOM_API_KEY"],
+    )
+    assert internal_cfg["run"]["runtime"] == "local"
+    assert internal_cfg["agent"]["provider"] == {"type": "internal", "name": "custom-proxy"}
+    assert internal_cfg["agent"]["forward_env"] == ["CUSTOM_API_KEY"]
+
+
+def test_provider_override_rejects_the_removed_scalar_form() -> None:
+    with pytest.raises(ValueError, match="typed provider mapping"):
+        gen.build_config(
+            "opencode",
+            "terminal_bench_2_1",
+            _MANIFEST,
+            provider="custom-proxy",  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="invalid provider configuration"):
+        gen.build_config(
+            "opencode",
+            "terminal_bench_2_1",
+            _MANIFEST,
+            provider={"type": "internal"},
+        )
+
+
+def test_provider_cli_override_builds_type_specific_fields() -> None:
+    assert gen.provider_override(
+        provider_type="direct", name="anthropic"
+    ) == {"type": "direct", "name": "anthropic"}
+    assert gen.provider_override(
+        provider_type="internal", name="deployment-gateway"
+    ) == {"type": "internal", "name": "deployment-gateway"}
+    assert gen.provider_override(
+        provider_type="gateway",
+        name="org",
+        api_base="https://gw.example/v1",
+        api_key_env="ORG_KEY",
+        auth_header="X-Api-Key",
+    ) == {
+        "type": "gateway",
+        "name": "org",
+        "extra_args": {
+            "api_base": "https://gw.example/v1",
+            "api_key_env": "ORG_KEY",
+            "auth_header": "X-Api-Key",
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"provider_type": "direct"}, "provider-name"),
+        ({"provider_type": "internal"}, "provider-name"),
+        ({"provider_type": "gateway", "api_base": "https://gw/v1"}, "provider-name"),
+        ({"provider_type": "gateway", "name": "org"}, "provider-api-base"),
+        ({"provider_type": "gateway", "name": "org", "api_base": "https://gw/v1",
+          "auth_header": "X-Api-Key"}, "provider-api-key-env"),
+        ({"provider_type": "direct", "name": "openai", "api_base": "https://gw/v1"},
+         "gateway fields"),
+        ({"provider_type": None, "name": "openai"}, "require --provider-type"),
+    ],
+)
+def test_provider_cli_override_rejects_invalid_field_combinations(kwargs, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        gen.provider_override(**kwargs)
+
+
 def test_deep_swe_parallelism_override() -> None:
-    cfg = gen.build_config("opencode", "deep-swe", _MANIFEST)
+    cfg = gen.build_config("opencode", "deep-swe", _MANIFEST, internal=True)
     assert cfg["run"]["parallelism"] == 8            # benchmark override, not the default 32
 
 
-def _seed_all(md: Path) -> None:
+def _seed_all(md: Path, *, internal: bool = False) -> None:
     md.mkdir(exist_ok=True)
-    for _name, version, _label in gen.agent_cells():
+    for _name, version, _label in gen.agent_cells(internal=internal):
         (md / f"{version}.json").write_text(json.dumps(
             {"version": version, "repo": f"https://github.com/YOU/{version}",
              "ref": "x" * 6, "token_env": "GH_TOKEN"}))
@@ -93,6 +206,22 @@ def test_build_config_smoke_variant() -> None:
     assert cfg["data"][0]["tasks"] == gen.smoke_tasks("deep-swe")   # the committed sample
 
 
+def test_smoke_requires_seeded_tasks(monkeypatch) -> None:
+    monkeypatch.setattr(gen, "smoke_tasks", lambda _bench: [])
+
+    with pytest.raises(SystemExit, match="--reseed-smoke-tasks"):
+        gen.build_config("mini-swe", "deep-swe", _MANIFEST, smoke=True)
+
+
+def test_internal_smoke_does_not_overprovision_patch_evaluators() -> None:
+    cfg = gen.build_config(
+        "mini-swe", "swe-bench-verified", _MANIFEST, smoke=True, internal=True,
+    )
+
+    assert cfg["run"]["parallelism"] == 2
+    assert cfg["run"]["parallelism_eval_patches"] == 2
+
+
 def test_gate_is_one_config_per_combination(tmp_path) -> None:
     """One 2-task config per copy × benchmark — the gate answers 'does this combination
     work', and a second variant mirroring the sweep's knobs was the sweep's business."""
@@ -117,9 +246,11 @@ def test_generate_skips_unonboarded_agents(tmp_path) -> None:
     (md / "monet.json").write_text(json.dumps(
         {"version": _MONET_VERSION, "repo": "https://github.com/YOU/monet", "ref": "y" * 6}))
     out = tmp_path / "out"
-    written, missing = gen.generate(manifest_dir=md, smoke_root=out, check=False)
+    written, missing = gen.generate(manifest_dir=md, smoke_root=out, check=False, internal=True)
     assert written == len(gen.BENCHMARKS) * len(gen.SMOKE_VARIANTS)   # only monet's row
     assert any("mini-swe" in m for m in missing) and any("opencode" in m for m in missing)
+    assert f"mini-swe-{_MINISWE_VERSION} ({_MINISWE_VERSION})" in missing
+    assert all("(vv" not in item for item in missing)
 
 
 def test_manifests_by_version_raises_on_duplicate(tmp_path) -> None:
@@ -158,6 +289,103 @@ def test_experiment_defaults_cover_the_whole_canonical_matrix() -> None:
     assert "swe-rebench" in exp.DEF_BENCHES
 
 
+def test_experiment_generator_profiles(tmp_path) -> None:
+    exp = _experiments_gen()
+    manifests = tmp_path / "manifests"
+    _seed_all(manifests, internal=True)
+
+    public_out = tmp_path / "public"
+    assert exp.main([
+        "--manifest-dir", str(manifests), "--out", str(public_out),
+        "--results", str(tmp_path / "results"),
+    ]) == 0
+    public_files = sorted(public_out.glob("*.yaml"))
+    assert public_files
+    assert not any(path.name.startswith("monet-") for path in public_files)
+    public_cfg = yaml.safe_load(public_files[0].read_text(encoding="utf-8"))
+    assert public_cfg["run"]["runtime"] == "local"
+    assert public_cfg["run"]["parallelism"] == 1
+    assert public_cfg["agent"]["provider"] == {"type": "direct", "name": "openai"}
+    assert public_cfg["agent"]["forward_env"] == ["OPENAI_API_KEY"]
+    public_swe = yaml.safe_load(next(
+        public_out.glob("*_swebench_verified_*.yaml")
+    ).read_text(encoding="utf-8"))
+    assert public_swe["run"]["parallelism_eval_patches"] == 1
+
+    internal_out = tmp_path / "internal"
+    assert exp.main([
+        "--internal", "--manifest-dir", str(manifests), "--out", str(internal_out),
+        "--results", str(tmp_path / "results"),
+    ]) == 0
+    monet_file = next(internal_out.glob("monet-*_swebench_verified_*.yaml"))
+    internal_cfg = yaml.safe_load(monet_file.read_text(encoding="utf-8"))
+    assert internal_cfg["run"]["runtime"] == "xrlenv-cluster"
+    assert internal_cfg["run"]["parallelism_eval_patches"] == 64
+    assert internal_cfg["agent"]["provider"] == {
+        "type": "internal", "name": "llm-gateway-express-local-proxy"}
+    assert internal_cfg["agent"]["forward_env"] == gen._INTERNAL_FORWARD_ENV
+
+
+def test_experiment_generator_rejects_monet_without_internal(tmp_path) -> None:
+    exp = _experiments_gen()
+    with pytest.raises(SystemExit, match="2"):
+        exp.main([
+            "--agents", f"monet-{_MONET_VERSION}",
+            "--manifest-dir", str(tmp_path),
+            "--out", str(tmp_path / "out"),
+        ])
+
+
+def test_experiment_missing_hint_does_not_double_version_prefix(
+    tmp_path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    exp = _experiments_gen()
+
+    assert exp.main([
+        "--check",
+        "--manifest-dir", str(tmp_path),
+        "--out", str(tmp_path / "out"),
+    ]) == 1
+    output = capsys.readouterr().out
+    assert f"mini-swe-{_MINISWE_VERSION} ({_MINISWE_VERSION})" in output
+    assert "(vv" not in output
+
+
+def test_experiment_generator_profile_overrides(tmp_path) -> None:
+    exp = _experiments_gen()
+    manifests = tmp_path / "manifests"
+    _seed_all(manifests)
+    out = tmp_path / "out"
+
+    assert exp.main([
+        "--agents", f"opencode-{gen.AGENTS['opencode']['versions'][0]}",
+        "--benches", "terminal_bench_2_1",
+        "--runtime", "xrlenv-cluster",
+        "--provider-type", "gateway",
+        "--provider-name", "custom-proxy",
+        "--provider-api-base", "https://gw.example/v1",
+        "--provider-api-key-env", "CUSTOM_API_KEY",
+        "--provider-auth-header", "X-Api-Key",
+        "--forward-env", "CUSTOM_API_KEY",
+        "--parallelism", "7",
+        "--manifest-dir", str(manifests),
+        "--out", str(out),
+    ]) == 0
+    cfg = yaml.safe_load(next(out.glob("*.yaml")).read_text(encoding="utf-8"))
+    assert cfg["run"]["runtime"] == "xrlenv-cluster"
+    assert cfg["run"]["parallelism"] == 7
+    assert cfg["agent"]["provider"] == {
+        "type": "gateway",
+        "name": "custom-proxy",
+        "extra_args": {
+            "api_base": "https://gw.example/v1",
+            "api_key_env": "CUSTOM_API_KEY",
+            "auth_header": "X-Api-Key",
+        },
+    }
+    assert cfg["agent"]["forward_env"] == ["CUSTOM_API_KEY"]
+
+
 def test_artifact_names_are_symmetric_across_agents() -> None:
     # Every cell is named <harness>-<version>, whether or not the agent has a second copy. A rule
     # that keyed off sibling count would rename an agent's artifacts the moment someone added a
@@ -173,14 +401,15 @@ def test_two_copies_of_one_harness_do_not_collide(monkeypatch, tmp_path) -> None
     in the results dir)."""
     monkeypatch.setitem(gen.AGENTS["monet"], "versions", ["20260826", "20260816"])
 
-    cells = [(n, v, label) for n, v, label in gen.agent_cells() if n == "monet"]
+    cells = [(n, v, label) for n, v, label in gen.agent_cells(internal=True) if n == "monet"]
     assert cells == [("monet", "20260826", "monet-20260826"),
                      ("monet", "20260816", "monet-20260816")]
     # ...and the OTHER agents' names are untouched by monet gaining a copy
     assert ("mini-swe", "v2.4.6", "mini-swe-v2.4.6") in list(gen.agent_cells())
 
     # the adapter is still `monet` in both; only the version (and the artifact name) differ
-    cfgs = [gen.build_config("monet", "deep-swe", {"repo": "r", "ref": "x"}, version=v)
+    cfgs = [gen.build_config("monet", "deep-swe", {"repo": "r", "ref": "x"}, version=v,
+                             internal=True)
             for _n, v, _l in cells]
     assert [c["agent"]["harness"]["name"] for c in cfgs] == ["monet", "monet"]
     assert [c["agent"]["harness"]["version"] for c in cfgs] == ["20260826", "20260816"]
@@ -191,7 +420,7 @@ def test_two_copies_of_one_harness_do_not_collide(monkeypatch, tmp_path) -> None
     for v in ("20260826", "20260816"):
         (md / f"{v}.json").write_text(json.dumps(
             {"version": v, "repo": f"https://github.com/YOU/monet_{v}", "ref": "z" * 6}))
-    written, _missing = gen.generate(manifest_dir=md, smoke_root=out, check=False)
+    written, _missing = gen.generate(manifest_dir=md, smoke_root=out, check=False, internal=True)
     assert written == 2 * len(gen.BENCHMARKS) * len(gen.SMOKE_VARIANTS)   # both copies generated
     for v in ("20260826", "20260816"):
         doc = yaml.safe_load((out / "deep-swe" / f"monet-{v}_smoke2.yaml").read_text())
@@ -207,7 +436,7 @@ def test_two_copies_get_distinct_smoke_filenames(monkeypatch, tmp_path) -> None:
     md.mkdir()
     for v in ("20260826", "20260816"):
         (md / f"{v}.json").write_text(json.dumps({"version": v, "repo": "R", "ref": "z" * 6}))
-    gen.generate(manifest_dir=md, smoke_root=smk)
+    gen.generate(manifest_dir=md, smoke_root=smk, internal=True)
 
     for v in ("20260826", "20260816"):
         assert (smk / "deep-swe" / f"monet-{v}_smoke2.yaml").exists()
@@ -314,14 +543,14 @@ def test_version_must_be_a_safe_path_component(monkeypatch) -> None:
     # dir), so a '/' would quietly create a nested directory instead of one artifact.
     monkeypatch.setitem(gen.AGENTS["monet"], "versions", ["release/1.2"])
     with pytest.raises(SystemExit, match="filename component"):
-        list(gen.agent_cells())
+        list(gen.agent_cells(internal=True))
 
 
 def test_empty_versions_list_is_rejected(monkeypatch) -> None:
     # Silently generating zero configs for an agent is worse than refusing to start.
     monkeypatch.setitem(gen.AGENTS["monet"], "versions", [])
     with pytest.raises(SystemExit, match="lists no versions"):
-        list(gen.agent_cells())
+        list(gen.agent_cells(internal=True))
 
 
 def test_timeout_knobs_are_annotated_in_the_generated_yaml() -> None:
@@ -329,7 +558,7 @@ def test_timeout_knobs_are_annotated_in_the_generated_yaml() -> None:
     to travel WITH the value, and the multiplier — the knob people should actually reach for — has
     to be present at all, not omitted whenever it happens to be 1.0."""
     body = gen._dump("monet", "terminal_bench_2_1", gen.build_config(
-        "monet", "terminal_bench_2_1", _MANIFEST))
+        "monet", "terminal_bench_2_1", _MANIFEST, internal=True))
     lines = body.splitlines()
     ti = next(i for i, ln in enumerate(lines) if ln.strip().startswith("timeout:"))
     mi = next(i for i, ln in enumerate(lines) if ln.strip().startswith("timeout_multiplier:"))
@@ -344,7 +573,7 @@ def test_version_with_a_trailing_newline_is_rejected(monkeypatch) -> None:
     # produced a filename containing a newline. fullmatch + \Z is the fix.
     monkeypatch.setitem(gen.AGENTS["monet"], "versions", ["release-1.2\n"])
     with pytest.raises(SystemExit, match="filename component"):
-        list(gen.agent_cells())
+        list(gen.agent_cells(internal=True))
 
 
 def test_no_tracked_file_puts_timeout_multiplier_under_retry() -> None:

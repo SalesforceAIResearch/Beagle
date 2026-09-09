@@ -1,10 +1,8 @@
-"""A hosted campaign can say what a node's score is, and cannot say it uselessly.
+"""Compatibility coverage for the intended panel-vs-mixture node-score field.
 
-The contract these pin is narrow but it is the one the drop-in exists for: every knob the driver
-honours must be expressible in the typed config, because a knob that is not expressible does not
-error -- the campaign just runs with the driver's default and nobody finds out until the results are
-read. Here the default is single-benchmark selection, which is exactly what the mixture was set up
-to avoid.
+The current gate records mixture fitness, but the vendored parent selector does not consume the
+``DARWINX_GATE_NODE_SCORE`` variable. Keep the typed translation stable for existing configs without
+documenting it as a working multi-benchmark search objective.
 """
 from __future__ import annotations
 
@@ -54,7 +52,8 @@ def test_the_error_says_what_goes_wrong_not_just_what_is_disallowed():
     with pytest.raises(ValidationError) as exc:
         _cfg(node_score="mixture", mixture_gate=False)
     msg = str(exc.value)
-    assert "ties" in msg or "0.0" in msg
+    assert "compatibility field" in msg
+    assert "parent selector does not consume" in msg
 
 
 def test_panel_scoring_needs_no_gate():

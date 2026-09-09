@@ -149,26 +149,126 @@ def scan_diff(
 # budget, and the proposer/verdict track code-edits vs skill-edits separately.
 _SKILL_MARKERS = ("/skills/", "skills/", "skill.md", "bundled-skills", "skill-installer")
 
+# A "plugin" is code the evolvee LOADS from a mounted extension directory through a fixed hook
+# (opencode: ``.opencode/plugin{,s}/*.{ts,js}`` implementing ``tool.execute.before``,
+# ``chat.params`` and friends). Like a skill it is purely additive and cannot restructure the
+# agent loop, but unlike a skill it carries executable behaviour — the missing middle rung between
+# prose guidance and a shared-core edit. Empty by default: monet has no such surface, and a
+# non-empty default would silently reclassify some of its core edits as bounded-risk plugin edits,
+# which is the same wrong-evolvee failure the surface knobs exist to prevent.
+_PLUGIN_MARKERS: tuple[str, ...] = ()
+
+
+def _surface_paths(env_name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    """Path substrings naming a surface of THIS evolvee, overridable because they ARE the guard.
+
+    The defaults name monet's files. Pointed at any other evolvee they match nothing, and every
+    guard keyed to them becomes a no-op that still logs as though it ran. Measured 2026-08-26 on
+    opencode: an 80-line additive edit to ``packages/opencode/src/session/`` drew zero violations,
+    while the identical edit to monet's ``src/query/loop.js`` was bounced pre-eval. The proposer
+    was meanwhile told its only skill surface was ``src/core/bundled-skills.js``, a file opencode
+    does not have, so it spent both of its iterations editing the system prompt instead.
+    """
+    import os
+    raw = (os.environ.get(env_name) or "").strip()
+    if not raw:
+        return default
+    return tuple(x.strip().lower() for x in raw.split(",") if x.strip())
+
+
+_MONET_SKILL_DOC = (
+    "add a NEW, narrow, cue-gated skill as an entry in the BUNDLED_SKILLS array in "
+    "src/core/bundled-skills.js (additive, ships with the agent, cannot regress unrelated "
+    "tasks) — do NOT rewrite src/query/loop.js, and do NOT use .monet/skills/ (that dir is "
+    "gitignored/runtime-only and will NOT persist)"
+)
+
+
+def skill_target_doc() -> str:
+    """How THIS evolvee wants a new skill added, in the words the proposer will read.
+
+    Hardcoding monet's answer here is what made the guidance actively wrong for opencode:
+    it names a file the evolvee lacks, and dismisses the runtime skills dir as non-persistent
+    when for opencode ``.opencode/skills/`` is committed and discovered at startup.
+    """
+    import os
+    return (os.environ.get("DARWINX_GATE_SKILL_TARGET_DOC") or "").strip() or _MONET_SKILL_DOC
+
+
+def evolvee_label() -> str:
+    """What to call the agent under evolution in the proposer's instructions."""
+    import os
+    return (os.environ.get("DARWINX_GATE_EVOLVEE_LABEL") or "").strip() or "monet"
+
+
+def core_path_doc() -> str:
+    """Where THIS evolvee's core lives, as the proposer should read it."""
+    import os
+    return (os.environ.get("DARWINX_GATE_CORE_PATH_DOC") or "").strip() or "src/"
+
+
+def prompt_surface_rule() -> str:
+    """The prompt-surface prohibition, or empty when this evolvee has no separate one.
+
+    Empty for monet, whose campaigns never split the prompt out of core; set for evolvees where
+    a prompt edit would otherwise be the cheapest-looking general change and is bounced.
+    """
+    import os
+    return (os.environ.get("DARWINX_GATE_PROMPT_RULE_DOC") or "").strip()
+
+
+def plugin_target_doc() -> str:
+    """How THIS evolvee loads a plugin, in the words the proposer will read.
+
+    Empty when the evolvee has no loaded-extension surface (monet), in which case the proposer is
+    told about core and skills only. The hook names belong to the evolvee, not to darwinx, so they
+    are declared alongside the paths: naming a hook the evolvee does not have is the same defect as
+    naming a skill file it does not have, which is what sent the last two iterations at the prompt.
+    """
+    import os
+    return (os.environ.get("DARWINX_GATE_PLUGIN_TARGET_DOC") or "").strip()
+
 
 def is_skill_path(path: str) -> bool:
     p = (path or "").lower()
-    return any(m in p for m in _SKILL_MARKERS)
+    return any(m in p for m in _surface_paths("DARWINX_GATE_SKILL_PATH_MARKERS", _SKILL_MARKERS))
+
+
+def is_plugin_path(path: str) -> bool:
+    """Whether ``path`` is one of THIS evolvee's loaded plugin/hook files.
+
+    False for every path until the evolvee declares ``DARWINX_GATE_PLUGIN_PATHS``, and declaring it
+    is only half the job: the harness must actually mount the root the paths name, or a plugin the
+    eval never loads measures zero however good the hook is. That is why ``_canonical`` refuses to
+    launch when a declared plugin surface is not covered by the harness's mounted extension dir.
+    """
+    p = (path or "").lower()
+    return any(m in p for m in _surface_paths("DARWINX_GATE_PLUGIN_PATHS", _PLUGIN_MARKERS))
 
 
 def classify_diff_surface(diff_text: str) -> str:
-    """Classify a diff's surface: 'skill', 'code', 'mixed', or 'none'.
+    """Classify a diff's surface: 'skill', 'plugin', 'code', 'mixed', or 'none'.
 
-    Used to keep code and skill improvements separately attributable (and to let
-    the gate/verdict prefer additive skill changes)."""
+    Used to keep core and extension improvements separately attributable (and to let the
+    gate/verdict prefer additive changes). ``mixed`` means the shared core is involved *too*:
+    a skill-and-plugin diff stays bounded on every side, so labelling it ``mixed`` would forfeit
+    the additive bias it has earned. Where the two overlap, plugin wins — it is the stricter
+    reading, since a plugin ships executable code and a skill only prose."""
     files = [raw[6:] for raw in diff_text.splitlines() if raw.startswith("--- a/")]
     files += [raw[6:] for raw in diff_text.splitlines() if raw.startswith("+++ b/")]
     files = [f for f in files if f and f != "/dev/null"]
     if not files:
         return "none"
-    skill = any(is_skill_path(f) for f in files)
-    code = any((not is_skill_path(f)) and ("test" not in f.lower()) for f in files)
-    if skill and code:
+    plugin = any(is_plugin_path(f) for f in files)
+    skill = any(is_skill_path(f) and not is_plugin_path(f) for f in files)
+    code = any(
+        (not is_skill_path(f)) and (not is_plugin_path(f)) and ("test" not in f.lower())
+        for f in files
+    )
+    if code and (skill or plugin):
         return "mixed"
+    if plugin:
+        return "plugin"
     return "skill" if skill else "code"
 
 
@@ -221,15 +321,31 @@ def scan_diff_locality(
     removed = 0
     removed_by_file: dict[str, int] = {}
     churn_by_file: dict[str, int] = {}      # added + removed, per file (NEW)
+    new_files: set[str] = set()             # created by this diff, not modified by it
     cur: str | None = None
     for raw in diff_text.splitlines():
+        # Reset on the file header. Without this, a NEW file's lines are charged to
+        # whichever file preceded it in the diff: git writes `--- /dev/null` for a
+        # creation, which does not match `--- a/`, so `cur` kept its previous value
+        # and the `+++ b/` branch below declined to correct it because `cur` was
+        # neither empty nor "/dev/null". Measured on the reverted candidate
+        # d99cfe39: prompt.ts was charged churn=228 (its own 34 plus the 194 lines
+        # of the new test file that followed it) and tripped a budget of 40 that its
+        # real 34 lines were inside.
+        if raw.startswith("diff --git "):
+            cur = None
+            continue
         if raw.startswith("--- a/"):
             cur = raw[6:]
+            continue
+        if raw.startswith("--- /dev/null"):
+            cur = "/dev/null"               # a creation; the real path arrives on `+++ b/`
             continue
         if raw.startswith("+++ b/"):
             # prefer the b/ path when a/ is /dev/null (pure new file)
             if not cur or cur == "/dev/null":
                 cur = raw[6:]
+                new_files.add(cur)
             continue
         if raw.startswith("---") or raw.startswith("+++"):
             continue
@@ -239,8 +355,8 @@ def scan_diff_locality(
             if cur:
                 churn_by_file[cur] = churn_by_file.get(cur, 0) + 1
         if is_del:
-            if cur and is_skill_path(cur):
-                continue  # skill-surface removals are additive-safe (no shared core)
+            if cur and (is_skill_path(cur) or is_plugin_path(cur)):
+                continue  # extension-surface removals are additive-safe (no shared core)
             removed += 1
             if cur:
                 removed_by_file[cur] = removed_by_file.get(cur, 0) + 1
@@ -255,23 +371,81 @@ def scan_diff_locality(
     # GATE + eval judge whether a new bundled skill is too broad. Only genuine
     # execution-core (loop/dispatch) churn is bounced pre-eval here.
     core_budget = _churn_budget("DARWINX_GATE_SHARED_CORE_CHURN_BUDGET", 40)
+    # A file this diff CREATES gets its own, larger budget, for the same reason the
+    # skill registry is exempted just above: charging it the modification budget
+    # deadlocks the proposer, because there is then no surface on which a capability
+    # can be written at all.
+    #
+    # This rule exists to stop a broad REWRITE of shared logic, whose danger is that
+    # it changes behavior every task already depends on. A new file changes nothing
+    # by itself -- it runs only if an existing file calls it, and that call site is
+    # an ordinary modification counted against `core_budget` above. So the thing the
+    # rule protects is still protected.
+    #
+    # Measured on this campaign: the first four candidates were all the same shape --
+    # a new capability file in src/session/ (67, 347, 152, 185 lines), a hook into
+    # prompt.ts of 19-34 lines which was INSIDE the 40-line budget every time, and
+    # tests, with ZERO deletions anywhere. All four were reverted as "broad shared-core
+    # change", so four nodes produced no candidate while the proposer was doing exactly
+    # the additive, tested work the method asks for. A budget that no realistic
+    # TypeScript capability can satisfy is not a constraint, it is a deadlock.
+    new_budget = _churn_budget("DARWINX_GATE_NEW_CORE_FILE_CHURN_BUDGET", 250)
     for f, churn in churn_by_file.items():
         fl = f.lower()
-        if any(s in fl for s in _GLOBAL_BUNDLE_SUBSTRINGS):
+        if any(s in fl for s in _surface_paths(
+                "DARWINX_GATE_GLOBAL_BUNDLE_PATHS", _GLOBAL_BUNDLE_SUBSTRINGS)):
             continue  # skill-registry edits go through the skill path (additive)
-        if any(s in fl for s in _SHARED_CORE_SUBSTRINGS) and churn > core_budget:
+        if not any(s in fl for s in _surface_paths(
+                "DARWINX_GATE_SHARED_CORE_PATHS", _SHARED_CORE_SUBSTRINGS)):
+            continue
+        is_new = f in new_files
+        budget = new_budget if is_new else core_budget
+        if churn <= budget:
+            continue
+        what = ("added as a NEW file in" if is_new else "changed in")
+        # The remedy differs by case, and naming the wrong one keeps the proposer retrying a
+        # shape that cannot be accepted. Measured: candidate 2d1344c added 82 lines to the
+        # EXISTING prompt.ts and was told to "add a skill" -- while the shape the method
+        # wants, and the budget already permits, is the bulk in a NEW file on the same core
+        # surface plus a small hook here. That is what the earlier candidates did (new file
+        # plus a 19-34 line hook, inside the budget every time).
+        if is_new:
+            remedy = (f"This is already the larger new-file budget, so narrow the capability "
+                      f"or split it across files. Alternatively {skill_target_doc()}")
+        else:
+            remedy = (f"INSTEAD put the bulk of the capability in a NEW file on this same "
+                      f"core surface -- a new file gets a much larger budget ({new_budget} "
+                      f"lines), because it changes no existing behaviour until something "
+                      f"calls it -- and leave only a SMALL hook (under {core_budget} lines) "
+                      f"in this existing file. A new file plus a short call site is "
+                      f"accepted; a large in-place addition is not. Failing that, "
+                      f"{skill_target_doc()}")
+        violations.append(Violation(
+            kind="broad_shared_core_change",
+            pattern=(f"{churn} lines {what} the evolvee's shared execution core "
+                     f"(budget {budget}) — the fault is task-specific, so a "
+                     f"broad shared-core edit can't be the localized fix and "
+                     f"regresses unrelated tasks. {remedy}"),
+            file=f, line=f"churn={churn} in {f}",
+        ))
+
+    # (3) PROMPT-surface edit — bounced outright rather than budgeted. A prompt edit is paid for
+    # by every task, can't be credited to the capability it was meant to add, and leaves nothing
+    # the agent carries into a task the prompt didn't anticipate. Both of the first two opencode
+    # candidates were this exact shape — a verification block appended to the system prompt for
+    # all GPT models — and each measured zero gain on every claimed task. This campaign evolves
+    # the agent's own capability, so the proposer is sent to code or to a skill instead. Empty by
+    # default: monet's campaigns never separated this surface and must keep their behavior.
+    prompt_paths = _surface_paths("DARWINX_GATE_PROMPT_PATHS", ())
+    for f, churn in churn_by_file.items():
+        if any(x in f.lower() for x in prompt_paths):
             violations.append(Violation(
-                kind="broad_shared_core_change",
-                pattern=(f"{churn} lines changed in monet's shared execution core "
-                         f"(budget {core_budget}) — the fault is task-specific, so a "
-                         f"broad shared-core edit can't be the localized fix and "
-                         f"regresses unrelated tasks. INSTEAD add a NEW, narrow, "
-                         f"cue-gated skill as an entry in the BUNDLED_SKILLS array in "
-                         f"src/core/bundled-skills.js (additive, ships with the agent, "
-                         f"cannot regress unrelated tasks) — do NOT rewrite "
-                         f"src/query/loop.js, and do NOT use .monet/skills/ (that dir "
-                         f"is gitignored/runtime-only and will NOT persist)"),
-                file=f, line=f"churn={churn} in {f}",
+                kind="prompt_surface_edit",
+                pattern=("edited the agent's PROMPT surface, which every task pays for and no "
+                         "task can be credited for — this campaign evolves the agent's own "
+                         f"capability, in code or in a skill. INSTEAD {skill_target_doc()}"),
+                file=f,
+                line=f"churn={churn} in {f}",
             ))
 
     if removed > max_deletions:
@@ -321,7 +495,8 @@ def _changed_files_from_diff(diff_text: str | None) -> set[str]:
 
 
 def _edit_is_global(changed_files: set[str]) -> bool:
-    return any(any(h in f for h in _GLOBAL_EDIT_HINTS) for f in changed_files)
+    hints = _surface_paths("DARWINX_GATE_GLOBAL_EDIT_PATHS", _GLOBAL_EDIT_HINTS)
+    return any(any(h in f.lower() for h in hints) for f in changed_files)
 
 
 def _task_domain(task: str) -> str:
@@ -448,6 +623,7 @@ __all__ = [
     "scan_diff_locality",
     "classify_diff_surface",
     "is_skill_path",
+    "is_plugin_path",
     "pick_canary_tasks",
     "format_violations_for_prompt",
 ]

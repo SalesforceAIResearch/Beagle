@@ -48,9 +48,9 @@ class ModelConfig(_Base):
     """The model endpoint — ``name`` is the model the agent runs (`--model`).
 
     ``provider`` / ``api_base`` / ``params`` are optional model-plane metadata. The
-    agent's gateway routing (its ``--provider`` + creds) is NOT here — it goes in
-    ``agent.config`` (``monet_args`` + ``forward_env``), the only place the harbor shim
-    preserves. Creds live in the environment, never in the config.
+    agent's runtime provider route is NOT here — its typed ``provider`` object lives in
+    ``agent.config``, the only block the harbor shim preserves. ``forward_env`` remains
+    independent container plumbing. Credentials live in the environment, never in config.
 
     ``reasoning_effort`` is the model's native reasoning level, passed by CLI backends that take
     it per-model (codex → GPT, claude_code → Claude). The **valid set differs by model family**,
@@ -274,6 +274,10 @@ class RunConfig(_Base):
     #: absolute ``agent.timeout`` is only the fallback for a benchmark that declares no budget.
     #: Run-level, not retry-level: it applies to the first attempt as much as to a re-run.
     timeout_multiplier: float = Field(default=1.0, gt=0)
+    #: INTERNAL smoke/debug guard: hard-ceil the agent phase after all benchmark timeout scaling.
+    #: This is deliberately separate from the benchmark-owned budget and is not for production
+    #: evaluations. ``None`` preserves normal benchmark timing.
+    debug_max_agent_wall_time_sec: float | None = Field(default=None, gt=0)
     retry: RetryPolicy = Field(default_factory=RetryPolicy)
 
     @model_validator(mode="after")

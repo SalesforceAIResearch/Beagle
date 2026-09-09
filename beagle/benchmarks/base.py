@@ -26,7 +26,7 @@ import sys
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -166,6 +166,7 @@ class BenchmarkHarness(ABC):
         parallelism: int = 1,
         retry: RetryPolicy | None = None,
         timeout_multiplier: float = 1.0,
+        debug_max_agent_wall_time_sec: float | None = None,
         attempt: int = 0,
         resuming: bool = False,
     ) -> Iterable[TaskResult]:
@@ -203,6 +204,14 @@ class BenchmarkHarness(ABC):
                 agent_version = ""
 
         def _one(task: Task, ctx: TaskContext) -> TaskResult:
+            if debug_max_agent_wall_time_sec is not None:
+                declared = ctx.agent_timeout_s
+                ctx = replace(
+                    ctx,
+                    agent_timeout_s=min(declared, debug_max_agent_wall_time_sec)
+                    if declared is not None
+                    else debug_max_agent_wall_time_sec,
+                )
             try:
                 result = run_with_infra_retry(
                     lambda: self.run(agent.rollout_binding(ctx), task, ctx, runtime=runtime),
@@ -290,6 +299,10 @@ class Benchmark(ABC):
     """
 
     name: ClassVar[str]
+    #: Import path of this benchmark's xrlenv ``build_cache`` module. ``None`` means
+    #: the registration has no task-cache population step. Operator tooling discovers
+    #: cache-capable benchmarks from this metadata instead of maintaining a second list.
+    cache_builder_module: ClassVar[str | None] = None
 
     @abstractmethod
     def source(self) -> TaskSource:
@@ -299,10 +312,23 @@ class Benchmark(ABC):
     @abstractmethod
     def harness(self, env_import_path: str | None = None) -> BenchmarkHarness:
         """The native rollout driver for this benchmark. ``env_import_path`` (from the run config's
-        ``benchmark.options.env_import_path``) overrides the harbor/pier cluster ``Environment`` for
-        a harbor-family harness — e.g. a local, non-cluster tb2 run. Harnesses that use no cluster
-        Environment (docker drop-in, native-runner) ignore it."""
+        ``benchmark.options.env_import_path``) explicitly overrides harbor/pier Environment
+        selection. Normal local-vs-cluster selection is handled by :meth:`harness_for_runtime`;
+        harnesses that use no framework Environment ignore the option."""
         raise NotImplementedError
+
+    def harness_for_runtime(
+        self, runtime_kind: str, *, env_import_path: str | None = None
+    ) -> BenchmarkHarness:
+        """Build the harness selected for a run's container runtime.
+
+        Most harnesses consume the Runner's runtime directly. Harbor/pier benchmarks
+        override this because their native Job owns its containers and selects local
+        versus cluster execution through an Environment import path.
+        """
+        if env_import_path:
+            return self.harness(env_import_path=env_import_path)
+        return self.harness()
 
     @abstractmethod
     def grader(self) -> Grader:

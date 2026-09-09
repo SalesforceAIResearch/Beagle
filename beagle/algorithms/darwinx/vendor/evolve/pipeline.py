@@ -324,6 +324,91 @@ def _consolidate_min_lineage() -> int:
         return 2
 
 
+# Error text that means "we never reached the model", as opposed to "the model
+# answered and the answer was poor". Node's fetch says `fetch failed`; the
+# sanitizer path says 502/UpstreamUnreachable; a dead socket says connection
+# refused. Retrying any of these costs an iteration and cannot succeed until a
+# human restores the transport.
+_TRANSPORT_ERROR_MARKERS = (
+    "fetch failed",
+    "econnrefused",
+    "connection refused",
+    "upstreamunreachable",
+    "502",
+    "503",
+    "bad gateway",
+    "service unavailable",
+    "name or service not known",
+    "temporary failure in name resolution",
+    "network is unreachable",
+    "no route to host",
+)
+
+
+def _is_proposer_transport_failure(result) -> bool:
+    """Could we not REACH the proposer's model? (vs. it answering badly.)
+
+    Deliberately narrow. A timeout is NOT included: a stage that ran for its
+    whole cap may have been doing real work on a starved host, and aborting a
+    campaign for that would throw away a slow-but-working run.
+    """
+    err = str(getattr(result, "error", "") or "").lower()
+    if not err:
+        return False
+    if any(m in err for m in _TRANSPORT_ERROR_MARKERS):
+        return True
+    # An exit code with no output at all and no recognisable message: the CLI
+    # died before it could say anything.
+    return bool(err) and not (getattr(result, "text", "") or "").strip()
+
+
+def _transport_abort_after() -> int:
+    """Consecutive proposer transport failures before the loop gives up (default 2).
+
+    Two rather than one: a single blip is exactly what the gateway's own retry
+    window exists to absorb, and aborting on it would make a campaign fragile to
+    a momentary reconnect. Two in a row is a dead transport. 0 disables the abort
+    and restores the previous behaviour of spending every iteration.
+    """
+    try:
+        return max(0, int(os.environ.get("DARWINX_GATE_TRANSPORT_ABORT_AFTER", "2")))
+    except ValueError:
+        return 2
+
+
+def _consolidate_force_k() -> int:
+    """Accepted additive nodes on a lineage before the next node MUST compact.
+
+    WHY A TRIGGER AND NOT A RATE. The lottery cannot deliver grow-then-
+    consolidate on this search. It is gated on lineage depth, and depth only
+    grows if something extends the same line; when improvements are rare, parent
+    selection keeps returning the same good node, the tree grows wide, and the
+    depth condition is never met. A 60-node campaign can therefore be 60
+    additive leaves and zero consolidations -- observed, with the health line
+    reporting the threshold as "NOT YET REACHABLE" for an entire run.
+
+    So compaction is scheduled instead of drawn: after K accepted additive nodes
+    on a lineage, the next node on it is a CONSOLIDATE. 0 disables the trigger
+    and restores pure-lottery behaviour.
+    """
+    try:
+        return max(0, int(os.environ.get("DARWINX_GATE_CONSOLIDATE_FORCE_K", "0")))
+    except ValueError:
+        return 0
+
+
+def _consolidate_on_bloat() -> bool:
+    """Also force a compaction when the harness grew and fitness did not.
+
+    The second half of the same argument: accretion is only visible as a trend,
+    and by the time it shows up in the score it has already cost several
+    generations. Size up with fitness flat is the earliest honest signal.
+    """
+    return os.environ.get("DARWINX_GATE_CONSOLIDATE_ON_BLOAT", "0").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
 def _hybrid_archive_on() -> bool:
     """Hybrid quality-diversity archive (DARWINX_GATE_HYBRID_ARCHIVE=1).
 
@@ -563,6 +648,35 @@ def _failure_theme_digest() -> str:
                     f"- timeout-compute ({tally['timeout-compute']} trials): heavy compile/train/sim "
                     f"eats the budget. e.g. {', '.join(tc) if tc else '(various)'}. Priority: choose the "
                     f"fastest correct approach that fits the time budget.")
+            # The three themes below were classified but never rendered, so their trials
+            # produced no steer at all. On the opencode A0 baseline that silently dropped
+            # 27 failing trials across 5 tasks -- and timeout-exploration is the most
+            # directly actionable theme there is for a HARNESS: the budget went on finding
+            # the code rather than on the task.
+            te = _tasks_for("timeout-exploration")
+            if tally.get("timeout-exploration"):
+                lines.append(
+                    f"- timeout-exploration ({tally['timeout-exploration']} trials): the budget went on "
+                    f"CODE NAVIGATION (read/grep/glob) rather than on doing the work. "
+                    f"e.g. {', '.join(te) if te else '(various)'}. Priority: make LOCATING things "
+                    f"cheaper — targeted search over broad repeated reads, symbol/definition lookup, "
+                    f"and stop re-reading files already in context. This is a harness affordance, so "
+                    f"it is exactly the kind of gap an edit here can close.")
+            to = _tasks_for("timeout-other")
+            if tally.get("timeout-other"):
+                lines.append(
+                    f"- timeout-other ({tally['timeout-other']} trials): out of budget with no single "
+                    f"dominant activity. e.g. {', '.join(to) if to else '(various)'}. Priority: spend "
+                    f"the budget deliberately — decide the approach before acting, and do not leave "
+                    f"the finish unverified because time ran out.")
+            tl = _tasks_for("tool-error")
+            if tally.get("tool-error"):
+                lines.append(
+                    f"- tool-error ({tally['tool-error']} trials): a TOOL CALL itself failed, which is "
+                    f"the harness's own surface rather than the task's difficulty. "
+                    f"e.g. {', '.join(tl) if tl else '(various)'}. Priority: make the tool surface "
+                    f"survive bad input — validate arguments, and recover from the error instead of "
+                    f"abandoning the attempt.")
             if len(lines) > 1:
                 digest = "\n".join(lines)
     except Exception:  # noqa: BLE001 — advisory context must never break the loop
@@ -954,6 +1068,10 @@ class SelfEvolvePipeline:
         self.claimed_tasks: list[str] = []
         self.passing_for_canary: list[str] = []
         self.iterations: list[IterationOutcome] = []
+        #: Consecutive iterations whose analyze stage could not reach the
+        #: proposer's model. Reset by any failure that is not a transport fault,
+        #: so a slow or weak proposal never trips the abort.
+        self._transport_failures = 0
         self.guard_violated_ever: bool = False
         # Sticky canary for `regression_resolve` pipelines: any parent-solved
         # task that fails (reward < 1.0) in any iteration's mini-eval gets
@@ -1384,6 +1502,12 @@ class SelfEvolvePipeline:
     def _phase1_prepare(self) -> None:
         tree.update_pipeline(self.conn, self.pipeline_id, status="preparing")
         tree.heartbeat(self.conn, self.pipeline_id)
+        # Before asking what work is left, hand back the work that dead siblings
+        # are still holding. Claims outlive the process that took them, so without
+        # this a killed pipeline subtracts its tasks from the pool permanently and
+        # a restarted campaign preflights straight into "nothing unclaimed".
+        for dead_id, n in tree.reap_dead_pipelines(self.conn, campaign=self.cfg.campaign):
+            self.log.info("reaped dead pipeline %s: released %d claim(s)", dead_id, n)
         self._maybe_bootstrap_root()
         self._select_parent()
         if self.cfg.bootstrap_only:
@@ -2097,6 +2221,31 @@ class SelfEvolvePipeline:
             outcome = self._run_iteration(i)
             self.iterations.append(outcome)
 
+            # Stop spending iterations on a proposer we cannot reach.
+            #
+            # WHY THIS EXISTS. A campaign burned iterations 5-12 on
+            # `Error: fetch failed` -- its proposer's private proxy had been
+            # killed -- and each one consumed an iteration, wrote a prompt
+            # artifact, and logged nothing that distinguished it from a weak
+            # proposal. The run finished "12 iterations, 0 candidates", which
+            # reads as a search that found nothing rather than a loop shouting
+            # into a dead socket. Retrying a network fault costs an iteration and
+            # can never succeed until a human fixes the transport, so the honest
+            # move is to stop and say so.
+            if self._transport_failures >= _transport_abort_after():
+                self.log.error(
+                    "ABORTING the loop: %d consecutive iterations could not reach the "
+                    "proposer's model. This is infrastructure, not the search -- check "
+                    "the proposer's gateway URL and that a sanitizer is listening on it. "
+                    "Remaining iterations would fail identically.",
+                    self._transport_failures,
+                )
+                self._effort_append(
+                    f"\n**loop aborted**: {self._transport_failures} consecutive "
+                    f"proposer transport failures (see the analyze logs).\n"
+                )
+                break
+
             if outcome.both_targets_pass(self.claimed_tasks) and outcome.preservation_passed():
                 self.log.info(
                     "iteration %d: claimed and preservation tasks pass — early exit", i,
@@ -2436,6 +2585,33 @@ class SelfEvolvePipeline:
                 self.log.info("risk-class guard: %s->%s (surface=%s, %d regression(s))",
                               verdict.decision, _nd, surface, _n_reg)
                 verdict = _dc_replace(verdict, decision=_nd)
+            # Extension usefulness (DARWINX_GATE_SKILL_FIRE_GATE, default off).
+            # Bounded blast radius earns an extension a cheap PROMOTE path; it
+            # does not earn it evidence of value. An extension whose cue never
+            # matches a task outside the claim pool is a special case, so it is
+            # kept as a stepping stone rather than becoming the tip.
+            if verdict.decision == "PROMOTE" and surface in ("skill", "plugin"):
+                from . import skill_fire as _sf
+                if _sf.enabled():
+                    _panel = (self.cfg.baseline_logs
+                              or (self._node_eval_job_path(self.parent_node)
+                                  if self.parent_node else None))
+                    _ok, _cues, _hits = _sf.gate(
+                        self._child_diff_text() or "",
+                        claimed=list(self.claimed_tasks or []),
+                        panel_dir=_panel,
+                    )
+                    if not _ok:
+                        from dataclasses import replace as _dc_replace
+                        self.log.info(
+                            "skill-fire gate: PROMOTE->ARCHIVE (surface=%s cues=%d "
+                            "non-claimed hits=%s, need %d)",
+                            surface, len(_cues), _hits, _sf.min_nonclaimed(),
+                        )
+                        verdict = _dc_replace(
+                            verdict, decision="ARCHIVE",
+                            rationale=(verdict.rationale or "") + " [extension fire-rate unmet]",
+                        )
             self.log.info(
                 "reasoned verdict: %s (conf %.2f, surface=%s) — %s",
                 verdict.decision, verdict.confidence, verdict.surface or "?", verdict.rationale,
@@ -2897,6 +3073,15 @@ class SelfEvolvePipeline:
                 f"### Iteration {i}\n\n**analyze failed**: {analyze.error}\n"
             )
             outcome.reason = f"analyze failed: {analyze.error}"
+            if _is_proposer_transport_failure(analyze):
+                self._transport_failures += 1
+                self.log.error(
+                    "analyze could not REACH the proposer's model (%s). This is a "
+                    "transport fault, not a weak proposal: consecutive=%d",
+                    analyze.error, self._transport_failures,
+                )
+            else:
+                self._transport_failures = 0
             self._persist_iteration_outcome(
                 outcome, stage="analyze", outcome_name="analyze_failed",
             )
@@ -2922,6 +3107,17 @@ class SelfEvolvePipeline:
             self.log.warning("%s", msg)
             self._effort_append(f"### Iteration {i}\n\n**analyze failed**: {msg}\n")
             outcome.reason = f"analyze failed: {msg}"
+            # An empty result with no error is the other face of a dead
+            # transport: the CLI exited 0 having written nothing, which is what
+            # a killed proxy looked like for eight consecutive iterations.
+            if not plan_text.strip():
+                self._transport_failures += 1
+                self.log.error(
+                    "analyze returned NOTHING (0 chars). Treating as a transport "
+                    "fault: consecutive=%d", self._transport_failures,
+                )
+            else:
+                self._transport_failures = 0
             self._persist_iteration_outcome(
                 outcome, stage="analyze", outcome_name="analyze_failed",
             )
@@ -3525,6 +3721,49 @@ class SelfEvolvePipeline:
 
         self._apply_picked_commit(picked)
 
+    def _shared_panel_job_dir(self, node: "tree.Node | None") -> Path | None:
+        """The node's shared-panel eval, not the thin per-iteration mini-eval.
+
+        The efficiency signal needs ~60 shared tasks to resolve; a mini-eval is
+        8-13, so read over it the vote is directional at best. For a compaction
+        the shared ranking panel is the only set big enough to mean anything.
+        """
+        if node is None:
+            return None
+        try:
+            ev = tree.node_search_eval(self.conn, campaign=self.cfg.campaign, node_id=node.id)
+            path = getattr(ev, "job_log_path", None) if ev is not None else None
+            if path and Path(path).exists():
+                return Path(path)
+        except Exception:
+            pass
+        job_path = self._node_eval_job_path(node)
+        return Path(job_path) if job_path else None
+
+    def _efficiency_vote_down(self) -> bool:
+        """Did the candidate spend less reasoning per task than its parent?
+
+        Reports the per-task VOTE rather than a ratio of means: re-running the
+        same harness moved mean reasoning tokens by +10% while a real harness
+        change moved it -21%, so the mean is inside its own noise. The share of
+        tasks that moved down separated cleanly (66% vs 40%). A thin overlap is
+        reported as no evidence rather than as a win.
+        """
+        try:
+            from . import harness_efficiency as he
+            child_dir = None
+            if self.iterations:
+                child_dir = getattr(self.iterations[-1], "mini_eval_job_dir", None)
+            parent_dir = self._shared_panel_job_dir(self.parent_node)
+            if not parent_dir or not child_dir:
+                return False
+            d = he.delta(parent_dir, child_dir)
+            if not d or d.get("vote_thin"):
+                return False
+            return d.get("vote_frac", 0) > 0.5
+        except Exception:
+            return False
+
     def _candidate_efficiency(self, out: "IterationOutcome") -> str:
         """Spend of this iteration's mini-eval against the previous run's, or "".
 
@@ -3842,30 +4081,131 @@ class SelfEvolvePipeline:
             node = tree.get_node(self.conn, node.parent_id)
         return depth
 
+    def _variant_kinds(self) -> dict[str, str]:
+        """node_id -> consolidate|prune, from this campaign's marker file.
+
+        The kind a node was drawn as is not in the schema, and it has to survive
+        across processes: the worker that decides "this lineage has had two
+        additive accepts" is not the worker that produced them.
+        """
+        out: dict[str, str] = {}
+        try:
+            path = self.campaign_dir / "variant_kinds.jsonl"
+            if not path.is_file():
+                return out
+            for line in path.read_text().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                rec = json.loads(line)
+                nid, kind = rec.get("node_id"), rec.get("kind")
+                if nid and kind:
+                    out[str(nid)] = str(kind)
+        except Exception:
+            return out
+        return out
+
+    def _record_variant_kind(self, kind: str) -> None:
+        try:
+            nid = getattr(self.child_node, "id", None) or getattr(self, "pipeline_id", None)
+            if not nid:
+                return
+            with open(self.campaign_dir / "variant_kinds.jsonl", "a") as fh:
+                fh.write(json.dumps(
+                    {"node_id": nid, "pipeline_id": self.pipeline_id, "kind": kind}) + "\n")
+        except Exception:
+            return
+
+    def _additive_accepts_since_compact(self) -> int:
+        """Accepted additive ancestors of the parent since the last compaction."""
+        parent = getattr(self, "parent_node", None)
+        conn = getattr(self, "conn", None)
+        if parent is None or conn is None:
+            return 0
+        kinds = self._variant_kinds()
+        count = 0
+        seen: set[str] = set()
+        node = parent
+        while node is not None and node.parent_id and node.id not in seen:
+            seen.add(node.id)
+            if kinds.get(node.id, "additive") in {"consolidate", "prune"}:
+                break
+            if node.status in {"completed", "archived"}:
+                count += 1
+            node = tree.get_node(conn, node.parent_id)
+        return count
+
+    def _complexity_up_fitness_flat(self) -> bool:
+        """Harness grew since the root while the parent's score did not move."""
+        if not _consolidate_on_bloat():
+            return False
+        parent = getattr(self, "parent_node", None)
+        wt = getattr(self, "worktree", None)
+        monet = getattr(wt, "monet_dir", None) if wt is not None else None
+        conn = getattr(self, "conn", None)
+        if parent is None or not monet or not parent.commit_sha or parent.score is None:
+            return False
+        root = parent
+        seen: set[str] = set()
+        while conn is not None and root.parent_id and root.id not in seen:
+            seen.add(root.id)
+            nxt = tree.get_node(conn, root.parent_id)
+            if nxt is None:
+                break
+            root = nxt
+        if not root.commit_sha or root.commit_sha == parent.commit_sha:
+            return False
+        try:
+            from . import harness_complexity as hc
+            d = hc.delta(str(monet), root.commit_sha, parent.commit_sha)
+        except Exception:
+            return False
+        if not d or d.get("d_total_loc", 0) <= 0:
+            return False
+        return float(parent.score) <= 0.05
+
+    def _must_consolidate(self) -> bool:
+        """Scheduled compaction: K additive accepts, or growth without fitness."""
+        if not _consolidate_enabled():
+            return False
+        try:
+            k = _consolidate_force_k()
+            if k and self._additive_accepts_since_compact() >= k:
+                return True
+            return self._complexity_up_fitness_flat()
+        except Exception:
+            return False
+
     def _is_consolidate_node(self) -> bool:
         """Whether this pipeline is a CONSOLIDATE (rewrite-for-simplicity) node.
 
-        Drawn like the prune lottery -- locally, from a hash of the pipeline id --
-        but with a different salt so the two draws are independent, and resolved
-        AFTER prune so a pipeline is never both (their prompts and accept rules
-        contradict each other).
+        The scheduled trigger is checked first (see ``_consolidate_force_k``).
+        The depth lottery remains as a fallback so a config that only sets a
+        rate behaves as before. PRUNE still wins a coincident draw -- their
+        prompts and accept rules contradict each other -- except when compaction
+        is *scheduled*, which outranks a prune draw rather than being skipped by
+        it.
         """
         if getattr(self, "_consolidate_node", None) is not None:
             return self._consolidate_node
         decided = False
         try:
-            if _consolidate_enabled() and not self._is_prune_node():
-                depth = self._lineage_depth()
-                if depth >= _consolidate_min_lineage():
-                    import hashlib
-                    digest = hashlib.sha1(f"consolidate:{self.pipeline_id}".encode()).digest()
-                    draw = int.from_bytes(digest[:4], "big") / 0xFFFFFFFF
-                    decided = draw < _consolidate_rate(depth)
+            if _consolidate_enabled():
+                if self._must_consolidate():
+                    decided = True
+                elif not self._is_prune_node():
+                    depth = self._lineage_depth()
+                    if depth >= _consolidate_min_lineage():
+                        import hashlib
+                        digest = hashlib.sha1(f"consolidate:{self.pipeline_id}".encode()).digest()
+                        draw = int.from_bytes(digest[:4], "big") / 0xFFFFFFFF
+                        decided = draw < _consolidate_rate(depth)
         except Exception as exc:  # noqa: BLE001 — never block the loop
             self.log.debug("consolidate lottery skipped (%s); treating as evolve node", exc)
             decided = False
         self._consolidate_node = decided
         if decided:
+            self._record_variant_kind("consolidate")
             self.log.info(
                 "CONSOLIDATE node: this pipeline attempts a REWRITE for simplicity "
                 "(may restructure prior edits AND pre-evolve code; judged on "
@@ -3898,7 +4238,12 @@ class SelfEvolvePipeline:
             d = {}
         if not d:
             return removed > added
-        return d["d_total_loc"] < 0 or d["d_branches"] < 0
+        if d["d_total_loc"] < 0 or d["d_branches"] < 0:
+            return True
+        # Last resort for a genuinely line- and branch-neutral rewrite: did the
+        # model need less reasoning per task under it? Complexity is a property
+        # of the text, this is a property of the behaviour.
+        return self._efficiency_vote_down()
 
     def _subtractive(self) -> bool:
         """Prune or consolidate: the variants exempt from the additive contracts."""
@@ -3932,7 +4277,12 @@ class SelfEvolvePipeline:
             return self._prune_node
         decided = False
         try:
-            if _prune_enabled() and _prune_rate() > 0.0:
+            # A *scheduled* compaction outranks a prune draw. Without this the
+            # prune lottery could consume the very node the trigger reserved for
+            # folding the last K additive commits together.
+            if self._must_consolidate():
+                decided = False
+            elif _prune_enabled() and _prune_rate() > 0.0:
                 depth = self._lineage_depth()
                 if depth >= _prune_min_lineage():
                     import hashlib
@@ -3949,6 +4299,7 @@ class SelfEvolvePipeline:
             decided = False
         self._prune_node = decided
         if decided:
+            self._record_variant_kind("prune")
             self.log.info(
                 "PRUNE node: this pipeline attempts SUBTRACTION of accumulated "
                 "modifications (rate=%.2f, lineage depth>=%d)",
@@ -4002,14 +4353,28 @@ class SelfEvolvePipeline:
             span = f"{root_sha}..{self.parent_node.commit_sha}"
             commits = _git("log", "--oneline", "--no-decorate", span).strip()
             stat = _git("diff", "--stat", span).strip()
-            # Skill-registry entries the lineage added. `git diff` on the registry
-            # plus a name filter is enough to name them without parsing JS.
-            skill_diff = _git("diff", "-U0", span, "--", "src/core/bundled-skills.js")
+            # Skills the lineage added. Asking git for one hardcoded registry file found nothing
+            # on an evolvee that keeps skills as directories, which left the prune dossier claiming
+            # the lineage had accumulated no skills at all. Filter the lineage's changed files by
+            # this evolvee's own skill predicate instead, then name the skills two ways: registry
+            # entries for a JS array, and directory names for a skills/ tree.
+            lineage_files = [f for f in _git("diff", "--name-only", span).splitlines() if f]
+            skill_files = [f for f in lineage_files if generalization.is_skill_path(f)]
+            # Plugins the lineage loaded in are prune targets on the same footing as skills: a dead
+            # hook still runs on every task. A dossier that lists only skills leaves a PRUNE node
+            # unable to propose removing one, so it would report the lineage as having added none.
+            plugin_files = [f for f in lineage_files if generalization.is_plugin_path(f)]
+            skill_diff = _git("diff", "-U0", span, "--", *skill_files) if skill_files else ""
             added_skills = [
                 ln.split("name:", 1)[1].strip().strip("'\",: ")
                 for ln in skill_diff.splitlines()
                 if ln.startswith("+") and "name:" in ln
             ]
+            for f in skill_files:                       # directory-style skills: skills/<name>/...
+                parts = [seg for seg in f.split("/") if seg]
+                for idx, seg in enumerate(parts[:-1]):
+                    if seg.lower() == "skills" and parts[idx + 1] not in added_skills:
+                        added_skills.append(parts[idx + 1])
             solved = self._node_solved_tasks(self.parent_node) or []
 
             out = ["\n## PRUNE DOSSIER — what this lineage ACCUMULATED on top of the base\n"]
@@ -4030,6 +4395,13 @@ class SelfEvolvePipeline:
                     + "\n\nA cue-gated skill that never fires still costs prompt budget on "
                     "EVERY task. These are the highest-yield candidates to check for "
                     "deadness or redundancy.\n"
+                )
+            if plugin_files:
+                out.append(
+                    "### Plugins this lineage added\n"
+                    + "\n".join(f"- `{f}`" for f in dict.fromkeys(plugin_files))
+                    + "\n\nEach is loaded on EVERY task through its hook, so a plugin whose hook "
+                    "never changes an outcome is pure overhead — check these for deadness too.\n"
                 )
             if solved:
                 out.append(
@@ -4177,6 +4549,14 @@ class SelfEvolvePipeline:
             "max_iters": self.cfg.max_loop_iters,
             "parent_commit": parent_commit,
             "monet_branch": self.worktree.monet_branch,
+            # Evolvee-surface vocabulary. Hardcoding monet's answers here told the opencode
+            # proposer its only skill surface was a file opencode does not have, so it spent
+            # both iterations editing the system prompt instead.
+            "evolvee_label": generalization.evolvee_label(),
+            "core_path_doc": generalization.core_path_doc(),
+            "skill_surface_doc": generalization.skill_target_doc(),
+            "plugin_surface_doc": generalization.plugin_target_doc(),
+            "prompt_surface_rule": generalization.prompt_surface_rule(),
             "claimed_tasks": self.claimed_tasks,
             "trials": trials or [],
             "task_trial_groups": task_trial_groups or [],

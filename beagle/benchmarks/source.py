@@ -80,10 +80,10 @@ class HarborCache(TaskSource):
             raise RuntimeError(
                 "set $XRLENV_BENCHMARK_CACHE (or pass cache_root) to read benchmark tasks"
             )
-        return Path(root) / self.cache_name
+        return Path(root).expanduser() / self.cache_name
 
     def tasks(self, spec: BenchmarkSpec) -> Iterator[TaskItem]:
-        root = Path(spec.dataset) if spec.dataset else self._root()
+        root = Path(spec.dataset).expanduser() if spec.dataset else self._root()
         items: list[TaskItem] = []
         for task_toml in sorted(root.glob("*/task.toml")):
             items.append(self._read_task(task_toml.parent))
@@ -112,4 +112,4 @@ class HarborCache(TaskSource):
         return task, ctx
 
 
-__all__ = ["TaskItem", "select_and_sample", "HarborCache"]
+__all__ = ["HarborCache", "TaskItem", "select_and_sample"]

@@ -15,10 +15,10 @@ from types import SimpleNamespace
 import pytest
 
 import beagle as bgl
-from beagle.agents.monet import _helpers as _monet
-from beagle.agents.core.usage import Usage
 from beagle.agents.core.spec import AgentSource, AgentSpec, ModelSpec
-from beagle.benchmarks.harness.drivers import _agent_identity
+from beagle.agents.core.usage import Usage
+from beagle.agents.monet import _helpers as _monet
+from beagle.benchmarks.harness.drivers import _agent_identity, _pier_phase_split_supported
 from beagle.rollout.runtime.harbor_env import HarborEnvRuntime
 from beagle.rollout.runtime.runtime import ExecResult
 from beagle.rollout.runtime.transport import BindMount
@@ -286,7 +286,7 @@ def test_monet_pier_network_and_install_hosts(monkeypatch) -> None:
     # A filtered-egress trial allowlists network_hosts() (run: the gateway) + install_hosts() (clone
     # + node/npm). monet's source host folds into install_hosts (deduped).
     monkeypatch.setenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "http://gw:18088/")
-    agent = _monet_agent()
+    agent = _monet_agent({"provider": {"type": "internal", "name": "gw"}})
     assert agent.network_hosts() == ["http://gw:18088/"]
     ih = agent.install_hosts()
     assert {"github.com", "registry.npmjs.org", "deb.nodesource.com"} <= set(ih)
@@ -334,12 +334,14 @@ class _FakeEnv:
     """Duck-typed harbor BaseEnvironment: async exec returning .return_code/.stdout."""
 
     def __init__(
-        self, *, raise_exc: bool = False, exc: BaseException | None = None, stdout: str | None = "hi\n"
+        self, *, raise_exc: bool = False, exc: BaseException | None = None,
+        stdout: str | None = "hi\n", return_code: int = 0,
     ) -> None:
         self.calls: list = []
         self._raise = raise_exc
         self._exc = exc
         self._stdout = stdout
+        self._return_code = return_code
 
     async def exec(self, command, cwd=None, env=None, timeout_sec=None, user=None):  # noqa: ANN001
         self.calls.append((command, cwd, env, timeout_sec, user))
@@ -347,7 +349,7 @@ class _FakeEnv:
             raise self._exc
         if self._raise:
             raise TimeoutError("deadline")
-        return SimpleNamespace(stdout=self._stdout, stderr=None, return_code=0)
+        return SimpleNamespace(stdout=self._stdout, stderr=None, return_code=self._return_code)
 
 
 def _loop_in_thread():
@@ -415,6 +417,22 @@ def test_harbor_env_runtime_sub_second_timeout_not_dropped() -> None:
         env = _FakeEnv()
         HarborEnvRuntime(env, loop).exec("H", ["x"], timeout=0.4)
         assert env.calls[0][3] == 1  # timeout_sec passed to harbor's exec
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        t.join()
+
+
+def test_harbor_env_runtime_normalizes_xrlenv_deadline_sentinel() -> None:
+    loop, t = _loop_in_thread()
+    try:
+        timed = HarborEnvRuntime(_FakeEnv(return_code=-1), loop).exec("H", ["x"], timeout=5)
+        assert timed.returncode == 124
+        # Without a requested deadline, -1 is not known to mean timeout.
+        unbounded = HarborEnvRuntime(_FakeEnv(return_code=-1), loop).exec("H", ["x"])
+        assert unbounded.returncode == -1
+        # Preserve ordinary signal exits even when a deadline exists.
+        killed = HarborEnvRuntime(_FakeEnv(return_code=-9), loop).exec("H", ["x"], timeout=5)
+        assert killed.returncode == -9
     finally:
         loop.call_soon_threadsafe(loop.stop)
         t.join()
@@ -489,21 +507,22 @@ def test_monet_run_forwards_env(monkeypatch) -> None:
     assert invoke_env["CONTAINER_KEY"] == "secretval" and invoke_env["MONET_PROMPT"] == "go"
 
 
-# --- gateway routing rides in agent.config (monet_args + forward_env) ----------
+# --- provider routing and behavior args stay separate in agent.config ----------
 
 
 def test_monet_gateway_via_config_not_model_block(monkeypatch) -> None:
-    # The gateway (--provider) + creds come from agent.config (monet_args + forward_env),
+    # The gateway + creds come from agent.config (provider + forward_env),
     # NOT the model block — the harbor shim drops model-block details. `model.name`
-    # only supplies --model, and it must NOT emit a second --provider.
+    # only supplies --model; the adapter derives exactly one native --provider flag.
     monkeypatch.setenv("GW_KEY", "secret")
     agent = bgl.agents.build(
         AgentSpec(
             name="monet",
             source=AgentSource(repo="https://x/r", ref="deadbeef"),
             model=ModelSpec(name="gpt-5.5"),
-            config={"monet_args": ["--provider", "llm-gateway-express-local-proxy",
-                                   "--output-format", "stream-json"],
+            config={"provider": {
+                        "type": "internal", "name": "llm-gateway-express-local-proxy"},
+                    "monet_args": ["--output-format", "stream-json"],
                     "forward_env": [["GW_KEY", "GW_KEY"]]},
         )
     )
@@ -511,7 +530,7 @@ def test_monet_gateway_via_config_not_model_block(monkeypatch) -> None:
     agent.run(Task(task_id="t", problem_statement="go"), TaskContext(image="img", repo_path="/w", agent_timeout_s=1800), runtime=rt)
     invoke_cmd, invoke_env = _invoke_call(rt)
     assert invoke_env["GW_KEY"] == "secret"                              # forward_env forwarded
-    assert "--provider llm-gateway-express-local-proxy" in invoke_cmd[2]  # from monet_args
+    assert "--provider llm-gateway-express-local-proxy" in invoke_cmd[2]  # from typed provider
     assert "--model gpt-5.5" in invoke_cmd[2]                            # from model.name
     assert invoke_cmd[2].count("--provider") == 1                        # no duplicate
 
@@ -532,10 +551,24 @@ def test_provider_config_prepends_flag_without_restating_defaults() -> None:
     # which dies with "No Anthropic API key configured" in a sealed container).
     from beagle.agents.monet._helpers import DEFAULT_MONET_ARGS
 
-    with_p = _monet_agent({"provider": "llm-gateway-express-local-proxy"})._config("m", "bin/monet.js")
+    with_p = _monet_agent({"provider": {
+        "type": "internal", "name": "llm-gateway-express-local-proxy"}})._config("m", "bin/monet.js")
     assert with_p.monet_args == ("--provider", "llm-gateway-express-local-proxy", *DEFAULT_MONET_ARGS)
     without = _monet_agent({})._config("m", "bin/monet.js")
     assert "--provider" not in without.monet_args
+
+
+@pytest.mark.parametrize("routing_args", [
+    ["--provider", "gateway"],
+    ["--provider=gateway"],
+])
+def test_monet_args_reject_provider_routing_flags(routing_args) -> None:
+    agent = _monet_agent({
+        "provider": {"type": "internal", "name": "gateway"},
+        "monet_args": routing_args,
+    })
+    with pytest.raises(ValueError, match="typed `provider` block"):
+        agent._config("m", "bin/monet.js")
 
 
 def _combined(*, rc: str, patch: str, extra_lines: list[str]) -> str:
@@ -573,15 +606,18 @@ def test_agent_identity_forwards_config() -> None:
 
 def test_smoke_run_config_passthrough() -> None:
     # The canonical RunConfig's agent.config must reach the monet agent so an operator
-    # can set the gateway provider (monet_args), install_cmd, etc.; the top-level model
+    # can set the typed provider, behavior args, install_cmd, etc.; the top-level model
     # becomes the agent's model.
     from beagle.config import RunConfig
 
     rc = RunConfig.from_dict({
-        "model": {"name": "gpt-5.5", "provider": "llm-gateway-express-local-proxy"},
+        "model": {"name": "gpt-5.5"},
         "agent": {"name": "monet",
                   "source": {"repo": "https://x/r", "ref": "deadbeef"},
-                  "config": {"monet_args": ["--provider", "llm-gateway-express-local-proxy"],
+                  "config": {"provider": {
+                                 "type": "internal",
+                                 "name": "llm-gateway-express-local-proxy"},
+                             "monet_args": ["--output-format", "stream-json"],
                              "container_path": "/opt/agent", "token_env": "GH_TOKEN"}},
         "benchmark": {"name": "terminal_bench_2_1", "task_ids": ["t1"]},
     })
@@ -589,7 +625,9 @@ def test_smoke_run_config_passthrough() -> None:
     assert spec.source and spec.source.repo == "https://x/r" and spec.source.ref == "deadbeef"
     assert spec.model and spec.model.name == "gpt-5.5"  # top-level model applied to the agent
     ident = _agent_identity(bgl.agents.build(spec))
-    assert ident["config"]["monet_args"] == ["--provider", "llm-gateway-express-local-proxy"]
+    assert ident["config"]["provider"] == {
+        "type": "internal", "name": "llm-gateway-express-local-proxy"}
+    assert ident["config"]["monet_args"] == ["--output-format", "stream-json"]
     assert ident["config"]["container_path"] == "/opt/agent"
     assert ident["config"]["token_env"] == "GH_TOKEN"
 
@@ -620,6 +658,100 @@ def test_rollout_generic_wraps_agent_in_shim(monkeypatch) -> None:
     list(HarborHarness().rollout(_monet_agent(), items, runtime=None, run_dir=Path("/j")))
     assert captured["cfg"].import_path == HarborHarness.SHIM_IMPORT_PATH
     assert captured["cfg"].kwargs["identity"]["agent"] == "monet"
+
+
+def test_rollout_debug_wall_time_caps_effective_agent_phase(monkeypatch) -> None:
+    pytest.importorskip("harbor")
+    from beagle.benchmarks.harness import HarborHarness
+
+    captured: dict = {}
+
+    def _fake_run_job(self, items, agent_config, *, run_dir, parallelism, job_name=None,
+                      retry=None, timeout_multiplier=1.0, resuming=False):
+        captured["cfg"] = agent_config
+        return []
+
+    monkeypatch.setattr(HarborHarness, "_run_job", _fake_run_job)
+    items = [(Task(task_id="t", extras={"harbor_task_dir": "/x"}), TaskContext(image=None))]
+    list(HarborHarness().rollout(
+        _monet_agent(),
+        items,
+        runtime=None,
+        run_dir=Path("/j"),
+        timeout_multiplier=0.5,
+        debug_max_agent_wall_time_sec=600,
+    ))
+
+    # Harbor multiplies this field by timeout_multiplier, yielding an exact 600-second outer cap.
+    assert captured["cfg"].max_timeout_sec == 1200
+
+
+def test_pier_rollout_persists_phase_split_only_for_default_cluster(
+    monkeypatch, tmp_path,
+) -> None:
+    pytest.importorskip("pier")
+    from beagle.benchmarks.harness import PierHarness
+
+    captured: list[object] = []
+
+    def _fake_run_job(self, items, agent_config, *, run_dir, parallelism, job_name=None,
+                      retry=None, timeout_multiplier=1.0, resuming=False):
+        captured.append(agent_config)
+        return []
+
+    monkeypatch.setattr(PierHarness, "_run_job", _fake_run_job)
+    task_dir = tmp_path / "task"
+    (task_dir / "environment").mkdir(parents=True)
+    items = [(
+        Task(task_id="t", extras={"harbor_task_dir": str(task_dir)}),
+        TaskContext(image=None),
+    )]
+
+    list(PierHarness().rollout(_monet_agent(), items, runtime=None, run_dir=Path("/j")))
+    list(PierHarness(runtime_kind="local").rollout(
+        _monet_agent(), items, runtime=None, run_dir=Path("/j"),
+    ))
+
+    assert captured[0].kwargs["phase_split_egress"] is True
+    assert captured[1].kwargs["phase_split_egress"] is False
+
+
+def test_pier_rollout_does_not_phase_split_multi_service_task(monkeypatch, tmp_path) -> None:
+    pytest.importorskip("pier")
+    from beagle.benchmarks.harness import PierHarness
+
+    captured: dict = {}
+
+    def _fake_run_job(self, items, agent_config, *, run_dir, parallelism, job_name=None,
+                      retry=None, timeout_multiplier=1.0, resuming=False):
+        captured["cfg"] = agent_config
+        return []
+
+    task_dir = tmp_path / "task"
+    env_dir = task_dir / "environment"
+    env_dir.mkdir(parents=True)
+    (env_dir / "docker-compose.yaml").write_text(
+        "services:\n  main:\n    image: main:v1\n  db:\n    image: postgres:16\n"
+    )
+    monkeypatch.setattr(PierHarness, "_run_job", _fake_run_job)
+    items = [(
+        Task(task_id="t", extras={"harbor_task_dir": str(task_dir)}),
+        TaskContext(image=None),
+    )]
+
+    list(PierHarness().rollout(_monet_agent(), items, runtime=None, run_dir=Path("/j")))
+
+    assert captured["cfg"].kwargs["phase_split_egress"] is False
+
+
+def test_pier_phase_split_requires_task_environment_directory(tmp_path) -> None:
+    task_dir = tmp_path / "task"
+    task_dir.mkdir()
+    items = [(
+        Task(task_id="t", extras={"harbor_task_dir": str(task_dir)}),
+        TaskContext(image=None),
+    )]
+    assert _pier_phase_split_supported(items) is False
 
 
 def test_harbor_job_dir_named_after_benchmark(monkeypatch, tmp_path) -> None:
@@ -771,3 +903,51 @@ def test_shim_install_runs_git_bootstrap_as_root() -> None:
     shim.exec_as_root = _fake_root  # type: ignore[method-assign]
     asyncio.run(shim.install(object()))
     assert calls == [(_harbor_agent._GIT_BOOTSTRAP, 300)]
+
+
+# -- monet rejects the gateway block it cannot honor --------------------------------------------
+
+
+def _gw_monet(**config):
+    return bgl.agents.build(AgentSpec(
+        name="monet", model=ModelSpec(name="claude-opus-4-8"),
+        source=AgentSource(repo="https://x/monet-fork", ref="abc123"), config=config))
+
+
+def test_monet_rejects_a_config_declared_gateway() -> None:
+    """monet resolves its own endpoint/credentials from a provider NAME — it takes no api_base and
+    no custom auth header. Accepting the block would be worse than refusing it: `network_hosts`
+    would seal a filtered-egress run to the declared gateway while monet dialed its own default
+    endpoint, so every call would be blocked by a host the config never named."""
+    agent = _gw_monet(provider={"type": "gateway", "name": "org", "extra_args": {
+        "api_base": "https://gw.example/v1", "api_key_env": "K"}})
+    with pytest.raises(ValueError, match="does not support provider type 'gateway'"):
+        agent.network_hosts()
+    # ...and on an UNRESTRICTED benchmark, which never calls network_hosts()
+    with pytest.raises(ValueError, match="does not support provider type 'gateway'"):
+        agent._cfg()
+
+
+def test_monet_still_advertises_the_env_gateway(monkeypatch) -> None:
+    # The rejection is scoped to the config block; the deployment-wide gateway env is unchanged.
+    monkeypatch.setenv("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL", "http://node:18088/")
+    assert _gw_monet(provider={"type": "internal", "name": "gw"}).network_hosts() == ["http://node:18088/"]
+
+
+def test_dry_run_warns_before_spend_that_monet_cannot_use_a_gateway(capsys) -> None:
+    """The refusal fires at install time — inside a paid trial container. The pre-flight reads the
+    agent's supported provider types so the mismatch is visible BEFORE any spend."""
+    from beagle.cli.evaluate import _dry_run
+    from beagle.config import RunConfig
+
+    cfg = RunConfig.from_dict({
+        "model": {"name": "claude-opus-4-8"},
+        "agent": {"name": "monet", "source": {"repo": "https://x/m", "ref": "a"},
+                  "config": {"provider": {"type": "gateway", "name": "org", "extra_args": {
+                      "api_base": "https://gw/v1", "api_key_env": "K"}}}},
+        "benchmark": {"name": "swe-rebench", "task_ids": []},
+    })
+    _dry_run(cfg, cfg.agent.to_spec(), [], run_dir=Path("/tmp/x"))
+    out = capsys.readouterr().out
+    assert "monet does NOT support provider type 'gateway'" in out
+    assert "provider    :" in out

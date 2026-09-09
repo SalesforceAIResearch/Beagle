@@ -140,14 +140,15 @@ def test_run_eval_writes_compat_run_json_at_discovered_path(tmp_path) -> None:
 
 # --- evolvee-agnostic agent block (the general bridge) -----------------------
 
-def test_agent_block_monet_default_is_unchanged() -> None:
-    # Default evolvee (name "monet") → the fully-wired monet block: install_cmd + monet_args +
-    # the monet-shaped agent_source (with container_path). This is the byte-identical legacy path.
+def test_agent_block_monet_uses_typed_internal_provider() -> None:
+    # The provider is structured and independent of monet's behavior-only argv.
     cbe = _cbe()
     block = cbe._agent_block(cbe.CodingBenchEvalConfig(), forward_env=[{"K": "K"}])
     assert block["name"] == "monet"
     cfg = block["config"]
-    assert "install_cmd" in cfg and cfg["monet_args"][0] == "--provider"
+    assert "install_cmd" in cfg and "--provider" not in cfg["monet_args"]
+    assert cfg["provider"] == {
+        "type": "internal", "name": cbe.CodingBenchEvalConfig().monet_wire_provider}
     assert cfg["agent_source"]["container_path"] == "/opt/agent"
     assert cfg["forward_env"] == [{"K": "K"}]
 
@@ -161,7 +162,8 @@ def test_agent_block_non_monet_emits_general_bridge() -> None:
     cb_cfg = dataclasses.replace(
         cbe.CodingBenchEvalConfig(),
         eval_agent_name="mini-swe",
-        eval_agent_config={"provider": "sfr-gateway", "effort": "high",
+        eval_agent_config={"provider": {"type": "internal", "name": "sfr-gateway"},
+                           "effort": "high",
                            "config_path": "src/minisweagent/config/benchmarks/swebench.yaml"},
         monet_ref="cand-branch", max_turns=25, timeout=1200,
     )
@@ -169,7 +171,8 @@ def test_agent_block_non_monet_emits_general_bridge() -> None:
     assert block["name"] == "mini-swe"
     cfg = block["config"]
     assert "install_cmd" not in cfg and "monet_args" not in cfg          # NOT monet-shaped
-    assert cfg["provider"] == "sfr-gateway" and cfg["effort"] == "high"  # evolvee knobs threaded
+    assert cfg["provider"] == {"type": "internal", "name": "sfr-gateway"}
+    assert cfg["effort"] == "high"  # evolvee knobs threaded
     assert cfg["config_path"] == "src/minisweagent/config/benchmarks/swebench.yaml"
     assert cfg["max_turns"] == 25 and cfg["timeout"] == 1200            # budgets defaulted in
     assert cfg["forward_env"] == [{"K": "K"}]                            # cred forwarding defaulted
@@ -208,11 +211,12 @@ def test_from_self_evolve_config_reads_name_and_config(tmp_path) -> None:
     cfg_path = tmp_path / "camp.yaml"
     cfg_path.write_text(
         "monet:\n  name: mini-swe\n  model: gpt-5.5\n  max_turns: 30\n"
-        "  config: {provider: sfr-gateway, effort: high}\n"
+        "  config: {provider: {type: internal, name: sfr-gateway}, effort: high}\n"
         "runtime: {kind: local}\n")
     cb_cfg = cbe.CodingBenchEvalConfig.from_self_evolve_config(cfg_path)
     assert cb_cfg.eval_agent_name == "mini-swe"
-    assert cb_cfg.eval_agent_config == {"provider": "sfr-gateway", "effort": "high"}
+    assert cb_cfg.eval_agent_config == {
+        "provider": {"type": "internal", "name": "sfr-gateway"}, "effort": "high"}
     assert cb_cfg.model_name == "gpt-5.5" and cb_cfg.max_turns == 30
 
     legacy = tmp_path / "legacy.yaml"
@@ -235,7 +239,8 @@ def test_end_to_end_mini_swe_evolvee_resolves_to_registry_agent(tmp_path) -> Non
     evolvee = bagents.build(AgentSpec(
         name="mini-swe", model=ModelSpec(name="gpt-5.5"),
         source=AgentSource(repo="https://example.test/mini-copy", ref="cand-branch"),
-        config={"provider": "sfr-gateway", "effort": "high", "max_turns": 30, "timeout": 1800,
+        config={"provider": {"type": "internal", "name": "sfr-gateway"},
+                "effort": "high", "max_turns": 30, "timeout": 1800,
                 "config_path": "src/minisweagent/config/benchmarks/swebench.yaml",
                 "token_env": "GH_TOKEN"}))
     evolver = SimpleNamespace(spec=AgentSpec(name="cursor", model=ModelSpec(name="auto")))
@@ -256,7 +261,8 @@ def test_end_to_end_mini_swe_evolvee_resolves_to_registry_agent(tmp_path) -> Non
     assert isinstance(built, MiniSweAgent)                                # resolved via the registry
     assert built.source().repo == "https://example.test/mini-copy"       # evolvee θ (code version)
     assert built.source().ref == "cand-branch"
-    assert built.config.get("provider") == "sfr-gateway"                 # adapter knobs survived
+    assert built.config.get("provider") == {
+        "type": "internal", "name": "sfr-gateway"}  # adapter knobs survived
     assert built.config.get("config_path") == "src/minisweagent/config/benchmarks/swebench.yaml"
     assert built.config.get("token_env") == "GH_TOKEN"
     assert built.config.get("max_turns") == 30                           # budget threaded through

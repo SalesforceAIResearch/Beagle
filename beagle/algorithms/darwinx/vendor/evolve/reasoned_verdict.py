@@ -63,7 +63,7 @@ class Verdict:
     # promote a bad value) that still passes a *gradient* (lesson) forward.
     lesson: str = ""           # transferable textual gradient from this attempt
     next_directive: str = ""   # the single most useful thing to try next
-    surface: str = ""          # "code" | "skill" | "mixed" — which surface was edited
+    surface: str = ""          # "code" | "skill" | "plugin" | "mixed" — which surface was edited
 
     @property
     def accept(self) -> bool:
@@ -115,17 +115,19 @@ HOW TO WEIGH THE EVIDENCE (critical):
   change worked; lean ARCHIVE/REJECT when history shows this surface/pattern keeps
   regressing.
 
-- ADDITIVE-SKILL BIAS-TO-PROMOTE (the gate must ENABLE progress, not just gate it):
-  an additive SKILL cannot regress other tasks, so its downside is bounded. If the
-  candidate is a PURE SKILL edit (surface == "skill"; NO shared-code/engine
-    files touched), shows a measured pass-gain on a previously-failing claimed
+- ADDITIVE-EXTENSION BIAS-TO-PROMOTE (the gate must ENABLE progress, not just gate it):
+  an additive SKILL or PLUGIN cannot regress other tasks, so its downside is bounded — a
+  plugin carries code, but it runs only from the fixed hooks the harness loads it into and
+  cannot restructure the agent loop, so its blast radius is as contained as a skill's. If
+  the candidate is a PURE EXTENSION edit (surface == "skill" or surface == "plugin"; NO
+    shared-code/engine files touched), shows a measured pass-gain on a previously-failing claimed
   task (before ~0 -> after > 0), and has NO observed regression (no failed guards,
   no regressed existing task), then PROMOTE it — even when k is small and the gain
-  is not yet corroborated by fault analysis. RISK-CLASS CARVE-OUT (critical): this bias applies ONLY to pure-skill edits. A MIXED edit (skill + shared code) or a CODE edit does NOT qualify — its code portion has UNBOUNDED blast radius and can regress tasks OUTSIDE the mini-eval guard (exactly how a node scoring 1.0 on mini-eval later failed full avg@k: 7 fixed, 14 regressed). For any edit touching shared code (surface == "code" or "mixed"), require the FULL generalizability bar + widened guard; do NOT PROMOTE on a small-k claimed win alone — ROUTED-CODE EXCEPTION: a shared-code edit that is properly ROUTED — guarded on the task's capability-cluster, with a BYTE-IDENTICAL else-branch and fail-open on classification uncertainty — has BOUNDED blast radius (it cannot change behavior for tasks outside its target cluster) and may take the SAME cheap PROMOTE path as an additive skill, PROVIDED the guard is verified not to fire outside the target cluster. An UNROUTED shared-code edit does NOT qualify. Otherwise, prefer retargeting the fix as a pure additive skill. The RIGOROUS gate is downstream: the
+  is not yet corroborated by fault analysis. RISK-CLASS CARVE-OUT (critical): this bias applies ONLY to pure extension edits (surface "skill" or "plugin"). A MIXED edit (skill + shared code) or a CODE edit does NOT qualify — its code portion has UNBOUNDED blast radius and can regress tasks OUTSIDE the mini-eval guard (exactly how a node scoring 1.0 on mini-eval later failed full avg@k: 7 fixed, 14 regressed). For any edit touching shared code (surface == "code" or "mixed"), require the FULL generalizability bar + widened guard; do NOT PROMOTE on a small-k claimed win alone — ROUTED-CODE EXCEPTION: a shared-code edit that is properly ROUTED — guarded on the task's capability-cluster, with a BYTE-IDENTICAL else-branch and fail-open on classification uncertainty — has BOUNDED blast radius (it cannot change behavior for tasks outside its target cluster) and may take the SAME cheap PROMOTE path as an additive skill, PROVIDED the guard is verified not to fire outside the target cluster. An UNROUTED shared-code edit does NOT qualify. Otherwise, prefer retargeting the fix as a pure additive skill. The RIGOROUS gate is downstream: the
   deferred avg@k confirmation + the preservation probes re-test every promoted node
   and will demote a dud. The campaign cannot improve if every unproven-but-harmless
   additive win is archived, so for bounded-downside additive wins, prefer PROMOTE
-  over ARCHIVE. Reserve ARCHIVE for skills that ALSO regressed something or had ZERO
+  over ARCHIVE. Reserve ARCHIVE for extensions that ALSO regressed something or had ZERO
   measured effect; reserve REJECT for net-regressions, noise-only after-rates with no
   before-failure, or risky shared-code rewrites.
 
@@ -236,7 +238,11 @@ def _agent_profile_system() -> str:
     if os.environ.get("DARWINX_GATE_VERDICT_AGENT_PROFILE", "").strip().lower() != "mini":
         return _SYSTEM
     text = _SYSTEM
-    bias_start = text.find("- ADDITIVE-SKILL BIAS-TO-PROMOTE")
+    # Must match the heading in _SYSTEM exactly. It was renamed SKILL ->
+    # EXTENSION when plugins became a surface, and this lookup was not updated,
+    # so the substitution silently found nothing and the mini profile kept the
+    # monet-shaped bias text it exists to remove.
+    bias_start = text.find("- ADDITIVE-EXTENSION BIAS-TO-PROMOTE")
     bias_end = text.find("- PRUNE CANDIDATES", bias_start) if bias_start != -1 else -1
     if bias_start != -1 and bias_end != -1:
         text = text[:bias_start] + _MINI_BIAS + "\n\n" + text[bias_end:]
@@ -264,7 +270,7 @@ def render_evidence(
     """Assemble the textual evidence block the judge reasons over.
 
     ``task_deltas``: list of {task, before_rate, after_rate} (rates in [0,1]).
-    ``surface``: which surface the edit touched ("code" | "skill" | "mixed").
+    ``surface``: which surface the edit touched ("code" | "skill" | "plugin" | "mixed").
     ``collective_knowledge``: campaign-wide digest of how prior edits fared
     (what worked / what regressed across ALL nodes) — the aggregated history the
     GATE weighs alongside this node's noisy numbers.
@@ -401,7 +407,7 @@ def _parse(raw: str) -> Verdict | None:
 def decide(evidence: str, llm: _LLM | None = None, *, surface: str = "") -> Verdict | None:
     """Run the reasoned verdict. Returns None on any failure (caller falls back).
 
-    ``surface`` (code/skill/mixed) is recorded on the returned Verdict so the
+    ``surface`` (code/skill/plugin/mixed) is recorded on the returned Verdict so the
     caller can keep code and skill improvements separately attributable.
     """
     if not reasoned_verdict_on():

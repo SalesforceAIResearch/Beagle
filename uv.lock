@@ -3936,8 +3936,11 @@ requires-dist = [
     { name = "grpcio-tools", marker = "extra == 'dev'", specifier = ">=1.60" },
     { name = "harbor", marker = "extra == 'all'", specifier = "==0.20.0" },
     { name = "harbor", marker = "extra == 'frontier-swe'", specifier = "==0.20.0" },
+    { name = "harbor", marker = "extra == 'swe-rebench'", specifier = "==0.20.0" },
     { name = "harbor", marker = "extra == 'terminal-bench-2'", specifier = "==0.20.0" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "huggingface-hub", marker = "extra == 'all'", specifier = ">=0.34" },
+    { name = "huggingface-hub", marker = "extra == 'swebench-pro'", specifier = ">=0.34" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "mypy", marker = "extra == 'all'", specifier = ">=1.10" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
@@ -3979,7 +3982,7 @@ requires-dist = [
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
     { name = "uvicorn", specifier = ">=0.27" },
 ]
-provides-extras = ["all", "deep-swe", "dev", "docs", "frontier-swe", "observability", "swebench-pro", "swebench-verified", "terminal-bench-2"]
+provides-extras = ["all", "deep-swe", "dev", "docs", "frontier-swe", "observability", "swe-rebench", "swebench-pro", "swebench-verified", "terminal-bench-2"]
 
 [[package]]
 name = "xxhash"

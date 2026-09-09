@@ -50,6 +50,14 @@ def test_run_config_parses_canonical_shape() -> None:
     assert rc.parallelism == 3
 
 
+def test_debug_agent_wall_time_is_optional_positive_cap() -> None:
+    assert RunConfig.from_dict(_run()).debug_max_agent_wall_time_sec is None
+    capped = RunConfig.from_dict(_run(debug_max_agent_wall_time_sec=600))
+    assert capped.debug_max_agent_wall_time_sec == 600
+    with pytest.raises(ValidationError):
+        RunConfig.from_dict(_run(debug_max_agent_wall_time_sec=0))
+
+
 def test_detector_rejects_unknown_field() -> None:
     # the invented `limit` (and any typo / renamed / stray field) hard-errors
     with pytest.raises(ValidationError, match="extra_forbidden"):

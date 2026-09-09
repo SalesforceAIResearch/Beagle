@@ -22,6 +22,9 @@ from pathlib import Path
 _KNOB_PREFIXES = ("DARWINX_EVAL_", "DARWINX_EVOLVE_", "DARWINX_GATE_", "DARWINX_TRACE_",
                   "MONET_META_")
 
+# Paths authored in a project .env are project-relative, not launch-directory-relative.
+_PROJECT_PATH_KEYS = frozenset({"XRLENV_BENCHMARK_CACHE"})
+
 
 def find_dotenv(start: str | Path | None = None) -> Path | None:
     """The nearest ``.env`` at or above ``start`` (default: cwd), not searching above a ``.git``
@@ -71,6 +74,10 @@ def load_project_dotenv(path: str | Path | None = None, *, override: bool = Fals
     n = kept = 0
     for k, v in parsed.items():
         if override or k not in os.environ:
+            if k in _PROJECT_PATH_KEYS and v:
+                value_path = Path(v).expanduser()
+                if not value_path.is_absolute():
+                    v = str((p.parent / value_path).resolve())
             os.environ[k] = v
             n += 1
         else:
@@ -88,4 +95,4 @@ def load_project_dotenv(path: str | Path | None = None, *, override: bool = Fals
     return p
 
 
-__all__ = ["find_dotenv", "parse_dotenv", "load_project_dotenv"]
+__all__ = ["find_dotenv", "load_project_dotenv", "parse_dotenv"]

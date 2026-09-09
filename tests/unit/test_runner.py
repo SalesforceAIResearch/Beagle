@@ -6,13 +6,14 @@ Hermetic: a fake benchmark (canned harness + reducing grader) is injected via
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
 import beagle.benchmarks as benchmarks
-from beagle.benchmarks.base import GradeReport
+from beagle.benchmarks.base import BenchmarkHarness, GradeReport
 from beagle.config import RunConfig
-from beagle.rollout.runner import Runner
+from beagle.rollout.runner import Runner, _debug_wall_time_kwarg
 from beagle.types import Task, TaskContext, TaskResult
 
 
@@ -24,7 +25,8 @@ def _bench(outcomes: dict[str, tuple[bool, str | None]], seen: list[str], store:
 
     class _Harness:
         def rollout(self, agent, items, *, runtime, run_dir, parallelism, retry=None,
-                timeout_multiplier=1.0, attempt=0, resuming=False):  # noqa: ANN001
+                timeout_multiplier=1.0, debug_max_agent_wall_time_sec=None,
+                attempt=0, resuming=False):  # noqa: ANN001
             seen.extend(t.task_id for t, _ in items)
             out = []
             for t, _ in items:
@@ -62,11 +64,14 @@ def _dataset(*ids: str):
     return [(Task(task_id=i, benchmark="b"), TaskContext(image="img")) for i in ids]
 
 
-def _cfg(*ids: str) -> RunConfig:
-    return RunConfig.from_dict({
+def _cfg(*ids: str, debug_max_agent_wall_time_sec: float | None = None) -> RunConfig:
+    raw = {
         "model": {"name": "gpt-5.5"}, "agent": {"name": "monet", "config": {}},
         "benchmark": {"name": "b", "task_ids": list(ids)},
-    })
+    }
+    if debug_max_agent_wall_time_sec is not None:
+        raw["debug_max_agent_wall_time_sec"] = debug_max_agent_wall_time_sec
+    return RunConfig.from_dict(raw)
 
 
 def _install(monkeypatch, outcomes) -> list[str]:
@@ -76,10 +81,56 @@ def _install(monkeypatch, outcomes) -> list[str]:
     return seen
 
 
+def test_debug_wall_time_kwarg_fails_loud_for_unsupported_harness() -> None:
+    class OldHarness:
+        def rollout(self, agent, items):  # noqa: ANN001
+            return []
+
+    class DebugHarness:
+        def rollout(self, agent, items, *, debug_max_agent_wall_time_sec=None):  # noqa: ANN001
+            return []
+
+    assert _debug_wall_time_kwarg(OldHarness(), None) == {}
+    with pytest.raises(TypeError, match="kill switch"):
+        _debug_wall_time_kwarg(OldHarness(), 600)
+    assert _debug_wall_time_kwarg(DebugHarness(), 600) == {
+        "debug_max_agent_wall_time_sec": 600
+    }
+
+
+def test_per_task_harness_debug_wall_time_is_a_ceiling(tmp_path) -> None:
+    seen: list[float | None] = []
+
+    class Harness(BenchmarkHarness):
+        def run(self, binding, task, task_ctx, *, runtime):  # noqa: ANN001
+            seen.append(task_ctx.agent_timeout_s)
+            return TaskResult(task_id=task.task_id, resolved=True)
+
+    agent = SimpleNamespace(
+        name="fake",
+        source=lambda: SimpleNamespace(ref=""),
+        rollout_binding=lambda _ctx: object(),
+    )
+    items = [
+        (Task(task_id="long"), TaskContext(image=None, agent_timeout_s=5400)),
+        (Task(task_id="short"), TaskContext(image=None, agent_timeout_s=300)),
+        (Task(task_id="undeclared"), TaskContext(image=None)),
+    ]
+    list(Harness().rollout(
+        agent,
+        items,
+        runtime=None,
+        run_dir=tmp_path,
+        debug_max_agent_wall_time_sec=600,
+    ))
+    assert seen == [600, 300, 600]
+
+
 def test_runner_writes_run_json_and_reduces(tmp_path, monkeypatch) -> None:
     _install(monkeypatch, {"t1": (True, None), "t2": (False, None)})
     rr = Runner(parallelism=2, results_root=tmp_path).run(
-        agent=object(), dataset=_dataset("t1", "t2"), config=_cfg("t1", "t2"),
+        agent=object(), dataset=_dataset("t1", "t2"),
+        config=_cfg("t1", "t2", debug_max_agent_wall_time_sec=600),
         run_id="RID", config_path="c.yaml",
     )
     assert rr.run_id == "RID" and rr.score == 0.5 and len(rr.results) == 2
@@ -91,6 +142,7 @@ def test_runner_writes_run_json_and_reduces(tmp_path, monkeypatch) -> None:
     assert rec["totals"]["tokens"]["total"] == 22  # 2 × (10 + 1)
     assert "per_task_results" not in rec           # per-task lives in the harness native trees
     assert rec["config_hash"].startswith("sha256:") and rec["config"]["model"]["name"] == "gpt-5.5"
+    assert rec["config"]["debug_max_agent_wall_time_sec"] == 600
     assert rec["environment"]["python"]  # provenance captured
     assert not (tmp_path / "RID" / "tasks.jsonl").exists()  # no house ledger
 
@@ -358,3 +410,23 @@ def test_runner_calls_plain_harness_when_env_import_path_unset(tmp_path, monkeyp
     monkeypatch.setattr(benchmarks, "get", lambda name: _recording_bench(rec, old_signature=True))
     Runner(results_root=tmp_path).run(agent=object(), dataset=_dataset("t1"), config=_cfg("t1"), run_id="RID")
     assert rec == ["PLAIN"]                                 # plain harness() invoked, no TypeError
+
+
+def test_runner_selects_harness_from_runtime_kind(tmp_path, monkeypatch) -> None:
+    rec: list = []
+    bench = _recording_bench([])
+
+    def select(runtime_kind, *, env_import_path=None):  # noqa: ANN001
+        rec.append((runtime_kind, env_import_path))
+        return bench.harness()
+
+    bench.harness_for_runtime = select
+    monkeypatch.setattr(benchmarks, "get", lambda name: bench)
+    cfg = _cfg("t1")
+    cfg.runtime.kind = "local"
+
+    Runner(results_root=tmp_path).run(
+        agent=object(), dataset=_dataset("t1"), config=cfg, run_id="RID"
+    )
+
+    assert rec == [("local", None)]

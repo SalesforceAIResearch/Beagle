@@ -1,17 +1,29 @@
-"""Reach the LLM Gateway Express from a **LiteLLM-backed** agent — shared infrastructure.
+"""Reach an OpenAI-compatible LLM gateway from a **LiteLLM-backed** agent — shared infrastructure.
 
 LiteLLM is the model layer many agents drive (mini-swe today, more later), so *how* to point it at
-the gateway lives HERE, once — not re-implemented per agent. The gateway is a **unified
-OpenAI-compatible proxy** (``scripts/gateway/gateway_proxy.py``): one
-``LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL`` serves any model — gpt *or* claude — over the OpenAI wire
-shape, routing by the model name. An agent forwards the gateway creds (``forward_env``) and calls
-:func:`gateway_litellm_kwargs` to get the litellm settings; it maps them onto its own surface
-(Python kwargs, or a CLI's ``-c model.model_kwargs.…``).
+a gateway lives HERE, once — not re-implemented per agent. A gateway is any **OpenAI-compatible
+proxy**: one ``api_base`` serves any model — gpt *or* claude — over the OpenAI wire shape, routing
+by the model name. An agent calls :func:`resolve_gateway` to get the litellm settings and maps them
+onto its own surface (Python kwargs, an opencode provider block, or a CLI's
+``-c model.model_kwargs.…``).
+
+The typed ``provider`` union selects one of three routes:
+
+* ``direct`` — no gateway; the agent calls the model provider.
+* ``gateway`` — an explicit OpenAI-compatible endpoint in ``provider.extra_args``.
+* ``internal`` — a named agent/deployment provider backed by the existing gateway environment.
+
+With neither, the agent talks to the model provider directly on litellm's own defaults (bring your
+own first-party ``OPENAI_API_KEY`` / ``ANTHROPIC_API_KEY`` via ``forward_env``).
 """
 
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
+from typing import Any
+
+from beagle.agents.core.provider import GatewayProvider, InternalProvider, provider_config
 
 #: Direct API host per provider — for allowlisting the provider on a network-restricted benchmark
 #: when NO gateway is configured. By litellm-style ``provider/…`` prefix, and by bare model-name
@@ -86,4 +98,61 @@ def gateway_litellm_kwargs() -> dict[str, str] | None:
     return {"api_base": url, "api_key": key, "custom_llm_provider": "openai"}
 
 
-__all__ = ["gateway_litellm_kwargs", "gateway_key_pool", "provider_api_host"]
+def gateway_block(cfg: Mapping[str, Any] | None) -> dict[str, str] | None:
+    """Validated explicit gateway arguments, or ``None`` for another provider type."""
+    route = provider_config(dict(cfg or {}))
+    if not isinstance(route, GatewayProvider):
+        return None
+    return route.extra_args.model_dump()
+
+
+def config_gateway_kwargs(cfg: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """LiteLLM settings for the config-declared gateway (:func:`gateway_block`) — ``None`` when the
+    config declares none.
+
+    Same model-agnostic shape as :func:`gateway_litellm_kwargs`: ``api_base`` + ``api_key`` +
+    ``custom_llm_provider="openai"`` (the OpenAI wire shape an org proxy speaks, so the model name
+    alone picks the route). The key is read from the environment by the NAME the config gives
+    (``api_key_env``) — the secret never enters a config file, and the run record keeps the variable
+    name, so a run stays reproducible without leaking.
+
+    ``auth_header`` covers a proxy that authenticates on its own header (e.g. ``x-api-key``) instead
+    of ``Authorization: Bearer``: the key is then ALSO sent as ``extra_headers`` — litellm forwards
+    those verbatim — while the standard bearer stays put, so a gateway accepting either works.
+
+    An unset ``api_key_env`` yields the ``sk-noauth`` placeholder rather than an exception: the same
+    best-effort contract as ``forward_env`` (``beagle evaluate --dry-run`` reports the missing var in
+    its pre-flight, so it surfaces before spend). With no key resolved the custom header is OMITTED
+    rather than sent empty — an otherwise-anonymous gateway must not be handed a blank credential
+    header and reject the call for it.
+    """
+    route = provider_config(dict(cfg or {}))
+    if not isinstance(route, GatewayProvider):
+        return None
+    block = route.extra_args.model_dump()
+    key = (os.environ.get(block["api_key_env"]) or "").strip() if block["api_key_env"] else ""
+    kwargs: dict[str, Any] = {"api_base": block["api_base"],
+                              "api_key": key or "sk-noauth",
+                              "custom_llm_provider": "openai"}
+    if block["auth_header"] and key:
+        kwargs["extra_headers"] = {block["auth_header"]: key}
+    return kwargs
+
+
+def resolve_gateway(cfg: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Resolve the selected provider route into gateway kwargs when applicable."""
+    route = provider_config(dict(cfg or {}))
+    if isinstance(route, GatewayProvider):
+        return config_gateway_kwargs(dict(cfg or {}))
+    if isinstance(route, InternalProvider):
+        gateway = gateway_litellm_kwargs()
+        if gateway is None:
+            raise ValueError(
+                f"internal provider {route.name!r} requires "
+                "LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL to be set")
+        return gateway
+    return None
+
+
+__all__ = ["config_gateway_kwargs", "gateway_block", "gateway_key_pool",
+           "gateway_litellm_kwargs", "provider_api_host", "resolve_gateway"]

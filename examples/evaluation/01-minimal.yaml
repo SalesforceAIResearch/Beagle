@@ -22,10 +22,9 @@ agent:
       ref: <baseline-commit-sha>
       token_env: GH_TOKEN        # env var holding the clone token (private copies)
   model:
-    name: gpt-5.5                # the MODEL NAME picks the provider (see the table in README.md)
-  forward_env: [OPENAI_API_KEY]  # that provider's key, forwarded into the container for LiteLLM
-  # provider: <id>               # only when routing through an OpenAI-compatible proxy instead of
-                                 # the provider's own API; omit for direct access
+    name: gpt-5.5                # model identifier sent to the selected provider
+  provider: {type: direct, name: openai}
+  forward_env: [OPENAI_API_KEY]  # independent env forwarding; this run needs the provider's key
   effort: high
   max_turns: 150
 

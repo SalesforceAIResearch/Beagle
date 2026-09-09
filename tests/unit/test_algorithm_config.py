@@ -91,10 +91,12 @@ def test_to_driver_env_covers_all_typed_categories() -> None:
 
 def test_removed_dead_qd_knobs_fail_loud() -> None:
     # The old speculative QD knobs (never read by the vendored driver) were removed; setting one
-    # now trips the drift guard instead of silently doing nothing.
-    for dead in ("population_size", "children_per_gen", "max_generations", "patience", "qd_archive"):
+    # now trips the drift guard instead of silently doing nothing. ``qd_archive`` is a real
+    # typed field on this surface (lossy specialists), so it is not in this list.
+    for dead in ("population_size", "children_per_gen", "max_generations", "patience"):
         with pytest.raises(ValidationError):
             DarwinXConfig(**{dead: 8})
+    assert DarwinXConfig(qd_archive=True).qd_archive is True
 
 
 def test_pipelineconfig_loop_knobs_are_not_emitted_as_env() -> None:

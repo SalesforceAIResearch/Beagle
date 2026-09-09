@@ -37,12 +37,18 @@ class DeepSwe(Benchmark):
     name = "deep-swe"
     #: The benchmark-cache shard dir xrlenv materialized (matches the registry name here).
     cache_name: ClassVar[str] = "deep-swe"
+    cache_builder_module = "xrlenv_plugins.benchmarks.deep_swe.build_cache"
 
     def source(self) -> TaskSource:
         return HarborCache(self.name, cache_name=self.cache_name)
 
     def harness(self, env_import_path: str | None = None) -> BenchmarkHarness:
         return PierHarness(env_import_path=env_import_path)
+
+    def harness_for_runtime(
+        self, runtime_kind: str, *, env_import_path: str | None = None
+    ) -> BenchmarkHarness:
+        return PierHarness(env_import_path=env_import_path, runtime_kind=runtime_kind)
 
     def grader(self) -> Grader:
         return InBandGrader()

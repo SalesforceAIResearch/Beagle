@@ -63,6 +63,15 @@ class HarborBenchmark(Benchmark):
     def harness(self, env_import_path: str | None = None) -> BenchmarkHarness:
         return HarborHarness(env_import_path=env_import_path, task_env=self.task_env())
 
+    def harness_for_runtime(
+        self, runtime_kind: str, *, env_import_path: str | None = None
+    ) -> BenchmarkHarness:
+        return HarborHarness(
+            env_import_path=env_import_path,
+            runtime_kind=runtime_kind,
+            task_env=self.task_env(),
+        )
+
     def grader(self) -> Grader:
         return InBandGrader()
 
