@@ -18,7 +18,7 @@ from beagle.rollout.runtime.xrlenv_runtime import XrlenvDockerRuntime
 class RuntimeConfig:
     """Selects and parameterizes the runtime."""
 
-    kind: str = "local"  # "local" | "xrlenv-cluster"
+    kind: str = "local"  # "local" | "xrlenv-cluster" | "kata"
     grpc_host: str | None = None
     grpc_port: int | None = None
     token: str | None = None
@@ -31,6 +31,10 @@ def build_runtime(config: RuntimeConfig) -> ContainerRuntime:
     """Instantiate the runtime named by ``config.kind``."""
     if config.kind == "local":
         return LocalDockerRuntime()
+    if config.kind == "kata":
+        from beagle.rollout.runtime.kata_runtime import KataDockerRuntime
+
+        return KataDockerRuntime(**config.options)
     if config.kind == "xrlenv-cluster":
         return XrlenvDockerRuntime(
             grpc_host=config.grpc_host,

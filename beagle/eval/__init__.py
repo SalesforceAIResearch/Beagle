@@ -61,6 +61,10 @@ def evaluate(
         dataset = bgl.TaskDataset.from_benchmark(specs[0])
         for spec in specs[1:]:          # a mixture: concat keeps each benchmark's own selection
             dataset = dataset.concat(bgl.TaskDataset.from_benchmark(spec))
+    if config.runtime.kind == "kata" and runtime is None:
+        from beagle.rollout.runtime import build_runtime
+
+        runtime = build_runtime(config.runtime_settings())
     return Runner(runtime, parallelism=config.parallelism,
                   eval_parallelism=config.parallelism_eval_patches, results_root=results_root).run(
         agent, dataset, config=config, run_id=run_id, run_dir=run_dir,

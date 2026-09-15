@@ -226,7 +226,8 @@ def build_evaluation(raw: dict) -> tuple[RunConfig, Path]:
         # config on its first benchmark only.
         "benchmarks": ([benchmark_dict(g) for g in raw["data"]]
                        if len(raw.get("data") or []) > 1 else None),
-        "runtime": {"kind": run.get("runtime", "xrlenv-cluster")},
+        "runtime": (run["runtime"] if isinstance(run.get("runtime"), dict)
+                    else {"kind": run.get("runtime", "xrlenv-cluster")}),
         "parallelism": run.get("parallelism", 1),
         "parallelism_eval_patches": run.get("parallelism_eval_patches"),   # None → falls back to parallelism
         # Scales each task's OWN declared phase budgets; run-level, since it applies to the first

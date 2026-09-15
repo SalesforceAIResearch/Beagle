@@ -111,6 +111,12 @@ class LocalDockerRuntime:
     container stays around long enough for follow-up exec/log calls.
     """
 
+    def __init__(self, *, docker_host: str | None = None) -> None:
+        self.docker_host = docker_host
+
+    def _docker_argv(self, *args: str) -> list[str]:
+        return [DOCKER, *(["--host", self.docker_host] if self.docker_host else []), *args]
+
     def acquire(
         self,
         *,
@@ -136,7 +142,7 @@ class LocalDockerRuntime:
             raise RuntimeError(f"{DOCKER!r} CLI not on PATH")
 
         name = f"{_CONTAINER_NAME_PREFIX}{uuid.uuid4().hex[:8]}"
-        argv: list[str] = [DOCKER, "run", "-d", "--name", name]
+        argv = self._docker_argv("run", "-d", "--name", name)
 
         if platform:
             argv += ["--platform", platform]
@@ -186,7 +192,7 @@ class LocalDockerRuntime:
         if not handle.container_id:
             raise RuntimeError("cannot exec on a destroyed/empty handle")
 
-        argv: list[str] = [DOCKER, "exec"]
+        argv = self._docker_argv("exec")
         if workdir:
             argv += ["-w", workdir]
         process_env = None
@@ -227,13 +233,13 @@ class LocalDockerRuntime:
         cid = handle.container_id
         handle.container_id = ""  # mark teardown
         subprocess.run(
-            [DOCKER, "stop", cid],
+            self._docker_argv("stop", cid),
             capture_output=True, text=True, timeout=30, check=False,
         )
         subprocess.run(
-            [DOCKER, "rm", "-f", cid],
+            self._docker_argv("rm", "-f", cid),
             capture_output=True, text=True, timeout=30, check=False,
         )
 
 
-__all__ = ["ExecResult", "ContainerHandle", "ContainerResources", "LocalDockerRuntime"]
+__all__ = ["ContainerHandle", "ContainerResources", "ExecResult", "LocalDockerRuntime"]

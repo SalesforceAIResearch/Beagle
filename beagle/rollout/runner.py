@@ -225,6 +225,10 @@ class Runner:
         from beagle.rollout import run_record as rr
         from beagle.rollout.retry import better_attempt
         from beagle.rollout.run_id import build_run_id, compute_config_hash
+        from beagle.rollout.runtime.kata_runtime import KataDockerRuntime
+
+        if config.runtime.kind == "kata" and not isinstance(self.runtime, KataDockerRuntime):
+            raise ValueError("runtime.kind=kata requires a KataDockerRuntime; refusing a runtime override")
 
         retry = config.retry            # infra + content retry policy for this run
         config_hash = compute_config_hash(config.model_dump(mode="json"))
@@ -262,6 +266,17 @@ class Runner:
                 harness = selector(config.runtime.kind, env_import_path=_eip)
             else:
                 harness = bench.harness(env_import_path=_eip) if _eip else bench.harness()
+
+            kata_grader = None
+            if isinstance(self.runtime, KataDockerRuntime):
+                from beagle.benchmarks.grader import InBandGrader
+                from beagle.benchmarks.harness.drivers import DockerHarness
+
+                if not isinstance(harness, DockerHarness):
+                    raise TypeError("Kata currently requires a DockerHarness that uses the supplied runtime")
+                kata_grader = bench.grader()
+                if not isinstance(kata_grader, InBandGrader):
+                    raise TypeError("Kata currently requires InBandGrader; external evaluator containers are unsupported")
 
             # Resume: ask the harness what's already done (read from ITS native tree, not a house
             # ledger), then let ``plan_resume`` (shared with ``--dry-run``) decide what re-runs — each
@@ -303,7 +318,7 @@ class Runner:
                 remaining = [(t, c) for t, c in to_run
                              if not (best.get(t.task_id) and best[t.task_id].resolved)]
             group_results = list(done.values()) + list(best.values())
-            report = bench.grader().grade(
+            report = (kata_grader or bench.grader()).grade(
                 group_results, runtime=self.runtime, run_dir=run_dir,
                 parallelism=self.eval_parallelism or self.parallelism)   # patch-eval fan-out (SWE-bench)
             rows = [rr.per_task_row(r, benchmark=name) for r in group_results]

@@ -171,9 +171,10 @@ def test_dry_run_prints_the_resolved_run_dir(tmp_path, capsys) -> None:
     cfg_path.write_text("model: {name: gpt-5.5}\nagent: {name: monet, config: {}}\n"
                         "benchmark: {name: terminal_bench_2_1, task_ids: [t1]}\n")
     cfg = load_config(str(cfg_path))
-    cli._dry_run(cfg, cfg.agent_spec(), _items("t1"), run_dir=Path("/tmp/my-gate-out"))
+    run_dir = tmp_path / "my-gate-out"
+    cli._dry_run(cfg, cfg.agent_spec(), _items("t1"), run_dir=run_dir)
     out = capsys.readouterr().out
-    assert "/tmp/my-gate-out/" in out         # the run dir handed in is what's shown
+    assert str(run_dir) in out         # the run dir handed in is what's shown
 
 
 def test_evolve_requires_data_to_score_on(tmp_path, monkeypatch) -> None:
@@ -210,6 +211,43 @@ agent:
 data:
   - {benchmark: terminal_bench_2_1, tasks: [t1, t2]}
 """
+
+
+def test_canonical_evaluation_preserves_runtime_options(tmp_path):
+    from beagle.cli._canonical import build_evaluation, load
+
+    p = tmp_path / "eval.yaml"
+    p.write_text(_CANONICAL_EVAL.replace(
+        "runtime: local",
+        "runtime: {kind: kata, options: {docker_host: 'unix:///run/lab.sock'}}"))
+    cfg, _ = build_evaluation(load(p))
+    assert cfg.runtime_settings().kind == "kata"
+    assert cfg.runtime_settings().options == {"docker_host": "unix:///run/lab.sock"}
+
+
+def test_evaluate_cli_passes_kata_socket_to_runtime(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    import beagle as bgl
+    from beagle.rollout.runtime import KataDockerRuntime
+
+    cfg_path = tmp_path / "eval.yaml"
+    cfg_path.write_text(_CANONICAL_EVAL.replace(
+        "runtime: local",
+        "runtime: {kind: kata, options: {docker_host: 'unix:///run/lab.sock'}}"))
+    monkeypatch.setattr("beagle.cli._canonical.check_versions", lambda *a, **kw: None)
+    monkeypatch.setattr(bgl.TaskDataset, "from_benchmark", lambda *a: [])
+    monkeypatch.setattr(bgl.agents, "build", lambda spec: object())
+    seen = {}
+
+    def evaluate(config, **kwargs):
+        seen["runtime"] = kwargs["runtime"]
+        return SimpleNamespace(artifact_dir=tmp_path, score=0.0, results=[])
+
+    monkeypatch.setattr(bgl, "evaluate", evaluate)
+    assert cli.main(["evaluate", "--config", str(cfg_path)]) == 0
+    assert isinstance(seen["runtime"], KataDockerRuntime)
+    assert seen["runtime"].docker_host == "unix:///run/lab.sock"
 
 
 def test_canonical_build_evaluation(tmp_path) -> None:

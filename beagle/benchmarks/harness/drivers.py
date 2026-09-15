@@ -106,6 +106,8 @@ class HarborHarness(BenchmarkHarness):
         ``AgentConfig.kwargs``. Per-JOB is the right granularity: a harbor job is exactly one
         benchmark (``_run_job`` names the job dir after ``items[0][0].benchmark``), and the
         per-TASK part is resolved in-container by the snippets themselves. Empty = unchanged."""
+        if runtime_kind == "kata":
+            raise ValueError("Kata's experimental local runtime does not support Harbor/Pier-owned containers")
         if env_import_path:
             self.ENV_IMPORT_PATH = env_import_path
         elif runtime_kind == "local":

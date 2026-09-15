@@ -174,7 +174,7 @@ class BenchmarkConfig(_Base):
 
 
 class RuntimeConfig(_Base):
-    """Where trials run — ``local`` or ``xrlenv-cluster``.
+    """Where trials run — ``local``, ``xrlenv-cluster`` or experimental offline ``kata``.
 
     Cluster connection fields are optional; unset, the runtime falls back to the
     ``XRLENV_*`` env.
