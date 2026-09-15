@@ -9,20 +9,21 @@ approved), so the compose gate lives CP-side too: the coordinator vets the compo
 against the same policy **before** issuing the node command, and the node only
 ever runs an already-vetted document.
 
-This module is a thin adapter — it maps each compose service to the existing
+This module maps each compose service to the existing
 :func:`~xrlenv.control.kwargs_policy.validate_kwargs` call the single-acquire path
-uses, so there are **zero** new policy semantics: ``allow_privileged``,
+uses: ``allow_privileged``,
 ``denied_caps``, ``allowed_devices``, ``allowed_host_paths``, ``allow_host_network``
 and the always-fatal Level-3 escapes all behave identically to a plain
-``containers.run``. Rejections across every service collect into one
+``containers.run``. It also rejects storage declarations that bypass project
+scoping: global/external volumes, custom backing stores, and mounts inherited
+from external containers. Rejections across every service collect into one
 :class:`~xrlenv.control.kwargs_policy.KwargsPolicyViolation` (fail-loud,
 non-retryable) so an operator sees every problem at once.
 
 Reject, don't strip: consistent with ``KwargsPolicy`` everywhere else, a
 policy-violating compose fails the acquire loudly rather than being silently
-rewritten (which would break the task confusingly downstream). The corpus's 7
-multi-service tasks pass under the operator's existing ``allow_privileged`` opt-in
-and default cap allowlist, and none mount a host path.
+rewritten (which would break the task confusingly downstream). Project-local
+volumes preserve their native mount paths and sharing between services.
 """
 from __future__ import annotations
 
@@ -59,7 +60,8 @@ def _host_binds(service: dict[str, Any]) -> list[str]:
     ``"<host>:<container>"`` specs for ``validate_kwargs(binds=…)``.
 
     Named volumes and anonymous/tmpfs mounts are **not** host binds and are
-    skipped — only a bind whose source is a host path (absolute, ``.``/``~``
+    skipped here (named volume definitions are vetted separately). Only a bind
+    whose source is a host path (absolute, ``.``/``~``
     relative, or an explicit ``type: bind``) is subject to ``allowed_host_paths``.
     Both compose forms are handled: the short ``"src:dst[:mode]"`` string and the
     long ``{type: bind, source: /host, target: /c}`` mapping.
@@ -67,6 +69,8 @@ def _host_binds(service: dict[str, Any]) -> list[str]:
     binds: list[str] = []
     for entry in _as_list(service.get("volumes")):
         if isinstance(entry, str):
+            if ":" not in entry:
+                continue  # Target only: Docker allocates a private anonymous volume.
             src = entry.split(":", 1)[0]
             if src.startswith(("/", ".", "~")):
                 binds.append(entry)
@@ -126,6 +130,73 @@ def _service_rejections(
     ]
 
 
+def _storage_rejections(compose: dict[str, Any]) -> list[KwargsRejection]:
+    """Keep named volumes project-local without rewriting benchmark storage.
+
+    A read-only external mount is also a cross-project communication channel:
+    another rollout can write to it. Privileged/host-path opt-ins do not grant
+    permission to attach arbitrary external volumes or containers.
+    """
+    rejected: list[KwargsRejection] = []
+
+    def reject(path: str, reason: str, hint: str) -> None:
+        rejected.append(KwargsRejection(kwarg=path, level=3, reason=reason, hint=hint))
+
+    if compose.get("include"):
+        reject("include", "Included documents are not resolved before policy vetting.",
+               "Submit a self-contained Compose document with all resources resolved.")
+
+    volumes = compose.get("volumes")
+    if isinstance(volumes, dict):
+        for name, definition in volumes.items():
+            if not isinstance(definition, dict):
+                continue
+            path = f"volumes.{name}"
+            if definition.get("name"):
+                reject(f"{path}.name", "An explicit volume name bypasses Compose project scoping.",
+                       "Remove name so Compose allocates a project-local volume.")
+            if definition.get("external"):
+                reject(f"{path}.external", "External volumes can share state across projects.",
+                       "Remove external and initialize a project-local volume instead.")
+            if definition.get("driver") not in (None, "", "local"):
+                reject(f"{path}.driver", "Custom volume drivers can share an external backing store.",
+                       "Use the local driver without driver_opts.")
+            if definition.get("driver_opts"):
+                reject(f"{path}.driver_opts", "Volume driver options can attach host or remote storage.",
+                       "Use a project-local volume without driver_opts.")
+
+    services = _services(compose)
+    for name, service in services.items():
+        if not isinstance(service, dict):
+            continue
+        if service.get("extends"):
+            reject(f"services.{name}.extends", "Inherited services are not resolved before policy vetting.",
+                   "Submit a self-contained Compose document with inheritance resolved.")
+        for source in _as_list(service.get("volumes_from")):
+            parts = source.split(":") if isinstance(source, str) else []
+            if (not parts or parts[0] not in services or parts[0] == "container"
+                    or len(parts) > 2 or (len(parts) == 2 and parts[1] not in ("ro", "rw"))):
+                reject(f"services.{name}.volumes_from",
+                       "Volumes may only be inherited from a declared service in this project.",
+                       "Reference a local service, optionally followed by :ro or :rw.")
+        for index, mount in enumerate(_as_list(service.get("volumes"))):
+            # Vet the same source Docker will use. Node-side interpolation could
+            # otherwise turn a seemingly named mount into an unvetted host bind.
+            source = None
+            mount_type = None
+            if isinstance(mount, str):
+                # A target-only expression could expand to source:target too.
+                source = mount.split(":", 1)[0]
+            elif isinstance(mount, dict):
+                source = mount.get("source")
+                mount_type = mount.get("type")
+            if any(isinstance(value, str) and "$" in value for value in (source, mount_type)):
+                reject(f"services.{name}.volumes[{index}]",
+                       "Mount sources and types must be resolved before policy vetting.",
+                       "Submit a literal mount source and type; node-side interpolation is not allowed.")
+    return rejected
+
+
 def vet_compose_project(
     compose: dict[str, Any],
     *,
@@ -138,11 +209,12 @@ def vet_compose_project(
     can fix everything in one pass. A clean compose returns ``None``.
 
     The compose is the **rewritten, image-ref** document the plugin sends (§4.1)
-    — build contexts are already gone — so only runtime container fields are
-    vetted. Docker networks the task declares are project-scoped and not a policy
-    surface; ``network_mode`` (which *joins* a namespace) is.
+    — build contexts are already gone. Storage must remain scoped to the
+    project; deferred includes/inheritance must be resolved before submission.
+    Network topology is outside this storage check; ``network_mode`` is still
+    vetted through the existing kwarg policy.
     """
-    rejections: list[KwargsRejection] = []
+    rejections = _storage_rejections(compose)
     for name, service in _services(compose).items():
         rejections.extend(_service_rejections(name, service, policy))
     if rejections:

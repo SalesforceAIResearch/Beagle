@@ -78,6 +78,54 @@ containers when sessions end. It does not make untrusted code safe to
 run on shared hosts. Treat container images and workloads as trusted
 within the operator's environment.
 
+## Compose volumes between independent projects
+
+The control plane vets Compose storage **before image resolution, placement,
+or any node command**. Named volumes must use Compose's project-local naming
+and the default local backing store. Services within the same project may
+share them, for example an application and its database sidecar:
+
+```yaml
+services:
+  main:
+    image: example/app:1
+    volumes: [cache:/cache]
+  sidecar:
+    image: example/worker:1
+    volumes: [cache:/cache]
+volumes:
+  cache: {}
+```
+
+The following declarations raise `KwargsPolicyViolation` with the offending
+field and a migration hint:
+
+- Explicit volume `name` or `external`: these bypass project-local naming.
+- Non-local volume `driver` or nonempty `driver_opts`: a unique volume name
+  does not isolate a shared host directory or remote backing store.
+- `volumes_from` referencing an external container or undeclared service.
+  Declared service references, optionally ending in `:ro` or `:rw`, remain valid.
+- Mount sources or types requiring node-side interpolation, and unresolved `include`
+  or `extends` declarations. Resolve these before submission so the control
+  plane can inspect the storage Docker will actually mount.
+
+These checks also apply to read-only consumers: another project could write
+messages into the same backing store. `allow_privileged` and
+`allowed_host_paths` do not override these Compose checks. Anonymous volumes
+and tmpfs mounts remain available. Ordinary host binds retain their existing
+`allowed_host_paths` policy.
+
+To migrate, remove global volume names and external/custom backing stores,
+then initialize each project's private volume from immutable input. Keep
+intentional sharing within the same project. Leave the acquire API's
+`project_name` unset for independent executions: the coordinator generates a
+fresh name for each acquire, even for the same task/group. Explicit project
+names retain their existing semantics and must be unique per execution.
+
+This closes a Compose storage sharing path; it does not isolate network
+services, operator-allowed host binds, other execution backends, or workloads
+with host privileges. It does not change XRLEnv's trusted-workload model.
+
 ## Egress restriction for running containers
 
 `ClusterContainerSession.apply_egress(allowlist)` installs an iptables
