@@ -3,10 +3,10 @@ down per-task containers.
 
 The :class:`ContainerRuntime` Protocol pins the contract every adapter
 talks to (``acquire`` / ``exec`` / ``destroy``, opaque handle, timeout→124,
-idempotent destroy, thread-safe, silent acceptance of unused kwargs). Two
-implementations satisfy it:
+idempotent destroy and thread-safe operations). Implementations include:
 
 * :class:`LocalDockerRuntime` — shells out to the local ``docker`` CLI.
+* :class:`KataDockerRuntime` — experimental local Kata/QEMU, offline workloads only.
 * :class:`XrlenvDockerRuntime` — routes to the xrlenv cluster via
   ``xrlenv.from_env()`` (xrlenv imported lazily).
 
@@ -15,6 +15,7 @@ implementations satisfy it:
 from __future__ import annotations
 
 from beagle.rollout.runtime.config import RuntimeConfig, build_runtime
+from beagle.rollout.runtime.kata_runtime import KataDockerRuntime, KataRuntimeError
 from beagle.rollout.runtime.protocol import ContainerRuntime, Handle
 from beagle.rollout.runtime.runtime import (
     ContainerHandle,
@@ -37,6 +38,8 @@ __all__ = [
     "Handle",
     # local + cluster impls
     "LocalDockerRuntime",
+    "KataDockerRuntime",
+    "KataRuntimeError",
     "XrlenvDockerRuntime",
     "acquire_labels",
     # data types

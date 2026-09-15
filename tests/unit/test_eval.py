@@ -17,6 +17,27 @@ def _cfg() -> RunConfig:
     })
 
 
+def test_evaluate_builds_requested_kata_runtime(monkeypatch):
+    from beagle.rollout.runtime import KataDockerRuntime
+
+    seen = {}
+
+    class FakeRunner:
+        def __init__(self, runtime, **kwargs):
+            seen["runtime"] = runtime
+
+        def run(self, *args, **kwargs):
+            return "completed"
+
+    monkeypatch.setattr("beagle.rollout.runner.Runner", FakeRunner)
+    config = _cfg()
+    config.runtime.kind = "kata"
+    config.runtime.options = {"docker_host": "unix:///run/lab.sock"}
+    assert bgl.evaluate(config, agent=object(), dataset=[]) == "completed"
+    assert isinstance(seen["runtime"], KataDockerRuntime)
+    assert seen["runtime"].docker_host == "unix:///run/lab.sock"
+
+
 def test_evaluate_threads_everything_into_the_runner(monkeypatch) -> None:
     seen: dict = {}
 

@@ -44,7 +44,6 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
 
     from beagle.rollout.interrupt import stop_run_on_sigint
     from beagle.rollout.run_id import build_run_id, compute_config_hash
-    from beagle.rollout.runtime import RuntimeConfig as RtCfg
     from beagle.rollout.runtime import build_runtime
 
     # Resolve the run_id up front (same as the Runner would) so the runtime can stamp every
@@ -54,7 +53,9 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
 
     # The container substrate the harness hands each rollout (None on the harbor path — harbor owns
     # its trial container; a real runtime for docker-harness benchmarks like SWE-bench).
-    rt = build_runtime(RtCfg(kind=run_cfg.runtime.kind, run_id=run_id))
+    runtime_settings = run_cfg.runtime_settings()
+    runtime_settings.run_id = run_id
+    rt = build_runtime(runtime_settings)
     # Ctrl-C → actively stop THIS run's containers on the cluster (node-confirmed destroy frees
     # capacity now) instead of leaving them for xrlenv's ~120 s raw-liveness reaper.
     with stop_run_on_sigint(rt, run_id):
