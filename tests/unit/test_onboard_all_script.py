@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -34,5 +34,12 @@ def test_batch_onboarding_uses_project_python_from_any_working_directory(tmp_pat
     subprocess.run(["bash", str(script)], cwd=tmp_path, env=env, check=True)
 
     calls = log.read_text(encoding="utf-8").splitlines()
-    assert len(calls) == 3
     assert all(call.startswith(f"{repo}|-m beagle.tools.onboard ") for call in calls)
+    # The public wrapper onboards mini-swe and OpenCode; Monet was removed from
+    # the public export. Check identities as well as count to catch duplicates.
+    args = [shlex.split(call.split("|", 1)[1]) for call in calls]
+    assert sorted(arg[arg.index("--upstream") + 1] for arg in args) == [
+        "https://github.com/SWE-agent/mini-swe-agent",
+        "https://github.com/anomalyco/opencode",
+    ]
+    assert all(arg[arg.index("--repo") + 1].startswith("test-org/") for arg in args)

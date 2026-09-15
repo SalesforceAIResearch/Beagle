@@ -57,5 +57,5 @@ logs, before/after test output, `evidence.json` and Beagle's `run.json`.
 
 This is one functional agent/model/tool/lifecycle validation on a synthetic
 fixture. It is not a SWE-bench score, general model-quality measurement, or
-adversarial containment certification. It does not resolve unrelated failures
-in the repository's existing unit suite.
+adversarial containment certification. The repository's default test suite is
+validated separately from this opt-in model smoke.

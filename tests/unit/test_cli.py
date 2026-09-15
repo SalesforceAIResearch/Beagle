@@ -171,9 +171,10 @@ def test_dry_run_prints_the_resolved_run_dir(tmp_path, capsys) -> None:
     cfg_path.write_text("model: {name: gpt-5.5}\nagent: {name: monet, config: {}}\n"
                         "benchmark: {name: terminal_bench_2_1, task_ids: [t1]}\n")
     cfg = load_config(str(cfg_path))
-    cli._dry_run(cfg, cfg.agent_spec(), _items("t1"), run_dir=Path("/tmp/my-gate-out"))
+    run_dir = tmp_path / "my-gate-out"
+    cli._dry_run(cfg, cfg.agent_spec(), _items("t1"), run_dir=run_dir)
     out = capsys.readouterr().out
-    assert "/tmp/my-gate-out/" in out         # the run dir handed in is what's shown
+    assert str(run_dir) in out         # the run dir handed in is what's shown
 
 
 def test_evolve_requires_data_to_score_on(tmp_path, monkeypatch) -> None:

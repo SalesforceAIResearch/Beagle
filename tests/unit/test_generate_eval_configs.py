@@ -231,7 +231,7 @@ def test_gate_is_one_config_per_combination(tmp_path) -> None:
     n_cells = len(list(gen.agent_cells())) * len(gen.BENCHMARKS)
     assert w1 == n_cells * len(gen.SMOKE_VARIANTS)
     for _name, _version, label in gen.agent_cells():
-        for bench, b in gen.BENCHMARKS.items():
+        for bench in gen.BENCHMARKS:
             # Smokes are grouped by BENCHMARK and named after the copy, exactly like the eval tree
             # — one spelling of each benchmark, one naming rule for both variants.
             doc2 = yaml.safe_load((smk / bench / f"{label}_smoke2.yaml").read_text())
@@ -472,20 +472,38 @@ def _tracked_docs() -> list[Path]:
     return [p for f in out if not f.startswith(skip) if (p := root / f).exists()]
 
 
-def test_documented_config_paths_are_ones_the_generator_writes() -> None:
+def test_documented_config_paths_are_ones_the_generator_writes(tmp_path) -> None:
     """Docs quote generated config paths, which carry the version — so they go stale exactly when
     an agent is re-onboarded. Fail here rather than in a user's terminal."""
     import re
 
     labels = {label for _n, _v, label in gen.agent_cells()}
-    # both trees: examples/evaluation/<bench>/<label>.yaml and tests/smoke/<bench>/<label>_<variant>.yaml
-    valid = set(labels) | {f"{lb}_{v}" for lb in labels for v in gen.SMOKE_VARIANTS}
-    pattern = re.compile(r"(?:examples/evaluation|tests/smoke)/([\w.-]+)/([\w.-]+)\.yaml")
+    # Evolution and evaluation share tests/smoke/, but have separate generators.
+    # Generate both into a temporary tree so a stale evolution suffix still fails.
+    spec = importlib.util.spec_from_file_location(
+        "documented_evolution_gen", _PATH.with_name("generate_evolution_config.py")
+    )
+    assert spec and spec.loader
+    evolution = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(evolution)
+    manifests, out = tmp_path / "manifests", tmp_path / "smoke"
+    _seed_all(manifests)
+    for path in manifests.glob("*.json"):
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        manifest["dir"] = "../beagle-experiments/example"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+    _, missing_eval = gen.generate(manifest_dir=manifests, smoke_root=out)
+    _, missing_evolution = evolution.generate(manifest_dir=manifests, out_root=out)
+    assert not missing_eval and not missing_evolution
+    written = {path.relative_to(out).as_posix() for path in out.rglob("*.yaml")}
+    pattern = re.compile(r"(examples/evaluation|tests/smoke)/([\w.-]+)/([\w.-]+)\.yaml")
     checked = 0
     for path in _tracked_docs():
-        for bench, stem in pattern.findall(path.read_text(encoding="utf-8")):
+        for tree, bench, stem in pattern.findall(path.read_text(encoding="utf-8")):
             assert bench in gen.BENCHMARKS, f"{path.name}: unknown benchmark dir {bench!r}"
-            assert stem in valid, (
+            supported = (f"{bench}/{stem}.yaml" in written if tree == "tests/smoke"
+                         else stem in labels)
+            assert supported, (
                 f"{path.name}: references {bench}/{stem}.yaml, which the generator no longer "
                 f"writes; current copies are {sorted(labels)}")
             checked += 1

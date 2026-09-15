@@ -40,8 +40,9 @@ def test_evolution_examples_load_through_the_evolve_seam() -> None:
         assert cfg.benchmark.task_ids == ["gcode-to-text"]
 
 
-def test_oss_evolution_example_is_local_and_portable() -> None:
-    path = ROOT / "examples" / "evolution" / "config.oss.yaml"
+def test_public_evolution_example_is_local_and_portable() -> None:
+    # The public export promotes the .oss variants to their canonical filenames.
+    path = ROOT / "examples" / "evolution" / "config.yaml"
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert raw["run"]["runtime"] == "local"
     assert raw["run"]["parallelism"] == 1
@@ -57,9 +58,7 @@ def test_evolution_docs_do_not_reference_the_removed_quick_start_path() -> None:
         ROOT / "README.md",
         ROOT / "docs" / "advanced.md",
         ROOT / "examples" / "evolution" / "README.md",
-        ROOT / "examples" / "evolution" / "README.oss.md",
         ROOT / "examples" / "evolution" / "quick_start_inline.py",
-        ROOT / "examples" / "evolution" / "quick_start_inline.oss.py",
     ]
     offenders = [
         str(path.relative_to(ROOT))
@@ -116,7 +115,6 @@ def test_darwinx_guidance_relative_links_resolve() -> None:
     paths = [
         ROOT / "docs" / "darwinx-configuration.md",
         ROOT / "examples" / "evolution" / "README.md",
-        ROOT / "examples" / "evolution" / "README.oss.md",
         ROOT / "beagle" / "algorithms" / "darwinx" / "vendor" / "README.md",
         ROOT / "scripts" / "README.md",
     ]
@@ -236,7 +234,9 @@ def test_benchmark_remarks_cover_every_registered_benchmark() -> None:
         sweep = root / "vendor" / "xrlenv" / "xrlenv_plugins" / "benchmarks" / kit / "run_full_sweep.sh"
         if not sweep.exists():          # vendored submodule not checked out
             continue
-        block = re.search(r"^EXCLUDE=\((.*?)^\)", sweep.read_text(encoding="utf-8"), re.S | re.M)
+        block = re.search(
+            r"^EXCLUDE=\((.*?)^\)", sweep.read_text(encoding="utf-8"), re.DOTALL | re.MULTILINE
+        )
         if not block:
             continue
         for line in block.group(1).splitlines():
@@ -275,9 +275,8 @@ def test_the_gateway_example_seals_egress_to_the_gateway() -> None:
     the declared `api_base` and NOTHING else — advertising the model provider's public host instead
     would both break the run and defeat the point of the example."""
     import beagle as bgl
-    from beagle.config import AgentConfig
-
     from beagle.cli._canonical import agent_dict
+    from beagle.config import AgentConfig
 
     path = next(p for p in EXAMPLES if "gateway" in p.name)
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
