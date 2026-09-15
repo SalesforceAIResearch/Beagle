@@ -106,3 +106,50 @@ container and terminate its associated QEMU process. A final probe exercises
 and creation of `run.json` in a temporary directory. Run on the Docker host with
 permission to inspect those processes. This is lifecycle validation, not an
 adversarial escape-resistance evaluation.
+
+## Real agent and model repair smoke
+
+See the [recorded local validation](kata-model-validation.md) for an executed example.
+
+The optional `tests/smoke/kata_model.py` test runs Beagle's existing
+`MiniSweAgent.run_in` implementation against mini-swe-agent 2.4.6 and a local
+[Qwen2.5-Coder-7B-Instruct GGUF](https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF)
+served by llama.cpp, using mini-swe's built-in `litellm_textbased` command mode.
+Inference, the agent process and its shell commands all run inside the first
+Kata VM. The verified weights are supplied as a read-only file mount. A smoke-only
+subclass replaces the online installation phase with preinstalled dependency checks and local server
+startup. This does not add general preinstalled-agent support to the production
+adapter.
+
+Prepare the image on the trusted Linux host with Internet access. The model
+download is 4.68 GB; allow additional space for the image and build cache.
+The helper pins the model revision and checks its SHA-256; the Dockerfile pins
+the llama.cpp base image by digest and mini-swe-agent by version.
+Configure the lab's Kata/QEMU guest for 4 vCPUs and 8 GiB of RAM before this
+larger smoke (Kata's `default_vcpus = 4`, `default_memory = 8192`). The adapter
+does not silently change the operator's hypervisor configuration.
+
+```sh
+python tests/smoke/kata_model/prepare.py --output "$HOME/beagle-kata-model-build"
+docker --host unix:///run/beagle-kata/docker.sock build --network host \
+  -t beagle-kata-model-smoke:local "$HOME/beagle-kata-model-build"
+python tests/smoke/kata_model.py --docker-host unix:///run/beagle-kata/docker.sock \
+  --model-file "$HOME/beagle-kata-model-build/model.gguf" \
+  --output "$HOME/beagle-kata-model-results"
+```
+
+The image build is the online preparation phase. Both test containers are
+created by `KataDockerRuntime` with `--network none`; the local model API binds
+only to loopback inside the first VM. No external model API, credential, GPU or
+published port is required. Use a fresh output directory for each attempt.
+
+The fixture has five acceptance tests, three initially failing. The real agent
+must finish with a `Submitted` status, generate a patch and record model output
+tokens. Only the resulting source file is transferred into a second, fresh Kata VM, where the original tests must
+all pass. The output directory retains the native mini-swe trajectory, patch,
+model logs, baseline/verification results, Beagle run record and cleanup evidence.
+The model-input shim adds only a read-only mount to the existing Kata acquire
+method; it does not change the runtime or network policy. Both containers and
+their associated QEMU processes must disappear afterward.
+This establishes one functional agent/model/tool path; it does not validate
+all benchmarks or demonstrate resistance to malicious agents.

@@ -1,0 +1,31 @@
+# Generic offline coding-agent instructions; the task is provided by Beagle.
+agent:
+  system_template: |
+    You are a coding assistant operating a Linux shell in /testbed.
+    Briefly explain your next step, then include exactly one fenced bash code
+    block containing the shell command for that step. You will receive the real
+    command output before your next reply. Follow this workflow:
+    1. Read the source file with cat before doing anything else.
+    2. Edit the source using a shell command such as a Python heredoc or sed.
+    3. Run the tests. If they fail, change the source before running them again.
+    Never repeat a failing test command without first changing the implementation.
+    Do not change test files. Your job is to write the fix, not only to run tests.
+    Once the tests pass, finish with this command in a bash code block:
+    echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT
+  instance_template: "{{task}}"
+  step_limit: 8
+  cost_limit: 0
+environment:
+  cwd: /testbed
+  timeout: 30
+model:
+  model_class: litellm_textbased
+  action_regex: '```bash\s*\n(.*?)\n```'
+  cost_tracking: ignore_errors
+  model_kwargs:
+    api_base: http://127.0.0.1:8080/v1
+    api_key: local-no-auth
+    temperature: 0.2
+    seed: 42
+    max_tokens: 384
+    timeout: 120
