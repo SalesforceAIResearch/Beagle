@@ -215,6 +215,53 @@ async def test_acquire_vet_rejection_leaves_no_session() -> None:
     assert coord._acquiring_ids == set()
 
 
+@pytest.mark.parametrize("storage", [
+    {"volumes": {"cache": {"name": "shared-cache"}}},
+    {"volumes": {"cache": {"external": True}}},
+    {"volumes": {"cache": {"driver_opts": {"type": "nfs", "device": ":/shared"}}}},
+    {"services": {"main": {"image": "app:1", "volumes_from": ["container:other"]}}},
+    {"include": ["more.yaml"]},
+])
+async def test_shared_storage_rejected_before_resolve_or_placement(storage) -> None:
+    from unittest.mock import AsyncMock
+
+    from xrlenv.control.state import InMemoryStateStore
+
+    node = _Node()
+    state = InMemoryStateStore()
+    resolver = _Resolver()
+    resolver.resolve = AsyncMock(side_effect=AssertionError("must reject before resolving"))
+    coord = RawContainerCoordinator(
+        scheduler=_Scheduler(node), digest_resolver=resolver, state=state,
+    )
+    compose = {
+        "services": {"main": {"image": "app:1", "volumes": ["cache:/cache"]}},
+        "volumes": {"cache": None},
+    }
+    compose.update(storage)
+    with pytest.raises(KwargsPolicyViolation):
+        await coord.acquire_compose_project(
+            compose_yaml=yaml.safe_dump(compose), images=["app:1"], footprint=FOOTPRINT,
+        )
+    resolver.resolve.assert_not_awaited()
+    assert node.acquire_calls == []
+    assert coord._scheduler.place_kwargs == {}
+    assert coord._sessions == {}
+    assert coord._acquiring_ids == set()
+    assert state.list_raw_rollouts() == []
+
+
+async def test_default_projects_are_unique_for_repeated_task_and_group() -> None:
+    node = _Node()
+    coord = _coord(node, resolver=False)
+    for _ in range(2):
+        await coord.acquire_compose_project(
+            compose_yaml=_COMPOSE, images=["reg/ns/tw:main"], footprint=FOOTPRINT,
+            task_key="same-task", group_id="same-run",
+        )
+    assert node.acquire_calls[0]["project_name"] != node.acquire_calls[1]["project_name"]
+
+
 async def test_acquire_node_failure_cleans_up() -> None:
     node = _Node(fail=True)
     coord = _coord(node)
