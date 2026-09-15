@@ -24,7 +24,7 @@ class ContainerRuntime(Protocol):
 
     Contract every implementation must honor: a timeout is reported as
     ``ExecResult(returncode=124, ...)`` (never raised); ``destroy`` is
-    idempotent and swallows errors; the handle is opaque; instances are
+    idempotent but may raise on cleanup failure; the handle is opaque; instances are
     thread-safe; and any kwarg an impl doesn't use is silently accepted.
     """
 
@@ -68,7 +68,13 @@ class ContainerRuntime(Protocol):
         ...
 
     def destroy(self, handle: Handle) -> None:
-        """Tear down. Idempotent. Errors are swallowed."""
+        """Tear down idempotently, using the backend's cleanup guarantees.
+
+        Local Docker raises ContainerCleanupError when removal cannot be
+        confirmed and retains the handle for retry. Callers must not suppress
+        that error and report successful cleanup. Remote/externally owned
+        runtimes retain their backend-specific lifecycle behavior.
+        """
         ...
 
 
