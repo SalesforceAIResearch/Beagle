@@ -40,13 +40,23 @@ class ExecResult:
 class ContainerHandle:
     """Reference returned by `acquire()`. Adapters pass it back to
     subsequent calls (`exec`, `destroy`, etc.) and don't need to read
-    the fields. Mutable so `destroy()` can null `container_id` to mark
-    teardown — calling `destroy()` twice is a no-op rather than an
-    error.
+    the fields. The local runtime clears `container_id` only after
+    confirming removal, retaining it on failure so cleanup can be retried.
     """
 
     container_id: str
     name: str
+
+
+class ContainerCleanupError(RuntimeError):
+    """Local Docker cleanup could not confirm removal of a container."""
+
+    def __init__(self, container_id: str, detail: str) -> None:
+        self.container_id = container_id
+        super().__init__(
+            f"Container {container_id} removal could not be confirmed: {detail}. "
+            "The container may still exist; its handle is retained for cleanup retry."
+        )
 
 
 @dataclass(frozen=True)
@@ -218,22 +228,63 @@ class LocalDockerRuntime:
         )
 
     def destroy(self, handle: ContainerHandle) -> None:
-        """Stop and remove the container. Idempotent — safe to call
-        twice. Errors are swallowed; the goal is "no leftovers" not
-        "report every failed CLI call."
+        """Stop, force-remove, and verify removal through the Docker daemon.
+
+        A failed/timed-out stop must not prevent force-removal. Only a
+        successful listing that excludes the container confirms cleanup,
+        including when another actor removed it or a removal response was lost.
+        Confirmation clears the handle; subsequent calls are no-ops.
+
+        Raises:
+            ContainerCleanupError: the container remains or its absence cannot
+                be verified. The handle retains its ID so callers can retry.
         """
         if not handle.container_id:
             return
         cid = handle.container_id
-        handle.container_id = ""  # mark teardown
-        subprocess.run(
-            [DOCKER, "stop", cid],
-            capture_output=True, text=True, timeout=30, check=False,
-        )
-        subprocess.run(
-            [DOCKER, "rm", "-f", cid],
-            capture_output=True, text=True, timeout=30, check=False,
-        )
+        failures: list[str] = []
+        for args in (["stop", cid], ["rm", "-f", cid]):
+            try:
+                result = subprocess.run(
+                    [DOCKER, *args], capture_output=True, text=True, timeout=30, check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                failures.append(f"{args[0]} failed: {exc}")
+            else:
+                if result.returncode != 0:
+                    failures.append(
+                        f"{args[0]} returned {result.returncode}: {result.stderr.strip()}"
+                    )
+
+        # Use a successful, filtered listing rather than interpreting an inspect
+        # error as absence: daemon outages and permission errors must fail closed.
+        # --all includes stopped containers, whose removal also needs confirmation.
+        try:
+            remaining = subprocess.run(
+                [DOCKER, "ps", "--all", "--quiet", "--no-trunc", "--filter", f"id={cid}"],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            failures.append(f"verification failed: {exc}")
+            raise ContainerCleanupError(cid, "; ".join(failures)) from exc
+
+        if remaining.returncode != 0:
+            failures.append(
+                f"verification returned {remaining.returncode}: {remaining.stderr.strip()}"
+            )
+        elif remaining.stdout.strip():
+            failures.append("Docker still lists the container")
+        else:
+            handle.container_id = ""
+            return
+
+        raise ContainerCleanupError(cid, "; ".join(failures))
 
 
-__all__ = ["ExecResult", "ContainerHandle", "ContainerResources", "LocalDockerRuntime"]
+__all__ = [
+    "ContainerCleanupError",
+    "ContainerHandle",
+    "ContainerResources",
+    "ExecResult",
+    "LocalDockerRuntime",
+]
