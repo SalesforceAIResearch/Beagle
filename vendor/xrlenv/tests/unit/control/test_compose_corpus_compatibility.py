@@ -64,10 +64,19 @@ CORPUS_SHAPES: dict[str, dict] = {
     # 27x, e.g. tw_105786. The operator decides this one today (allowed_host_paths), so it is out
     # of scope below; modelled anyway, because a NEW rule could reject it with no override.
     "short-form host bind": {"volumes": ["/var/run/docker.sock:/var/run/docker.sock"]},
-    # 14x, e.g. seta-env/1133. The harness expands these; the task author never picks the value.
+    # 11x across 6 tasks, e.g. seta-env/1133 and tw_291556. The harness expands these; the task
+    # author never picks the value.
     "short-form interpolated source": {
         "volumes": ["${HOST_VERIFIER_LOGS_PATH}:${ENV_VERIFIER_LOGS_PATH}",
                     "${WORKSPACE_DIR}:/workspace"]},
+    # 3x — tw_15324, tw_313581, tw_529592. Interpolation WITH a literal default, which resolves to
+    # that default unless the operator overrides it. Modelled separately because it is the shape a
+    # rule is most likely to get half-right: it looks unresolved, yet its effective value is known
+    # statically. Note the current vet skips it entirely -- the source starts with `$`, not `/`,
+    # so `_host_binds` files it as a named volume and allowed_host_paths never sees the
+    # docker.sock it actually mounts.
+    "short-form interpolated source with a default": {
+        "volumes": ["${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock"]},
     # 14x, e.g. tw_118507.
     "privileged service": {"privileged": True},
     # 3x, e.g. seta-env/892. Compose scopes this per project; it is the sharing a storage rule
