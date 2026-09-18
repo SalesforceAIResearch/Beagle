@@ -248,3 +248,11 @@ experiments/configs/*
 # beagle rule that ignores a whole directory can still be re-included.)
 !/vendor/xrlenv/**/
 !/vendor/xrlenv/**
+
+# ...but NOT build artefacts, which the subtree never tracked. The negations
+# above are unconditional, so they also undo the repo-wide `__pycache__/` rule
+# here -- running the test suite in a clone leaves .pyc files under this path
+# that show up as untracked and that `git add -A` will happily commit. Later
+# rules win, so re-ignore them. Keep in step with the `__pycache__` rule above.
+/vendor/xrlenv/**/__pycache__/
+/vendor/xrlenv/**/*.py[cod]

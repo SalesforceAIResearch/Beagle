@@ -1,6 +1,6 @@
 [project]
 name = "beagle"
-version = "0.0.1"
+version = "0.0.2"
 description = "A PyTorch-like framework for agent-harness evolution: agent factory + evolve algorithms + unified runner over vendored xrlenv rollout infra."
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
@@ -34,7 +34,12 @@ swe-bench = ["swebench>=4.1.0", "datasets>=4.8.5"]
 deep-swe = ["datacurve-pier==0.3.0"]
 # Model access for white-box / evolver agents that call an LLM directly.
 llm = ["litellm>=1.50"]
-dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.10"]
+# `pytest-asyncio` is required by beagle's OWN suite (the pier tests are `async def` with
+# `@pytest.mark.asyncio`). It reached the dev environment only as a transitive extra of the
+# vendored xrlenv, which a path dependency does NOT propagate -- so the documented install,
+# `uv sync --extra all`, produced a tree where those tests could not run at all and reported
+# "async def functions are not natively supported". Declare what our tests need.
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.6", "mypy>=1.10"]
 # Offline results analysis — the Streamlit dashboard under experiments/scripts/ (reads run
 # artifacts; NOT needed to run evals). pandas is pulled in by streamlit but listed since the
 # dashboard imports it directly.

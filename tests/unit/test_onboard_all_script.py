@@ -15,10 +15,8 @@ def test_batch_onboarding_uses_project_python_from_any_working_directory(tmp_pat
     scripts = repo / "scripts"
     scripts.mkdir(parents=True)
     script = scripts / "onboard_all_agents.sh"
-    script.write_text(
-        (ROOT / "scripts/onboard_all_agents.sh").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    source = (ROOT / "scripts/onboard_all_agents.sh").read_text(encoding="utf-8")
+    script.write_text(source, encoding="utf-8")
     (repo / ".env").write_text("YOUR_ORG=test-org\n", encoding="utf-8")
     python = repo / ".venv/bin/python"
     python.parent.mkdir(parents=True)
@@ -34,5 +32,11 @@ def test_batch_onboarding_uses_project_python_from_any_working_directory(tmp_pat
     subprocess.run(["bash", str(script)], cwd=tmp_path, env=env, check=True)
 
     calls = log.read_text(encoding="utf-8").splitlines()
-    assert len(calls) == 3
+    # One call per invocation the script actually carries — counted from the script, not hardcoded.
+    # A literal goes stale whenever an agent is added or commented out, and is simply WRONG in the
+    # public mirror, where publication removes the marked block wrapping the unpublished agents.
+    # Counting still guards what this test is for: every invocation ran, none silently skipped.
+    expected = source.count("-m beagle.tools.onboard")
+    assert expected >= 2, "the batch script lost its onboard invocations"
+    assert len(calls) == expected
     assert all(call.startswith(f"{repo}|-m beagle.tools.onboard ") for call in calls)

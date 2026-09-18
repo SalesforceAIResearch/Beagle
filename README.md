@@ -7,7 +7,7 @@
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-%3E%3D3.12-3776AB?logo=python&logoColor=white" alt="Python"></a>
   <a href="pyproject.toml"><img src="https://img.shields.io/badge/license-Apache%202.0-10B981" alt="License"></a>
   <a href="https://docs.astral.sh/uv/"><img src="https://img.shields.io/badge/installer-uv-DE5FE9?logo=uv&logoColor=white" alt="uv"></a>
-  <a href="pyproject.toml"><img src="https://img.shields.io/badge/status-0.0.1-6366F1" alt="status"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/status-v0.0.2-6366F1" alt="status"></a>
 </p>
 
 
@@ -352,6 +352,23 @@ Categories split on one signal: did the trial record an error?
 
 Flags are **independent** — combine to union. Resolved tasks are never re-run.
 
+Example of re-running a failed task [add `--dry-run` to print the plan without rolling out]:
+```bash
+beagle evaluate \
+  --config <path-to-config-file> \
+  --run-dir <path-to-run-directory;must be consistent with the config file> \
+  --retry-errors --dry-run
+```
+We strongly recommend to use the `--dry-run` to print the rerun-plan without rolling out first. Since the automatical classification of the tasks may not be aligned with the your actual understanding of the scenario.
+If you find any tasks you would want to exclude for rerun, we suggest users to use the `--task-ids` together with `--retry-unresolved` flag to specify the tasks to rerun.
+
+```bash
+beagle evaluate \
+  --config <path-to-config-file> \
+  --run-dir <path-to-run-directory;must be consistent with the config file> \
+  --retry-unresolved --task-ids <t1,t2,… no space between the task ids, only use comma>
+```
+
 <details>
 <summary><strong>Discussion on the flags</strong></summary>
 
@@ -398,6 +415,9 @@ and change the `runtime` to `xrlenv-cluster` in the configuration file.
 run:
   runtime: xrlenv-cluster        
 ```
+
+## Analyze the results
+We offer a dashboard to analyze the results of the evaluation runs. It is a Streamlit app that can be run locally. Please refer to [experiments/scripts/README.md](experiments/scripts/README.md) for more details.
 
 ---
 
@@ -510,8 +530,10 @@ best node when the pipeline finishes.
 | Doc | What's in it |
 |---|---|
 | [examples/evolution/README.md](examples/evolution/README.md) | one-pipeline DarwinX smoke: generate config, dry-run, launch, and inspect outputs |
+| [CHANGELOG.md](CHANGELOG.md) | what changed in each release, and why |
 | [docs/darwinx-configuration.md](docs/darwinx-configuration.md) | DarwinX concepts, typed knobs, measurement guidance, and campaign progression |
 | [docs/advanced.md](docs/advanced.md) | module map, onboarding your own agent adapter, the Python API |
+| [docs/onboarding-an-agent.md](docs/onboarding-an-agent.md) | end-to-end runbook for adding a new agent harness: contracts, wiring, checklist, traps |
 | [docs/benchmark-remarks.md](docs/benchmark-remarks.md) | per-benchmark tasks we suggest excluding, with the measured evidence |
 | [docs/opencode-prune.md](docs/opencode-prune.md) | what `--prune opencode` drops from a clone, and why it's patch-safe |
 

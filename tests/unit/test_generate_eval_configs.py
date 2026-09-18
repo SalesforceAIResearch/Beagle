@@ -11,10 +11,19 @@ from pathlib import Path
 import pytest
 import yaml
 
-_PATH = Path(__file__).resolve().parents[2] / "scripts" / "generate_eval_configs.py"
-_spec = importlib.util.spec_from_file_location("generate_eval_configs", _PATH)
-gen = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(gen)  # type: ignore[union-attr]
+def _load(stem: str):
+    path = Path(__file__).resolve().parents[2] / "scripts" / f"{stem}.py"
+    spec = importlib.util.spec_from_file_location(stem, path)
+    assert spec and spec.loader, f"cannot load {path}"
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+gen = _load("generate_eval_configs")
+#: The *evolution* configs are written by a second generator with its own filename suffix. Docs
+#: quote both families, so the path check below has to know both — see that test.
+evo = _load("generate_evolution_config")
 
 #: The join key is ``version``, so tests take it FROM the matrix rather than restating it — a
 #: literal here goes stale the moment an agent is re-onboarded at a new version.
@@ -77,7 +86,9 @@ def test_internal_profile_uses_gateway_cluster_and_includes_monet() -> None:
     cfg = gen.build_config("monet", "terminal_bench_2_1", _MANIFEST, internal=True)
 
     assert cfg["run"]["runtime"] == "xrlenv-cluster"
-    assert cfg["run"]["parallelism"] == 32
+    # Lowered 32 -> 16: at 32 an afcode sweep saturated the provider's org-wide TPM
+    # budget, and 77 of 89 trials logged rate limits.
+    assert cfg["run"]["parallelism"] == 16
     assert cfg["agent"]["provider"] == {
         "type": "internal", "name": "llm-gateway-express-local-proxy"}
     assert cfg["agent"]["forward_env"] == gen._INTERNAL_FORWARD_ENV
@@ -474,12 +485,18 @@ def _tracked_docs() -> list[Path]:
 
 def test_documented_config_paths_are_ones_the_generator_writes() -> None:
     """Docs quote generated config paths, which carry the version — so they go stale exactly when
-    an agent is re-onboarded. Fail here rather than in a user's terminal."""
+    an agent is re-onboarded. Fail here rather than in a user's terminal.
+
+    Two generators write into these trees, and the check must know both suffixes: quoting a valid
+    ``generate_evolution_config.py`` path used to fail here as "no longer written", because the
+    valid set was built from the eval generator alone."""
     import re
 
     labels = {label for _n, _v, label in gen.agent_cells()}
-    # both trees: examples/evaluation/<bench>/<label>.yaml and tests/smoke/<bench>/<label>_<variant>.yaml
-    valid = set(labels) | {f"{lb}_{v}" for lb in labels for v in gen.SMOKE_VARIANTS}
+    # three families: examples/evaluation/<bench>/<label>.yaml, and under tests/smoke/<bench>/ both
+    # <label>_<variant>.yaml (eval generator) and <label>_<SUFFIX>.yaml (evolution generator).
+    suffixes = set(gen.SMOKE_VARIANTS) | {evo.SUFFIX}
+    valid = set(labels) | {f"{lb}_{s}" for lb in labels for s in suffixes}
     pattern = re.compile(r"(?:examples/evaluation|tests/smoke)/([\w.-]+)/([\w.-]+)\.yaml")
     checked = 0
     for path in _tracked_docs():

@@ -47,12 +47,19 @@ def test_resolve_sha_dereferences_annotated_tag(monkeypatch) -> None:
     assert onboard.resolve_sha("https://github.com/o/r", "v1", "TOK") == "b" * 40
 
 
-def test_authed_url_injects_token_for_https_only() -> None:
+def test_authed_url_injects_token_for_github_https_only() -> None:
     assert onboard.authed_url("https://github.com/o/r.git", "TOK") == (
         "https://x-access-token:TOK@github.com/o/r.git"
     )
-    # ssh + tokenless pass through unchanged.
+    # SSH, non-GitHub hosts, and tokenless URLs pass through unchanged. In particular, never hand
+    # a GitHub PAT to a self-hosted upstream: it cannot authenticate there and the token should
+    # not leave github.com. Such a host authenticates by its own means (an SSH key, typically).
+    # The example host is deliberately a documentation domain — a real internal hostname in a
+    # test is itself a disclosure, and this file ships.
     assert onboard.authed_url("git@github.com:o/r.git", "TOK") == "git@github.com:o/r.git"
+    assert onboard.authed_url("https://git.example.com/o/r.git", "TOK") == (
+        "https://git.example.com/o/r.git"
+    )
     assert onboard.authed_url("https://github.com/o/r.git", "") == "https://github.com/o/r.git"
 
 
@@ -73,6 +80,19 @@ def test_is_full_sha() -> None:
 def test_derive_name() -> None:
     assert onboard.derive_name("example-org/some_agent-beagle") == "some_agent-beagle"
     assert onboard.derive_name("org/name/") == "name"
+
+
+def test_remote_is_empty_checks_all_refs(monkeypatch) -> None:
+    calls = []
+
+    def fake_run(argv, *, token=None, capture=False):
+        calls.append((argv, token, capture))
+        return "" if "empty" in argv[-1] else "deadbeef\trefs/heads/baseline\n"
+
+    monkeypatch.setattr(onboard, "_run", fake_run)
+    assert onboard.remote_is_empty("https://github.com/o/empty.git", "TOK")
+    assert not onboard.remote_is_empty("https://github.com/o/seeded.git", "TOK")
+    assert calls[0] == (["git", "ls-remote", "https://github.com/o/empty.git"], "TOK", True)
 
 
 def test_agent_source_config_is_pointer_only() -> None:

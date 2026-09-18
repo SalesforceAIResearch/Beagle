@@ -38,6 +38,15 @@ def overview_page() -> None:
     all_runs = sorted(s["runname"] for s in summaries)
     f_run = fc[3].multiselect("Run", all_runs)   # empty = all runs; select to narrow (keeps the UI clean)
 
+    # Opt-in: solved-only latency/cost are ADDITIONAL columns, never a replacement for the
+    # all-task ones — the two answer different questions and the table should be able to show
+    # both side by side. Off by default so the default view stays narrow.
+    show_solved = st.checkbox(
+        "Also show latency & cost per SOLVED task",
+        value=False,
+        help="Adds two columns whose medians are taken over resolved trials only. The existing "
+             "Latency/task and Cost/task stay as they are (median over all attempted tasks).")
+
     body = st.container()   # reserve the table's slot HERE (above pricing); filled after prices resolve
 
     with st.expander("💲 Pricing · $/1M tokens (edit to reprice)"):   # renders below the table
@@ -68,13 +77,31 @@ def overview_page() -> None:
                               f"({100*df['Cached tokens'].sum()/max(1, df['Total tokens'].sum()):.0f}%)")
         m[3].metric("Est. cost", f"${df['Cost (est. $)'].sum():,.2f}")
 
-        disp = df.drop(columns=["In progress"]).copy()
+        solved_cols = ["[solved]Latency/task (s)", "[solved]Cost/task ($)"]
+        drop = ["In progress"] + ([] if show_solved else solved_cols)
+        # errors="ignore": streamlit hot-reloads THIS file but keeps an already-imported
+        # results_data, so an editing session can pair a new drop-list with an old row builder.
+        # A missing column should cost the two columns, not take down the whole page.
+        disp = df.drop(columns=drop, errors="ignore").copy()
+        if show_solved and not any(c in df.columns for c in solved_cols):
+            # errors="ignore" above keeps the page alive, but silence is its own bug: the
+            # checkbox would simply do nothing. Say WHY. Streamlit re-executes this file on
+            # change yet keeps already-imported modules, so a session started before these
+            # columns existed serves rows without them until it is restarted.
+            st.warning(
+                "The per-solved-task columns aren't in this session's data. Streamlit reloads "
+                "this page but not already-imported modules — **restart streamlit** "
+                "(Ctrl-C and re-run) to pick them up.")
         disp["Score"] = (disp["Score"] * 100).round(1)                 # → percent
         disp["Total tokens"] = (disp["Total tokens"] / 1e6).round(2)   # → millions
         disp["Cached tokens"] = (disp["Cached tokens"] / 1e6).round(2)
         st.dataframe(
             disp, hide_index=True, width="stretch",
             column_config={
+                "Version": st.column_config.TextColumn(
+                    "Version",
+                    help="the onboarded harness version; a short commit ref when the run used a "
+                         "ref we never onboarded under a version name (e.g. an evolved candidate)"),
                 "Score": st.column_config.NumberColumn("Score", format="%.1f%%", help="resolved / tasks"),
                 "Total tokens": st.column_config.NumberColumn("Total (M)", format="%.2f"),
                 "Cached tokens": st.column_config.NumberColumn("Cached (M)", format="%.2f"),
@@ -85,10 +112,25 @@ def overview_page() -> None:
                     help="median agent-execution time per task (excludes setup + verifier)"),
                 "Cost/task ($)": st.column_config.NumberColumn(
                     "Cost/task ($)", format="%.2f", help="median est. cost per task (at the prices below)"),
+                # Label == key, so what the table shows is what the row actually holds.
+                "[solved]Latency/task (s)": st.column_config.NumberColumn(
+                    "[solved]Latency/task (s)", format="%.0f",
+                    help="median agent-execution time over RESOLVED trials only"),
+                "[solved]Cost/task ($)": st.column_config.NumberColumn(
+                    "[solved]Cost/task ($)", format="%.2f",
+                    help="median est. cost over RESOLVED trials only (at the prices below)"),
             })
-        st.caption(
-            "- **Latency/task** and **Cost/task** are medians across the benchmark's tasks.\n"
-            "- Cost = (prompt−cached)·input-price + cached·cached-price + completion·output-price, at the prices below.")
+        caption = [
+            "- **Latency/task** and **Cost/task** are medians across the benchmark's tasks.",
+            ("- Cost = (prompt−cached)·input-price + cached·cached-price + "
+             "completion·output-price, at the prices below."),
+        ]
+        if show_solved:
+            caption.append(
+                "- **[solved]** columns are the same medians over RESOLVED "
+                "trials only — what it costs to actually solve a task, rather than to attempt "
+                "one. They are blank where a benchmark solved nothing.")
+        st.caption("\n".join(caption))
         if df["In progress"].any():
             st.info("▶ " + ", ".join(df[df["In progress"]]["Run"].unique()) + " — in progress (no run.json yet)")
 
