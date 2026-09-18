@@ -78,6 +78,11 @@ write harness-specific code. Closed-source CLI you can't evolve:
 `class MyAgent(Agent, Editor)`. Start from `beagle/agents/core/_template.py`.
 Benchmarks and algorithms onboard the same way — one file, `@register`, done.
 
+The sketch above is the shape; a real adapter also has to split `install`/`run_in`
+for network-phased harnesses, resolve timeouts from the benchmark, normalize token
+usage, and emit ATIF. See **[Onboarding an agent harness](onboarding-an-agent.md)**
+for the full runbook, contracts, and checklist.
+
 ## Onboard your own benchmark
 
 A benchmark is three pluggables behind the `Benchmark` ABC, each independently

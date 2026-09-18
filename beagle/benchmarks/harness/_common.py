@@ -50,6 +50,38 @@ if ! command -v git >/dev/null 2>&1; then
       apk add --no-cache git ca-certificates && break
     elif command -v apt-get >/dev/null 2>&1; then
       apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates && break
+      # RETIRED-SUITE FALLBACK. A Debian suite past EOL can keep serving an index whose pool has
+      # already been emptied: bullseye-security was purged on 2026-09-12 yet still advertises
+      # deb11u5, and has not landed on archive.debian.org — so every .deb 404s and the retry loop
+      # above just repeats the identical failure. Observed on terminal-bench's two bullseye task
+      # images (qemu-alpine-ssh, qemu-startup); the same sweep's bookworm and Ubuntu images are
+      # unaffected, which is why this runs ONLY after the normal path has already failed.
+      #
+      # Install from `main` instead, which is still served. The images pre-install perl-base from
+      # *security* (deb11u4) while main carries deb11u3, so apt refuses the implied downgrade —
+      # hence --allow-downgrades plus an explicit target. The target is READ FROM THE CONTAINER at
+      # run time rather than hardcoded: these images ship deb11u4 where a bare bullseye-slim ships
+      # deb11u5, so a pinned constant would be wrong somewhere.
+      #
+      # Everything is written to temp files and apt is pointed at them with -o overrides, so the
+      # container's own /etc/apt is left untouched — an agent that shells out to apt later still
+      # sees its image's real sources.
+      #
+      # DROP THIS once Debian publishes bullseye-security to archive.debian.org (or the affected
+      # images are rebuilt): the block is inert whenever the normal apt path succeeds.
+      codename=$(. /etc/os-release 2>/dev/null; echo "${VERSION_CODENAME:-}")
+      if [ -n "$codename" ]; then
+        echo "[git-bootstrap] apt failed; retrying against the ${codename} main archive" >&2
+        _list=$(mktemp); _lists=$(mktemp -d)
+        printf 'deb http://deb.debian.org/debian %s main\n' "$codename" > "$_list"
+        _apt="-o Dir::Etc::SourceList=$_list -o Dir::Etc::SourceParts=/dev/null -o Dir::State::Lists=$_lists"
+        if apt-get $_apt update -qq; then
+          _pin=$(apt-cache $_apt madison perl-base 2>/dev/null \
+                 | awk -v c="$codename" '$0 ~ ("debian " c "/main") {print $3; exit}')
+          apt-get $_apt install -y --no-install-recommends --allow-downgrades \
+            git ca-certificates ${_pin:+perl-base=$_pin} && break
+        fi
+      fi
     elif command -v microdnf >/dev/null 2>&1; then
       microdnf install -y git ca-certificates && break
     elif command -v dnf >/dev/null 2>&1; then

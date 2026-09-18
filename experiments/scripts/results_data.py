@@ -17,14 +17,17 @@ import importlib
 import json
 import statistics
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
+
+import yaml
 from typing import Any, Callable
 
 RESULTS_DIR = Path(__file__).resolve().parents[1] / "results"
 _SKIP_DIRS = {"archive-to-delete"}
 _TOKEN_KEYS = ("prompt", "completion", "input_uncached", "cache_read", "cache_write", "total")
 #: Bump when summary.json's shape changes so stale caches auto-rebuild (see load_summaries).
-_SCHEMA = 2
+_SCHEMA = 4   # bumped: `version` is now <version>_<ref6> (cached ones rebuild)
 
 # $/1M tokens: fresh input / cached-read input / output. ESTIMATES — internal gateway models have no
 # public price; edit here or override live in the app's sidebar. "*" is the fallback.
@@ -132,12 +135,76 @@ def classify_error(err: str | None, resolved: bool) -> str:
 
 
 # ── per-run summary build ────────────────────────────────────────────────────────────────────────
-def _cfg_meta(cfg: dict[str, Any]) -> tuple[str, str, str]:
+#: ``.beagle/agents/<profile>.json`` — onboard files the version it pinned alongside the ref it
+#: seeded. That mapping is the only place a run's *human* version name survives: run.json records
+#: ``agent.source.ref`` (a SHA) and no version, because RunConfig flattens the canonical
+#: ``harness.version`` away. Built once, tolerant of a missing/partial directory.
+_MANIFEST_DIR = Path(__file__).resolve().parents[2] / ".beagle" / "agents"
+
+
+@lru_cache(maxsize=1)
+def _versions_by_ref() -> dict[str, str]:
+    out: dict[str, str] = {}
+    for f in sorted(_MANIFEST_DIR.glob("*.json")) if _MANIFEST_DIR.is_dir() else []:
+        try:
+            m = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        ref, ver = str(m.get("ref") or ""), str(m.get("version") or "")
+        if ref and ver:
+            out[ref] = ver
+    return out
+
+
+def _version_from_config(config_path: str | None) -> str:
+    """``agent.harness.version`` from the canonical config the run was launched with.
+
+    The most authoritative source: it is what the run DECLARED, e.g. ``20260826``. ``run.json``
+    keeps the path but not the value, because RunConfig flattens ``harness`` away. ``""`` when
+    the path is missing, moved, or unreadable — configs get reorganised, so this must not raise.
+    """
+    if not config_path:
+        return ""
+    try:
+        doc = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return ""
+    harness = ((doc.get("agent") or {}).get("harness") or {})
+    return str(harness.get("version") or "")
+
+
+def harness_version(agent: dict[str, Any], config_path: str | None = None) -> str:
+    """``<version>_<ref6>`` for a run — the declared version AND the exact code behind it.
+
+    Both halves earn their place. The version alone can't tell two runs apart once evolution
+    starts, since every candidate shares the baseline's version; the ref alone is unreadable and
+    loses the name the harness was onboarded under. Together they stay meaningful in both modes:
+    ``20260826_53a76a`` for a baseline, and the same version with a different suffix for each
+    candidate branch derived from it.
+
+    Version resolution, best first:
+
+    1. ``agent.harness.version`` in the canonical config the run recorded — what it declared.
+    2. The onboarding manifest, keyed by ref, when that config has moved or been deleted.
+    3. Neither: fall back to the bare short ref. Deliberately NOT parsed out of the run
+       directory name, which only carries a version for generator-produced runs and would need
+       every benchmark tag to split correctly — brittle, and wrong silently.
+    """
+    ref = str(((agent.get("source") or {}).get("ref")) or "")
+    version = _version_from_config(config_path) or _versions_by_ref().get(ref, "")
+    if version and ref:
+        return f"{version}_{ref[:6]}"
+    if version:
+        return version
+    return ref[:12] if ref else "?"
+
+
+def _cfg_meta(cfg: dict[str, Any], config_path: str | None = None) -> tuple[str, str, str, str]:
     agent = cfg.get("agent") or {}
     harness = agent.get("name") or "?"
     model = (cfg.get("model") or {}).get("name") or (agent.get("model") or {}).get("name") or "?"
     effort = (agent.get("config") or {}).get("effort") or "—"
-    return harness, model, effort
+    return harness, harness_version(agent, config_path), model, effort
 
 
 def _config_from_disk(run_dir: Path) -> dict[str, Any]:
@@ -196,7 +263,7 @@ def build_run_summary(run_dir: Path) -> dict[str, Any]:
     rj = run_dir / "run.json"
     run = json.loads(rj.read_text()) if rj.exists() else {}
     cfg = run.get("config") or _config_from_disk(run_dir)
-    harness, model, effort = _cfg_meta(cfg)
+    harness, version, model, effort = _cfg_meta(cfg, run.get("config_path"))
 
     bench_meta = run.get("benchmarks") or {}
     bench_names = list(bench_meta) or [b.name for b in run_dir.iterdir()
@@ -227,7 +294,8 @@ def build_run_summary(run_dir: Path) -> dict[str, Any]:
 
     summary = {
         "_schema": _SCHEMA,
-        "runname": run_dir.name, "harness": harness, "model": model, "effort": effort,
+        "runname": run_dir.name, "harness": harness, "version": version,
+        "model": model, "effort": effort,
         "benchmarks": benchmarks,
         "totals": {"tokens": grand,
                    "num_tasks": sum(b["num_tasks"] for b in benchmarks.values()),
@@ -290,8 +358,20 @@ def overview_rows(summaries: list[dict[str, Any]], prices: dict[str, dict[str, f
             trial_costs = [cost_of(t["tokens"], model, prices)
                            for t in b.get("trials", []) if t["tokens"].get("total")]
             median_cost = statistics.median(trial_costs) if trial_costs else None
+            # SOLVED-ONLY variants, reported as SEPARATE columns rather than folded into the two
+            # above. The all-task medians answer "what does attempting a task cost"; these answer
+            # "what does solving one cost" — a failed trial can be cheap (died early) or expensive
+            # (burned its whole budget getting nowhere), so mixing the two populations hides
+            # exactly the comparison worth making between harnesses.
+            solved = [t for t in b.get("trials", []) if t.get("resolved")]
+            solved_lats = [t["agent_seconds"] for t in solved if t.get("agent_seconds") is not None]
+            solved_costs = [cost_of(t["tokens"], model, prices)
+                            for t in solved if t["tokens"].get("total")]
             rows.append({
-                "Benchmark": bname, "Harness": s["harness"], "Model": model, "Effort": s["effort"],
+                "Benchmark": bname, "Harness": s["harness"],
+                # Right after Harness: which build of it produced these numbers.
+                "Version": s.get("version") or "?",
+                "Model": model, "Effort": s["effort"],
                 "Resolved": b["num_resolved"], "Tasks": b["num_tasks"],
                 "Score": round(b["score"], 4),
                 "Total tokens": tok["total"], "Cached tokens": tok["cache_read"],
@@ -301,6 +381,11 @@ def overview_rows(summaries: list[dict[str, Any]], prices: dict[str, dict[str, f
                 "Latency/task (s)": (round(b["median_latency_sec"]) if b.get("median_latency_sec")
                                      is not None else None),
                 "Cost/task ($)": (round(median_cost, 2) if median_cost is not None else None),
+                # Hidden in the UI unless the viewer opts in; always computed (it is cheap).
+                "[solved]Latency/task (s)": (round(statistics.median(solved_lats))
+                                            if solved_lats else None),
+                "[solved]Cost/task ($)": (round(statistics.median(solved_costs), 2)
+                                         if solved_costs else None),
                 "Run": s["runname"], "In progress": s.get("in_progress", False),
             })
     return rows

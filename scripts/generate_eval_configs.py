@@ -80,7 +80,7 @@ INTERNAL_DEFAULTS = {
     "provider": {"type": "internal", "name": "llm-gateway-express-local-proxy"},
     "forward_env": _INTERNAL_FORWARD_ENV,
     "runtime": "xrlenv-cluster",
-    "parallelism": 32,
+    "parallelism": 16,
 }
 
 #: Each agent, keyed by its beagle `harness.name` (the ADAPTER). ``versions`` lists the experiment
@@ -96,6 +96,20 @@ AGENTS = {
         extra_args={"monet_args": [
             "--permissive-auto-approve", "--no-monet-md", "--output-format", "stream-json"]},
         note="monet_args: last two are REQUIRED by beagle's stream parser.",
+    ),
+    "afcode": dict(
+        # Latest only. **2.3.0 is an effective floor**: earlier afcode routes gpt-5.6+ to
+        # /chat/completions, where the gateway's bedrock replica rejects function tools
+        # alongside reasoning_effort — measured at ~1 call in 10, which a multi-turn rollout
+        # hits almost every time. 2.3.0+ routes gpt-5.6+ to /responses instead. Onboarding an
+        # older copy would silently confine you to gpt-5.5.
+        versions=["v2.3.0_0904"],
+        internal=True,
+        # No adapter-level args: the wheelhouse path defaults to the vendored location inside
+        # the experiment copy, and afcode exposes no turn cap or output-format flag to pin.
+        extra_args={},
+        note="installs the CLONED ref (theta) against the offline wheelhouse vendored in the "
+             "experiment copy; needs a gateway/internal provider route.",
     ),
     "mini-swe": dict(
         versions=["v2.4.6"],

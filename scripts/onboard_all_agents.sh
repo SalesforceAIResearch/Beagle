@@ -22,14 +22,14 @@ fi
 
 # mini-swe — SWE-agent/mini-swe-agent @ v2.4.6
 "$python_bin" -m beagle.tools.onboard \
-    --upstream https://github.com/SWE-agent/mini-swe-agent --ref a83fcae82d2a08f0ee0c688f9d137b3566c097f8 \
-    --repo "$YOUR_ORG/mini_swe_agent_v2.4.6" --private --version v2.4.6 --branch-name baseline \
-    --dir ../beagle-experiments/mini_swe_agent_v2.4.6 --profile-name mini_swe_agent_v2.4.6
+   --upstream https://github.com/SWE-agent/mini-swe-agent --ref a83fcae82d2a08f0ee0c688f9d137b3566c097f8 \
+   --repo "$YOUR_ORG/mini_swe_agent_v2.4.6" --private --version v2.4.6 --branch-name baseline \
+   --dir ../beagle-experiments/mini_swe_agent_v2.4.6 --profile-name mini_swe_agent_v2.4.6
 # opencode — anomalyco/opencode @ v1.18.16 (release tag). --prune opencode drops the web/desktop/
 # marketing apps + demo assets from the seed so every per-container clone is ~12 MB, not ~79 MB
 # (patch-safe — see docs/opencode-prune.md).
 "$python_bin" -m beagle.tools.onboard \
-    --upstream https://github.com/anomalyco/opencode --ref a3647eb025c7615159d417dcc49fc39fdaeba65b \
-    --repo "$YOUR_ORG/opencode_v1.18.16" --private --version 1.18.16 --branch-name baseline \
-    --prune opencode \
-    --dir ../beagle-experiments/opencode_v1.18.16 --profile-name opencode_v1.18.16
+   --upstream https://github.com/anomalyco/opencode --ref a3647eb025c7615159d417dcc49fc39fdaeba65b \
+   --repo "$YOUR_ORG/opencode_v1.18.16" --private --version 1.18.16 --branch-name baseline \
+   --prune opencode \
+   --dir ../beagle-experiments/opencode_v1.18.16 --profile-name opencode_v1.18.16

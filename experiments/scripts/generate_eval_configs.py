@@ -146,9 +146,6 @@ def build_config(agent: str, bench: str, manifest: dict, args: argparse.Namespac
         "model": {"name": args.model},
         "effort": args.effort,
         "max_turns": args.max_turns,
-        "forward_env": list(args.forward_env),
-        "timeout": args.timeout,
-        "extra_args": a["extra_args"],
     }
     if args.provider:
         if not isinstance(args.provider, dict):
@@ -156,6 +153,11 @@ def build_config(agent: str, bench: str, manifest: dict, args: argparse.Namespac
         agent_config["provider"] = gen.provider_dict(
             gen.provider_config({"provider": args.provider})
         )
+    agent_config.update({
+        "forward_env": list(args.forward_env),
+        "timeout": args.timeout,
+        "extra_args": a["extra_args"],
+    })
     return {
         "run": {
             "dir": str(args.results),

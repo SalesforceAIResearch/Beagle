@@ -23,6 +23,33 @@ EXAMPLES = sorted((ROOT / "examples" / "evaluation").glob("*.yaml"))
 EVOLUTION_EXAMPLES = sorted((ROOT / "examples" / "evolution").glob("config*.yaml"))
 
 
+# --- ``.oss.`` counterparts ------------------------------------------------------------------
+# A few examples ship twice: the plain file, and a ``.oss.`` counterpart carrying the variant the
+# public mirror publishes. The mirror is built by promoting each counterpart ONTO the plain name
+# (``config.oss.yaml`` -> ``config.yaml``), so the same content lives under a different name in each
+# tree, and only one of the pair survives there. Tests that name these files by hand therefore pass
+# here and fail in the mirror against a file the port renamed on purpose. Resolve through the two
+# helpers below instead of hardcoding a name.
+
+
+def _oss_or_promoted(relative: str) -> Path:
+    """The ``.oss.`` counterpart, under whichever name this tree carries it."""
+    path = ROOT / relative
+    if path.exists():
+        return path
+    promoted = path.with_name(path.name.replace(".oss.", ".", 1))
+    assert promoted.exists(), f"neither {relative} nor its promoted name {promoted.name} exists"
+    return promoted
+
+
+def _present(*relatives: str) -> list[Path]:
+    """Those of ``relatives`` that exist here — a pair collapses to one file in the mirror."""
+    paths = [ROOT / relative for relative in relatives]
+    found = [path for path in paths if path.exists()]
+    assert found, f"none of {relatives} exist — did the examples layout change?"
+    return found
+
+
 def test_there_are_examples() -> None:
     assert EXAMPLES, "examples/evaluation/*.yaml is empty — the use-case examples are tracked"
 
@@ -41,7 +68,7 @@ def test_evolution_examples_load_through_the_evolve_seam() -> None:
 
 
 def test_oss_evolution_example_is_local_and_portable() -> None:
-    path = ROOT / "examples" / "evolution" / "config.oss.yaml"
+    path = _oss_or_promoted("examples/evolution/config.oss.yaml")
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert raw["run"]["runtime"] == "local"
     assert raw["run"]["parallelism"] == 1
@@ -53,14 +80,14 @@ def test_oss_evolution_example_is_local_and_portable() -> None:
 
 
 def test_evolution_docs_do_not_reference_the_removed_quick_start_path() -> None:
-    paths = [
-        ROOT / "README.md",
-        ROOT / "docs" / "advanced.md",
-        ROOT / "examples" / "evolution" / "README.md",
-        ROOT / "examples" / "evolution" / "README.oss.md",
-        ROOT / "examples" / "evolution" / "quick_start_inline.py",
-        ROOT / "examples" / "evolution" / "quick_start_inline.oss.py",
-    ]
+    paths = _present(
+        "README.md",
+        "docs/advanced.md",
+        "examples/evolution/README.md",
+        "examples/evolution/README.oss.md",
+        "examples/evolution/quick_start_inline.py",
+        "examples/evolution/quick_start_inline.oss.py",
+    )
     offenders = [
         str(path.relative_to(ROOT))
         for path in paths
@@ -113,13 +140,13 @@ def test_darwinx_guidance_relative_links_resolve() -> None:
     """The quick-start and concept guide should not ship links to renamed/missing files."""
     import re
 
-    paths = [
-        ROOT / "docs" / "darwinx-configuration.md",
-        ROOT / "examples" / "evolution" / "README.md",
-        ROOT / "examples" / "evolution" / "README.oss.md",
-        ROOT / "beagle" / "algorithms" / "darwinx" / "vendor" / "README.md",
-        ROOT / "scripts" / "README.md",
-    ]
+    paths = _present(
+        "docs/darwinx-configuration.md",
+        "examples/evolution/README.md",
+        "examples/evolution/README.oss.md",
+        "beagle/algorithms/darwinx/vendor/README.md",
+        "scripts/README.md",
+    )
     broken = []
     for path in paths:
         for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", path.read_text(encoding="utf-8")):

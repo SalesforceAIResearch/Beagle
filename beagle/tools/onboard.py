@@ -71,13 +71,14 @@ def is_full_sha(ref: str) -> bool:
 
 
 def authed_url(url: str, token: str) -> str:
-    """Inject a token into an HTTPS GitHub URL for a single command's auth.
+    """Inject a token into an HTTPS github.com URL for a single command's auth.
 
-    Returns the URL unchanged for non-HTTPS (ssh) URLs or when no token is given —
-    those authenticate by other means (ssh keys). The result is passed as a command
-    argument only, never stored in a remote.
+    Returns the URL unchanged for other hosts, non-HTTPS (ssh) URLs, or when no token
+    is given — those authenticate by other means. Restricting injection to github.com
+    also prevents accidentally presenting a GitHub PAT to an HTTPS upstream on another
+    host. The result is passed as a command argument only, never stored in a remote.
     """
-    if token and url.startswith("https://"):
+    if token and re.match(r"https://github\.com(?:/|\Z)", url, flags=re.IGNORECASE):
         return url.replace("https://", f"https://x-access-token:{token}@", 1)
     return url
 
@@ -218,6 +219,11 @@ def repo_exists(repo: str) -> bool:
 
 def create_repo(repo: str, visibility: str) -> None:
     _run(["gh", "repo", "create", repo, f"--{visibility}"])
+
+
+def remote_is_empty(remote_auth: str, token: str) -> bool:
+    """Whether an accessible git remote has no refs (for recovery after create-before-seed failure)."""
+    return not _run(["git", "ls-remote", remote_auth], token=token, capture=True).strip()
 
 
 #: Default branch the single baseline commit lands on. Unified across agents — the ``--repo`` name
@@ -425,7 +431,15 @@ def main(argv: list[str] | None = None) -> int:
 
     # The copy's baseline SHA — a fresh orphan of the upstream tree (small seed), so it differs from
     # ``upstream_sha`` and is what the manifest/runtime pin. Recovered from the copy when we skip seeding.
-    if created or args.reseed:
+    # Creation and seeding are separate network operations. If creation succeeded on a prior run but
+    # the upstream fetch failed, the copy exists but has no refs. Treat that state exactly like a new
+    # repo so rerunning the same command repairs it; this is safe and does not require destructive
+    # --reseed. A non-empty copy still follows the normal skip/reseed rules below.
+    empty_copy = not created and remote_is_empty(github_auth, token)
+    if empty_copy:
+        print(f"[onboard] github repo {args.repo} is empty — resuming interrupted seed")
+
+    if created or empty_copy or args.reseed:
         if args.reseed and not created:
             print("[onboard] --reseed: re-seeding from upstream (OVERWRITES any candidate branches)")
         prune = PRUNE_PROFILES[args.prune] if args.prune else None

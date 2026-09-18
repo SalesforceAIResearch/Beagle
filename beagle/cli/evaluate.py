@@ -42,6 +42,14 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
                         resume=args.resume, retry_errors=args.retry_errors,
                         retry_unresolved=args.retry_unresolved, only_task_ids=only_task_ids)
 
+    # Before ANY container is acquired: is the LLM endpoint actually there? An unreachable
+    # gateway does not fail a run loudly — every trial installs, runs, exhausts its retries and
+    # records a clean "completed" with zero tokens, so a whole sweep scores 0.000 and looks like
+    # a capability result. One TCP connect turns that into an immediate, explained error.
+    from beagle.cli._preflight import require_gateway_reachable
+
+    require_gateway_reachable(run_cfg)
+
     from beagle.rollout.interrupt import stop_run_on_sigint
     from beagle.rollout.run_id import build_run_id, compute_config_hash
     from beagle.rollout.runtime import RuntimeConfig as RtCfg
@@ -200,6 +208,22 @@ def _dry_run(cfg, spec, items, *, run_dir: Path, resume: bool = False,
         gw = gateway_litellm_kwargs()
         endpoint = gw["api_base"] if gw else "⚠ deployment gateway URL is not set"
         print(f"  provider    : internal {route.name}   ({endpoint})")
+    # Reachability, not just resolution: a resolved-but-dead endpoint is what turns a sweep into
+    # all-zeros. Reported here and ENFORCED on the live path (see require_gateway_reachable).
+    from beagle.cli._preflight import check_gateway, gateway_mismatch_hint
+
+    checked = check_gateway(cfg)
+    if checked is not None:
+        url, source, failure = checked
+        if failure is None:
+            print(f"  gateway     : ✓ reachable ({url})")
+        else:
+            print(f"  gateway     : ⚠ UNREACHABLE — {failure}")
+            print(f"                  endpoint {url}, from {source}")
+            hint = gateway_mismatch_hint(url, source)
+            if hint:
+                print("  " + hint.strip().replace("\n  ", "\n                  "))
+            print("                  a live run would refuse to start (every trial would score 0)")
     print(f"  agent       : {spec.name} @ {src.repo}@{src.ref}" if src
           else f"  agent       : {spec.name}   ⚠ NO SOURCE resolved")
     print(f"  benchmark   : {cfg.benchmark.name}")

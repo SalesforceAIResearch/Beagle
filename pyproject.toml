@@ -1,6 +1,6 @@
 [project]
 name = "beagle"
-version = "0.0.1"
+version = "0.0.2"
 description = "A PyTorch-like framework for agent-harness evolution: agent factory + evolve algorithms + unified runner over vendored xrlenv rollout infra."
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }

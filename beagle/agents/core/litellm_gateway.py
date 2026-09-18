@@ -61,6 +61,11 @@ def provider_api_host(model: str) -> str | None:
     return None
 
 
+#: Env var the deployment-internal route reads its endpoint from. Defined once here — the
+#: module that already owns this deployment's gateway knowledge — so nothing else re-declares it.
+LOCAL_PROXY_ENV = "LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL"
+
+
 def gateway_key_pool() -> list[str]:
     """The ordered, de-duped gateway API-key pool: the singular ``LLM_GATEWAY_EXPRESS_API_KEY``
     first (explicit), then the ``…_LIST`` entries; blanks (stray commas) skipped. Empty when no
@@ -90,7 +95,7 @@ def gateway_litellm_kwargs() -> dict[str, str] | None:
     inside the container, and the gateway's 200/401 split can differ per replica / per endpoint
     (``/v1/chat/completions`` vs ``/v1/responses``) and even host-vs-container. A key that flips to
     "blocked" mid-rollout is a key-pool concern, not something this selection can recover."""
-    url = (os.environ.get("LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL") or "").strip()
+    url = (os.environ.get(LOCAL_PROXY_ENV) or "").strip()
     if not url:
         return None
     pool = gateway_key_pool()
@@ -149,10 +154,10 @@ def resolve_gateway(cfg: Mapping[str, Any] | None) -> dict[str, Any] | None:
         if gateway is None:
             raise ValueError(
                 f"internal provider {route.name!r} requires "
-                "LLM_GATEWAY_EXPRESS_LOCAL_PROXY_URL to be set")
+                f"{LOCAL_PROXY_ENV} to be set")
         return gateway
     return None
 
 
-__all__ = ["config_gateway_kwargs", "gateway_block", "gateway_key_pool",
+__all__ = ["LOCAL_PROXY_ENV", "config_gateway_kwargs", "gateway_block", "gateway_key_pool",
            "gateway_litellm_kwargs", "provider_api_host", "resolve_gateway"]
