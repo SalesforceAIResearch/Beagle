@@ -174,3 +174,18 @@ def test_agent_lifecycle_propagates_cleanup_failure(monkeypatch, execution_fails
     if execution_fails:
         assert isinstance(failure.value.__context__, ValueError)
         assert str(failure.value.__context__) == "agent execution failed"
+
+
+def test_cleanup_error_is_importable_from_the_package() -> None:
+    """The contract tells callers not to suppress this error, so they must be able to NAME it.
+
+    It was exported from the implementation module but not re-exported from the package, unlike
+    every one of its siblings -- so the documented public import raised ImportError and a caller
+    wanting to catch it had to reach past the package into `beagle.rollout.runtime.runtime`.
+    """
+    import beagle.rollout.runtime as pkg
+    from beagle.rollout.runtime import ContainerCleanupError as FromPackage
+    from beagle.rollout.runtime.runtime import ContainerCleanupError as FromModule
+
+    assert FromPackage is FromModule
+    assert "ContainerCleanupError" in pkg.__all__
