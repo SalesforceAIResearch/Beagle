@@ -17,6 +17,7 @@ from __future__ import annotations
 from beagle.rollout.runtime.config import RuntimeConfig, build_runtime
 from beagle.rollout.runtime.protocol import ContainerRuntime, Handle
 from beagle.rollout.runtime.runtime import (
+    ContainerCleanupError,
     ContainerHandle,
     ContainerResources,
     ExecResult,
@@ -39,6 +40,8 @@ __all__ = [
     "LocalDockerRuntime",
     "XrlenvDockerRuntime",
     "acquire_labels",
+    # errors
+    "ContainerCleanupError",
     # data types
     "ContainerHandle",
     "ContainerResources",
