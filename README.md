@@ -47,6 +47,9 @@ More features will be added to `Beagle` in the future. The mission of `Beagle` i
 
 # 🔈 News
 
+- **2026-10-14** — `DarwinX` w/ Claude Opus 4.8 ranked **No. 1** on the [**OSWorld 2.0** leaderboard](https://osworld-v2.xlang.ai/) with **44.44%** binary accuracy (v2.1, 450 steps).
+<img src="docs/assets/OSWorld2_leaderboard.png" alt="OSWorld 2.0 leaderboard: DarwinX w/ Claude Opus 4.8 ranked No. 1" width="800">
+
 - **2026-09-02** — We open-sourced `Beagle`, the framework supporting the `DarwinX` project.
 - **2026-07-31** — We released the preprint **DarwinX: Evolving Agent Harnesses Through Natural Selection**.
   * [Preprint link](https://arxiv.org/html/2608.07545v1)  | [Project page](https://huggingface.co/spaces/CoderDoge/darwinx)
