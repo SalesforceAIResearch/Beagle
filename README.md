@@ -47,7 +47,7 @@ More features will be added to `Beagle` in the future. The mission of `Beagle` i
 
 # 🔈 News
 
-- **2026-10-14** — `DarwinX` w/ Claude Opus 4.8 ranked **No. 1** on the [**OSWorld 2.0** leaderboard](https://osworld-v2.xlang.ai/) with **44.44%** binary accuracy (v2.1, 450 steps).
+- **2026-10-14** — `DarwinX` (on the [StateAct](https://arxiv.org/abs/2607.22798) harness) w/ Claude Opus 4.8 ranked **No. 1** on the [**OSWorld 2.0** leaderboard](https://osworld-v2.xlang.ai/) with **44.44%** binary accuracy (v2.1, 450 steps).
 <img src="docs/assets/OSWorld2_leaderboard.png" alt="OSWorld 2.0 leaderboard: DarwinX w/ Claude Opus 4.8 ranked No. 1" width="800">
 
 - **2026-09-02** — We open-sourced `Beagle`, the framework supporting the `DarwinX` project.
@@ -60,6 +60,7 @@ More features will be added to `Beagle` in the future. The mission of `Beagle` i
 | `terminal-bench 2.1` (pass@5) | Fable 5 (xhigh): 83.8±1.2 | 75.5±3.5 |  83.2±1.2 | GPT-5.6 Sol (medium): 84.7±1.2 | +7.7 / +9.2 | benchmark-native test-time evolution |
 | `terminal-world` (pass@1) | Claude Code + Opus 4.8 (xhigh): 65.9 | 48.8 | 56.1 | Opus 4.8 (xhigh): 68.3 | +7.3 / +19.5 | evolves on 94 train-set; evaluate on 41 test-set |
 | `Webarena-Infinity` (pass@1) | BrowserUse + Gemini 3 Flash: 69.3 | 43.5 | 93.0 | - | +49.5 | Monet added the `browser_execute` action from  [BrowserCode](https://github.com/browser-use/browsercode)  |
+| `OSWorld 2.0` (binary acc.) | Claude Opus 5 (max): 44.33 | - | - | StateAct (w/ DarwinX) + Opus 4.8 (max, thinking disabled): 44.44 | - | No. 1 on the [leaderboard](https://osworld-v2.xlang.ai/) (v2.1, 450 steps); uses the [StateAct](https://arxiv.org/abs/2607.22798) harness instead of Monet |
 | `SWE-bench-verified` (pass@1) | Fable 5: 95.0 | 80.8 | 84.2 | - | +3.4 |  This evaluation used the evolved Monet on `terminal-bench 2.1` to show transferbility.  |
 
 
